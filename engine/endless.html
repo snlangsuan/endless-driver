@@ -1399,13 +1399,65 @@ function buildChunk(cx, cz) {
       const z = (k + 0.5) * UW, um = ((k % 9) + 9) % 9; if (townW(z) < 0.5 || um === 8 || nearRiv(z, 9)) continue;
       const a = atan2(roadX(z + 1) - roadX(z - 1), 2), blk = floor(k / 9);
       for (const side of [1, -1]) {
-        const nx = cos(a) * side, nz = -sin(a) * side, cx = roadX(z) + nx * (8 + DEP / 2), cz = z + nz * (8 + DEP / 2); if (!inside(cx, cz)) continue;
-        const hb = ph(blk, side + 7), st = hb < 0.2 ? 2 : hb < 0.85 ? 3 : 4, old = st === 2 && ph(blk, side + 11) < 0.7, balc = ph(blk, side + 13) < 0.55;
+        // Every town has its own character (tch: old market town ... newer concrete town), and every block of the street is drawn by lot:
+        // a row of shophouses of its own length and setback, or an open square with trees, a single large shop, a market, a temple, a filling station.
+        const seg = floor(z / SEG), tch = ph(seg, 300), bq = blk * 2 + (side > 0 ? 1 : 0), bt = ph(bq, 310 + seg), len = 4 + floor(ph(bq, 320 + seg) * 5), sb = 8 + floor(ph(bq, 330 + seg) * 3) * 1.3;
+        let kind = bt < 0.13 ? 1 : bt < 0.27 ? 2 : bt < 0.27 + (tch < 0.6 ? 0.13 : 0.04) ? 3 : bt > 0.94 ? 5 : 0;
+        if (((blk % 6) + 6) % 6 === floor(tch * 6) && (side > 0) === (ph(seg, 301) < 0.5)) kind = 4;
+        const nx = cos(a) * side, nz = -sin(a) * side, cx = roadX(z) + nx * (sb + DEP / 2), cz = z + nz * (sb + DEP / 2); if (!inside(cx, cz)) continue;
+        const hb = ph(blk, side + 7 + seg), stB = hb < (tch < 0.4 ? 0.62 : tch > 0.75 ? 0.08 : 0.2) ? 2 : hb < (tch > 0.75 ? 0.6 : 0.85) ? 3 : 4, old = stB === 2 && ph(blk, side + 11) < 0.7, balc = ph(blk, side + 13) < 0.55;
+        const uv_ = ph(k * 7 + 60, side + 40), st = old ? 2 : clamp(stB + (uv_ < 0.22 ? 1 : uv_ > 0.86 ? -1 : 0), 2, 5);          // units in a newer row are not all one height
         const Hh = 5 + (st - 1) * 3 + 0.3, yaw = atan2(-nx, -nz), y = roadY(z) - 0.3, sd = ph(k, side * 3 + 1), bs = ph(blk, side + 21), c = cos(yaw), sn = sin(yaw), F = DEP / 2;
         const put = (lx, ly, lz, sx, sy, sz, mat, seed = sd, tilt = 0, shape = 0) => boxes.push(cx + lx * c + lz * sn, y + ly, cz - lx * sn + lz * c, yaw, sx, sy, sz, tilt, mat, seed, sy, shape);
         const u = (i) => ph(k * 7 + i, side + 40);          // this unit's own random numbers
+        const Wd = (lx, lz) => [cx + lx * c + lz * sn, cz - lx * sn + lz * c], tree = (lx, lz, sc, h) => { const q = Wd(lx, lz); if (inside(q[0], q[1])) plant(TREES[BL[floor(h * 8)]], q[0], q[1], h * 6, sc); };
+        const fwd = sb + F;                                                                          // from this unit's middle out to the middle of the road
+        if (kind) {
+          if (um !== 3) continue; const X = 2 * side, s1 = ph(bq, 340 + seg), s2 = ph(bq, 350 + seg);       // X: the middle of the block along the street
+          if (kind === 1) {            // a small square: shade trees, benches, a pavilion, a low kerb round it
+            for (let i = 0; i < 5; i++) tree(X - 12 + i * 6 + (ph(bq, 360 + i) - 0.5) * 3, 2 - ph(bq, 370 + i) * 9, 0.7 + ph(bq, 380 + i) * 0.5, ph(bq, 390 + i));
+            for (const bx of [-8, 0, 8]) { put(X + bx, 0.72, 4.6, 1.7, 0.07, 0.45, 0); put(X + bx, 1.0, 4.36, 1.7, 0.4, 0.06, 0); put(X + bx - 0.7, 0.5, 4.6, 0.08, 0.4, 0.4, 2); put(X + bx + 0.7, 0.5, 4.6, 0.08, 0.4, 0.4, 2); }
+            put(X, 0.42, 5.7, 31, 0.25, 0.3, 2); { const q = Wd(X + 4, -4); stamp(SALA, q[0], y + 0.3, q[1], yaw, 0.7, s1); }
+          } else if (kind === 2) {     // one large shop set back behind its forecourt: glass front, a long sign, a pylon sign at the kerb
+            const Wb = 20 + floor(s1 * 3) * 3, Hb = s2 < 0.5 ? 4.6 : 8;
+            put(X, Hb / 2 + 0.3, -1.5, Wb, Hb, 9, 18, s1); put(X, 1.75, 3.03, Wb - 3, 2.7, 0.08, 17, s2); put(X, 3.75, 3.1, Wb - 1, 1.0, 0.16, 23, s2); put(X, 3.2, 4.0, Wb, 0.12, 2.0, 2);
+            if (Hb > 5) for (let i = 0; i < 5; i++) { const wx = X - Wb / 2 + (i + 0.5) * Wb / 5; put(wx, 6.2, 3.03, Wb / 5 - 1.2, 1.5, 0.08, 17, ph(bq, 400 + i)); put(wx, 7.1, 3.2, Wb / 5 - 0.9, 0.07, 0.45, 2); }
+            put(X + Wb / 2 - 3, Hb + 0.75, -3, 2.4, 0.9, 1.2, 22); put(X - Wb / 2 + 3, Hb + 0.75, -2, 2.4, 0.9, 1.2, 22);
+            { const q = Wd(X - Wb / 2 - 1.5, 5.4); far.push(q[0], y, q[1], 0.11, q[0], y + 6.2, q[1], 0.09, -1, 0); } put(X - Wb / 2 - 1.5, 6.0, 5.4, 1.9, 2.3, 0.28, 23, s1);
+            tree(X + Wb / 2 + 2.5, 3, 0.6, s2);
+          } else if (kind === 3) {     // the market: tin roofs on posts, tables of goods under them, stalls with umbrellas out at the kerb
+            for (const bx of [-10.5, 0, 10.5]) {
+              put(X + bx, 3.5, -0.5, 9.4, 0.08, 9.5, 1, ph(bq, 410 + bx), bx ? 0.1 : -0.1);
+              for (const px of [-4.3, 4.3]) for (const pz of [-4.8, 3.8]) put(X + bx + px, 1.7, pz, 0.12, 3.4, 0.12, 4);
+              for (let i = 0; i < 3; i++) { const tz = -3.4 + i * 3; put(X + bx, 0.95, tz, 6.6, 0.07, 1.1, 0, 0.7); for (let j = 0; j < 5; j++) put(X + bx - 2.6 + j * 1.3, 1.18, tz, 0.9, 0.36, 0.8, j % 2 ? 20 : 18, ph(bq * 5 + j, 420 + i + bx)); }
+            }
+            for (let i = 0; i < 5; i++) { const bx = X - 13 + i * 6.5 + ph(bq, 430 + i) * 2; put(bx, 0.85, 5.3, 1.5, 0.9, 0.8, 0, 0.3); put(bx, 1.5, 5.3, 0.05, 1.6, 0.05, 19); put(bx, 2.3, 5.3, 2.1, 0.06, 2.1, 29, ph(bq, 440 + i)); }
+          } else if (kind === 4) {     // the temple: a white wall and roofed gate, the hall with its stepped roofs and gilded finials, a white chedi
+            put(X - 9.5, 0.75, 5.5, 13, 1.3, 0.3, 19); put(X + 9.5, 0.75, 5.5, 13, 1.3, 0.3, 19);
+            for (const gx of [-2.6, 2.6]) put(X + gx, 1.6, 5.5, 0.7, 3.0, 0.7, 19); put(X, 3.5, 5.5, 7.4, 1.1, 1.8, 9, 0.05, 0, 1); put(X, 4.25, 5.5, 0.12, 0.7, 0.12, 15);
+            const hx = X - 6;
+            put(hx, 0.7, -2, 15.5, 1.2, 9.5, 19); put(hx, 4.0, -2, 12.5, 5.4, 6.6, 19);
+            for (let i = 0; i < 6; i++) { put(hx - 6 + i * 2.4, 3.7, 1.9, 0.5, 4.8, 0.5, 19); put(hx - 6 + i * 2.4, 3.7, -5.9, 0.5, 4.8, 0.5, 19); if (i < 5) put(hx - 4.8 + i * 2.4, 3.6, 1.32, 1.0, 2.6, 0.08, 14); }
+            put(hx, 7.9, -2, 15.2, 2.6, 9.4, 9, 0.05, 0, 1); put(hx, 9.7, -2, 11.0, 2.2, 6.6, 9, 0.05, 0, 1); put(hx, 11.2, -2, 7.0, 1.7, 4.2, 9, 0.05, 0, 1);
+            for (const ex of [-7.7, 7.7]) put(hx + ex, 9.3, -2, 0.14, 1.5, 0.14, 15, 0, ex > 0 ? 0 : 0); for (const ex of [-3.6, 3.6]) put(hx + ex, 12.3, -2, 0.12, 1.3, 0.12, 15);
+            { const q = Wd(X + 9, -2); far.push(q[0], y, q[1], 3.2, q[0], y + 1.4, q[1], 3.0, -1, 0, q[0], y + 1.4, q[1], 2.5, q[0], y + 4.6, q[1], 0.9, -1, 0, q[0], y + 4.6, q[1], 0.9, q[0], y + 5.6, q[1], 0.5, -1, 0, q[0], y + 5.6, q[1], 0.42, q[0], y + 10.5, q[1], 0.04, -1, 0); }
+            tree(X + 3, 0, 0.9, s1); tree(X + 14, 3, 0.8, s2); tree(X - 15, 3.5, 0.7, ph(bq, 450));
+          } else {                     // the filling station: a flat canopy on four columns over the pumps, the kiosk behind, a price board by the road
+            put(X, 5.4, 1.5, 17, 0.6, 9, 18, s1); put(X, 5.4, 6.02, 17, 0.6, 0.06, 23, s2);
+            for (const px of [-5.5, 5.5]) for (const pz of [-1.2, 4.2]) put(X + px, 2.7, pz, 0.4, 5.1, 0.4, 2);
+            for (const px of [-5.5, 0, 5.5]) { put(X + px, 0.42, 1.5, 1.3, 0.24, 3.6, 2); put(X + px, 1.2, 0.7, 0.6, 1.4, 0.5, 18, s2); put(X + px, 1.2, 2.3, 0.6, 1.4, 0.5, 18, s2); put(X + px, 1.6, 0.7, 0.42, 0.3, 0.52, 3); put(X + px, 1.6, 2.3, 0.42, 0.3, 0.52, 3); }
+            put(X, 2.0, -4.2, 13, 3.6, 4.5, 18, s2); put(X, 1.6, -1.93, 10, 2.3, 0.08, 17, s1); put(X, 3.35, -1.9, 12, 0.7, 0.14, 23, s1);
+            { const q = Wd(X - 12.5, 5.4); far.push(q[0], y, q[1], 0.13, q[0], y + 5, q[1], 0.11, -1, 0); } put(X - 12.5, 5.2, 5.4, 2.0, 3.0, 0.3, 23, s2);
+          }
+          continue;
+        }
+        if (um >= len) {               // the row stops short: the gap is a yard with a tree, or a food cart under an umbrella
+          if (um === len) { if (ph(bq, 460) < 0.6) tree(1, 1, 0.7 + ph(bq, 461) * 0.4, ph(bq, 462)); else { put(0, 0.85, 4.6, 1.6, 0.9, 0.8, 0, 0.3); put(0, 1.5, 4.6, 0.05, 1.6, 0.05, 19); put(0, 2.3, 4.6, 2.1, 0.06, 2.1, 29, ph(bq, 463)); } }
+          continue;
+        }
+        if (tch > 0.25 && (um === 1 || um === 5) && ph(k, side + 470) < 0.55) tree(0, fwd - 7.1, 0.5 + ph(k, side + 471) * 0.2, ph(k, side + 472));      // trees along the footpath
         put(0, Hh / 2, 0, UW + 0.02, Hh, DEP, 6);                                                  // the unit
-        put(-UW / 2, Hh / 2, F + 0.1, 0.3, Hh, 0.32, 18, bs); if (um === 7) put(UW / 2, Hh / 2, F + 0.1, 0.3, Hh, 0.32, 18, bs);   // party-wall piers
+        put(-UW / 2, Hh / 2, F + 0.1, 0.3, Hh, 0.32, 18, bs); if (um === 7 || um === len - 1) put(UW / 2, Hh / 2, F + 0.1, 0.3, Hh, 0.32, 18, bs);   // party-wall piers
         put(0, 3.2, F + 0.85, UW, 0.12, 1.7, 2); put(0, 3.05, F + 1.66, UW, 0.3, 0.08, 2);            // concrete canopy with a downstand
         if (u(1) < 0.4) put(0, 2.72, F + 2.2, UW * 0.92, 0.04, 1.3, 1, u(2), 0.3);                   // extra tin awning out over the footpath
         if (u(3) < 0.78) put(0, 4.05, F + 0.12, UW * 0.84, 1.05, 0.1, 23, u(4));                     // the shop's sign across the front
@@ -1781,8 +1833,10 @@ const todName = () => (tday < 0.22 || tday >= 0.79 ? 'กลางคืน' : t
 // --------------------------------------------------------------------------------------------------------- input, car, camera
 const keys = new Set();
 const auto = { on: false, limit: 80 };   // self-driving: keeps the left lane and holds the speed limit (km/h)
-const car = { x: roadX(1500) + 1.7, z: 1500, y: 0, yaw: 0, v: 0, pit: 0, ly: 0, lp: 0, bump: 0 };   // start at the edge of town, driving in
-car.yaw = atan2(roadX(1501) - roadX(1500), 1); car.y = ground(car.x, car.z);
+// The drive starts somewhere different each time: any stretch within about 40 km of the origin, in the left lane, facing along the road.
+const SPAWN = (floor(Math.random() * 68) - 34 + 0.15 + Math.random() * 0.7) * SEG, SP = rp(SPAWN, 1.7);
+const car = { x: SP[0], z: SP[1], y: 0, yaw: atan2(roadSl(SPAWN), 1), v: 0, pit: 0, ly: 0, lp: 0, bump: 0 };
+car.y = surf(car.x, car.z);
 const fly = { on: false, x: 0, y: 0, z: 0, yaw: 0, pit: 0 };
 addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;       // typing in the music box is not driving
