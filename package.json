@@ -1,0 +1,21 @@
+{
+  "name": "endless-driver",
+  "version": "1.0.0",
+  "description": "Endless scenic first-person driving game",
+  "scripts": {
+    "build": "bun build.mjs",
+    "serve": "bun scripts/serve.mjs",
+    "gen:assets": "bun scripts/gen-assets.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "three": "^0.170.0"
+  },
+  "type": "module",
+  "devDependencies": {
+    "sharp": "^0.35.5"
+  }
+}
