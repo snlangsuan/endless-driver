@@ -1,12 +1,5 @@
-.env
-node_modules/
-assets/raw/
-scripts/.cert/
-assets/.build-cache/
-
-# working files that are not part of the project
 _to_delete/
 Claude outputs/
+node_modules/
+.env
 .DS_Store
-# old build that has an API key baked into it
-dist/index.html
