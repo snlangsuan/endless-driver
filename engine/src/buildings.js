@@ -103,10 +103,10 @@ function makeBush(seed, flower) {
     limb(foot, fork, 0.02, 0.012, 3);
     for (let j = 0; j < 3; j++) limb(fork, at(az + (R() - 0.5) * 1.3, clamp(el + (R() - 0.5) * 0.9, 0.05, 1.5), 0.72 + R() * 0.12), 0.011, 0.004, 2);
   }
-  for (let i = 0; i < 760; i++) {
+  for (let i = 0; i < 540; i++) {
     const az = R() * TAU, el = Math.asin(-0.08 + 1.08 * R()), f = 0.5 + 0.5 * Math.pow(R(), 0.4), q = at(az, el, f); if (q[1] < 0.04) q[1] = 0.04 + R() * 0.08;
     const bloom = flower && f > 0.86 && R() < 0.3;
-    leaves.push(q[0], q[1], q[2], 0.2 + R() * 0.13, az + (R() - 0.5) * 2.2, -0.35 + R() * 1.2 + sin(el) * 0.3, 0.085, 0.3 + R() * 0.8, bloom ? 6 : 0, R(), 0.42 + 0.58 * (f - 0.5) * 2, q[1]);
+    leaves.push(q[0], q[1], q[2], 0.23 + R() * 0.14, az + (R() - 0.5) * 2.2, -0.35 + R() * 1.2 + sin(el) * 0.3, 0.1, 0.3 + R() * 0.8, bloom ? 6 : 0, R(), 0.42 + 0.58 * (f - 0.5) * 2, q[1]);
   }
   shuffleLeaves(leaves, R);
   return { segs: new Float32Array(segs), nSeg: segs.length / 10, nSegFar: 0, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
@@ -183,15 +183,19 @@ const SALA = [[-1.6, 1.2, -1, 0.12, 2.4, 0.12, 0, 4], [1.6, 1.2, -1, 0.12, 2.4, 
 const FIELDHUT = [[-1.1, 1.15, -1, 0.1, 2.3, 0.1, 0, 4], [1.1, 1.15, -1, 0.1, 2.3, 0.1, 0, 4], [-1.1, 1.15, 1, 0.1, 2.3, 0.1, 0, 4], [1.1, 1.15, 1, 0.1, 2.3, 0.1, 0, 4],
   [0, 0.85, 0, 2.5, 0.07, 2.3, 0, 0], [0, 2.55, -0.62, 3.0, 0.05, 1.6, -0.5, 1], [0, 2.55, 0.62, 3.0, 0.05, 1.6, 0.5, 1]];
 const TREES = [
-  makeTree(11, { H: 8, r: 0.34, n: [9, 5, 3], ang: [1.1, 0.9, 0.85], crown: 0.32, len0: 0.5, lenR: 0.6, trop: 0.2, wob: 0.2, per: 3, leaf: 0.62, wide: 0.3 }),
-  makeTree(23, { H: 10, r: 0.4, n: [10, 5, 3], ang: [1.15, 0.9, 0.85], crown: 0.38, len0: 0.46, lenR: 0.6, trop: 0.18, wob: 0.22, per: 3, leaf: 0.66, wide: 0.3 }),
-  makeTree(37, { H: 6.5, r: 0.26, n: [8, 4, 3], ang: [1.2, 0.95, 0.85], crown: 0.28, len0: 0.6, lenR: 0.62, trop: 0.14, wob: 0.26, per: 3, leaf: 0.56, wide: 0.3 }),
+  makeTree(11, { H: 8, r: 0.34, n: [9, 5, 3], ang: [1.1, 0.9, 0.85], crown: 0.32, len0: 0.5, lenR: 0.6, trop: 0.2, wob: 0.2, per: 4, leaf: 0.62, wide: 0.3 }),
+  makeTree(23, { H: 10, r: 0.4, n: [10, 5, 3], ang: [1.15, 0.9, 0.85], crown: 0.38, len0: 0.46, lenR: 0.6, trop: 0.18, wob: 0.22, per: 4, leaf: 0.66, wide: 0.3 }),
+  makeTree(37, { H: 6.5, r: 0.26, n: [8, 4, 3], ang: [1.2, 0.95, 0.85], crown: 0.28, len0: 0.6, lenR: 0.62, trop: 0.14, wob: 0.26, per: 4, leaf: 0.56, wide: 0.3 }),
   makePalm(71), makePalm(79), makeSugarPalm(91), makeSugarPalm(97), makeBanana(105), makeBush(121, false), makeBush(127, true),
   // a rain tree (จามจุรี): short thick trunk under a wide flat umbrella; and a tall forest tree with a clean bole and a high crown
-  makeTree(53, { H: 8.5, r: 0.52, n: [11, 6, 3], ang: [1.38, 1.0, 0.9], crown: 0.34, len0: 0.9, lenR: 0.6, trop: 0.04, wob: 0.26, per: 3, leaf: 0.55, wide: 0.3 }),
-  makeTree(67, { H: 17, r: 0.44, n: [10, 5, 3], ang: [1.05, 0.9, 0.85], crown: 0.62, len0: 0.3, lenR: 0.6, trop: 0.2, wob: 0.14, per: 3, leaf: 0.64, wide: 0.3 }),
+  makeTree(53, { H: 8.5, r: 0.52, n: [11, 6, 3], ang: [1.38, 1.0, 0.9], crown: 0.34, len0: 0.9, lenR: 0.6, trop: 0.04, wob: 0.26, per: 4, leaf: 0.55, wide: 0.3 }),
+  makeTree(67, { H: 17, r: 0.44, n: [10, 5, 3], ang: [1.05, 0.9, 0.85], crown: 0.62, len0: 0.3, lenR: 0.6, trop: 0.2, wob: 0.14, per: 4, leaf: 0.64, wide: 0.3 }),
 ];
 TREES.push(makeCasuarina(141), makeCasuarina(149));      // 12, 13
+// พญาเสือโคร่ง in flower (14, 15): a dark crooked trunk clear to well above a car's roof, then boughs that climb as they spread, making a full round head
+// high over the verge (no limb hangs down across the road); hardly a leaf - the whole crown is pink
+TREES.push(makeTree(163, { H: 8.5, r: 0.36, n: [9, 5, 3], ang: [0.92, 0.9, 0.85], crown: 0.44, len0: 0.5, lenR: 0.62, trop: 0.26, wob: 0.3, per: 4, leaf: 0.62, wide: 0.38, bloom: 0.93 }),
+  makeTree(171, { H: 9.5, r: 0.42, n: [10, 5, 3], ang: [0.98, 0.9, 0.85], crown: 0.46, len0: 0.48, lenR: 0.62, trop: 0.24, wob: 0.28, per: 4, leaf: 0.64, wide: 0.38, bloom: 0.96 }));
 const DEMO = Number(new URLSearchParams(location.search).get('plant') ?? -1);
 const BL = [0, 1, 2, 10, 11, 0, 1, 2];      // the broadleaf kinds, the rarer ones met less often
 

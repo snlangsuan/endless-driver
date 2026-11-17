@@ -29,20 +29,32 @@
     if (askedAt && st !== 1 && st !== 3 && performance.now() - askedAt > 4000) { askedAt = 0; say(null, 'เบราว์เซอร์ยังไม่ให้เล่นเอง กดปุ่มเล่นหนึ่งครั้ง'); } if (st === 1) askedAt = 0; }, 500);
   try { const last = localStorage.getItem('endless.music'); if (last) { $u.value = last; $mp.classList.remove('url'); say('รายการเดิมพร้อมเล่น', 'กดปุ่มเล่น หรือกดไอคอนลิงก์เพื่อเปลี่ยน'); } } catch (e) {}
 }
+let hold = false;
 function drive(dt) {
   let thr = K('KeyW') - K('KeyS'), st = K('KeyA') - K('KeyD'); const onRoad = abs(rdist(car.x, car.z)) < 3.9;
   if (auto.on) {
-    // aim at a point ahead in the left lane; ease off for bends so the car is never thrown wide
-    const sl0 = roadSl(car.z), nn = Math.sqrt(1 + sl0 * sl0), dirz = cos(car.yaw) >= 0 ? 1 : -1, look = (7 + abs(car.v) * 0.55) / nn, [tx, tz] = rp(car.z + dirz * look, 1.7 * dirz);
-    let er = atan2(tx - car.x, tz - car.z) - car.yaw; er -= Math.round(er / TAU) * TAU;
-    st = clamp(er * 3, -1, 1);
+    // Keep to the middle of the left lane. The steering has three parts: what the bend itself asks for at this speed (so the car turns with the
+    // road and is not left behind by it), the difference between where the car points and where the road points just ahead, and a pull back
+    // toward the middle of the lane. (Aiming at a point far ahead, as before, cut every left-hand bend short by up to 2.5 m - off the road.)
+    const dirz = cos(car.yaw) >= 0 ? 1 : -1, sl0 = roadSl(car.z), nn = Math.sqrt(1 + sl0 * sl0), va = abs(car.v);
+    const hd = (zq) => atan2(roadSl(zq) * dirz, dirz), wrap = (q) => q - Math.round(q / TAU) * TAU;
+    const pv = (0.5 + va * 0.08) / nn, th = hd(car.z + dirz * pv), kap = wrap(hd(car.z + dirz * (pv + 1.5 / nn)) - hd(car.z + dirz * (pv - 1.5 / nn))) / 3;
+    const e = rdist(car.x, car.z) * dirz - 1.7;                       // how far to the left of the lane's middle the car is
+    const rate = 1.7 * clamp(car.v / 5, -1, 1) / (1 + va * 0.03);     // how fast full lock turns the car (the same rule as below)
+    st = clamp(car.v * kap / max(rate, 0.2) + wrap(th - atan2(e * 2.0, 3 + va * 0.35) - car.yaw) * 3.2, -1, 1);
     const kv = (zq) => abs(roadX(zq + 4) - 2 * roadX(zq) + roadX(zq - 4)) / 16 / Math.pow(1 + roadSl(zq) ** 2, 1.5);
     const curv = max(kv(car.z + dirz * (12 + abs(car.v) * 1.2) / nn), kv(car.z + dirz * 5 / nn));
-    const vt = min(auto.limit / 3.6, Math.sqrt(4.5 / max(curv, 1e-4)));
-    const dv = vt - car.v; thr = dv > 0.3 ? min(1, dv * 0.6) : dv < -1.5 ? -1 : 0;
+    const ahead = zlim(car.z + dirz * (6 + car.v * car.v / 9) / nn);                              // the sign coming up, seen in time to be down to its speed on reaching it
+    let vt = min(min(auto.limit, zlim(car.z), ahead) / 3.6, Math.sqrt(4.5 / max(curv, 1e-4)));
+    // traffic lights: stop at the line (6 m short of the corner) for red, and for amber if there is room to; wait; go on green
+    const tl = tlNext(car.z, dirz); hold = false;
+    if (tl) { const dist = (tl[0] - car.z) * dirz * nn - 8.2, sg = tlState(tl[1], time);            // from the car's nose to the line
+      if (dist > -1.5 && (sg === 2 || (sg === 1 && dist > car.v * car.v / 10))) { vt = min(vt, dist < 0.4 ? 0 : Math.sqrt(2 * 2.4 * dist)); hold = dist < 0.4; } }          // never over the driver's own limit, nor the sign's, nor what the bend allows
+    const dv = vt - car.v; thr = dv > 0.3 ? min(1, dv * 0.6) : dv < -1.5 ? -1 : 0; if (hold && car.v > 0.2) thr = -1;
   }
   car.v += (thr > 0 ? (K('ShiftLeft') ? 13 : 8) * thr : thr < 0 ? (car.v > 0.5 ? (auto.on ? -7 : -18) : auto.on ? 0 : -5) : 0) * dt;
   car.v -= (car.v * (onRoad ? 0.2 : 0.9) + Math.sign(car.v) * (onRoad ? 0.35 : 1.4)) * dt;
+  if (auto.on && hold && abs(car.v) < 1) car.v = 0;                              // standing at a red light
   if (car.v < -8) car.v = -8;
   car.steer = (car.steer || 0) + (st - (car.steer || 0)) * (1 - exp(-dt * 8));
   car.yaw += st * dt * 1.7 * clamp(car.v / 5, -1, 1) / (1 + abs(car.v) * 0.03);

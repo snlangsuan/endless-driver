@@ -37,6 +37,7 @@ function atmos(z) {
   { const sn = snowW(z); AT.rain *= 1 - sn; AT.storm *= 1 - sn; AT.snow = sn * sm(0.15, 0.6, AT.cover + 0.25); }       // over the snowfield it snows instead
   AT.wet = clamp(AT.wet + (AT.rain > 0.05 ? AT.rain * 0.006 : -0.0005), 0, 1);                 // the road stays wet a while after the rain
   AT.dry = sm(0.35, 0.7, vnoise(z / 5200 + 9, 1.7));
+  if (chyAt(z)) { const q = z / SEG - floor(z / SEG); AT.dry = mix(AT.dry, 0.22, sm(0, 0.06, q) * sm(1, 0.94, q)); }      // the cherries flower in the cool season: the grass still green, only just beginning to yellow
   const over = sm(0.6, 1, AT.cover), grey = (AT.zen[0] + AT.zen[1] + AT.zen[2]) / 3 + (AT.hor[0] + AT.hor[1] + AT.hor[2]) / 6;
   for (let j = 0; j < 3; j++) { AT.sun[j] *= 1 - 0.8 * over; AT.zen[j] = mix(AT.zen[j], grey * 0.9, over * 0.85); AT.hor[j] = mix(AT.hor[j], grey * 1.05, over * 0.7); AT.amb[j] = mix(AT.amb[j], (AT.amb[0] + AT.amb[1] + AT.amb[2]) / 3 * 1.15, over * 0.7); }
   const glare = (1 - sm(0, 0.25, AT.cover)) * (1 - AT.night), dim = 1 - 0.35 * AT.rain - 0.25 * AT.storm;

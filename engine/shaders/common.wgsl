@@ -22,6 +22,9 @@ fn roadX(z: f32) -> f32 { return 60. * sin(z * .004) + 25. * sin(z * .011 + 1.3)
 fn hpw(z: f32) -> f32 { let p = z / SEG; let s = floor(p); let si = i32(s); if (zoneOf(si) != 1 || (si != 2 && ph(vec2i(si, 31)) > .6)) { return 0.; } return 1. - ss(.16, .24, abs(p - s - .5)); }
 fn hpx(z: f32) -> f32 { let e = hpw(z); if (e <= 0.) { return 0.; } return e * 100. * sin(.0262 * (z - (floor(z / SEG) + .5) * SEG)); }
 // 1 where the plots of a flower stretch come up to the road (flwW in the script)
+// the cherry stretches (chyAt in src/land.js): 1 a hill whose woods are mostly cherry, 2 a flat stretch with an avenue, 0 neither
+fn chy(z: f32) -> i32 { let s = i32(floor(z / SEG)); let k = zoneOf(s); if (k == 1 && ph(vec2i(s, 61)) < .55) { return 1; }
+  if (k == 0 && s != 4 && ph(vec2i(s, 51)) >= .5 && ph(vec2i(s, 63)) < .25) { return 2; } return 0; }
 fn flw(z: f32, twz: f32) -> f32 { let p = z / SEG; let s = i32(floor(p)); if (zoneOf(s) != 0 || (s != 4 && ph(vec2i(s, 51)) >= .5)) { return 0.; }
   let q = p - f32(s); let r0 = (f32(s) + .3 + (ph(vec2i(s, 71)) - .5) * .12) * SEG; let w0 = 10. + 5. * ph(vec2i(s, 75)); let r1 = (f32(s) + .72 + (ph(vec2i(s, 72)) - .5) * .12) * SEG;
   return ss(0., .1, q) * (1. - ss(.9, 1., q)) * (1. - ss(0., .3, twz)) * ss(w0 + 30., w0 + 70., abs(z - r0)) * ss(34., 74., abs(z - r1)); }
@@ -34,10 +37,10 @@ fn turf(P: vec2f) -> f32 { return pn(P * .09) * .5 + pn(P * .37) * .32 + pn(P * 
 // vn with its lattice wrapped every n cells: with a position taken modulo 256 m it has no seam where the position wraps
 fn vnp(p: vec2f, n: f32) -> f32 { let i = floor(p); let f = fract(p); let u = f * f * (3. - 2. * f); let a = i - n * floor(i / n); let b = (i + 1.) - n * floor((i + 1.) / n);
   return mix(mix(h2(a), h2(vec2f(b.x, a.y)), u.x), mix(h2(vec2f(a.x, b.y)), h2(b), u.x), u.y); }
-fn stk(P: vec2f, a: vec2f, off: f32, px: f32) -> f32 {
+fn stkw(P: vec2f) -> vec2f { return P + (vec2f(vn(P * 13.), vn(P * 13. + 9.3)) - .5) * .09 + (vec2f(vn(P * 3.1 + 4.), vn(P * 3.1 + 14.)) - .5) * .30; }      // the ground, bent (once for all three directions of stroke)
+fn stk(Pw: vec2f, a: vec2f, off: f32, px: f32) -> f32 {
   // short blades, each lying a little off the others' line: the ground is bent by a slow noise first, and a blade is only three or four
   // times as long as it is wide (long straight strokes in three fixed directions read as woven cord, not grass)
-  let Pw = P + (vec2f(vn(P * 13. + off), vn(P * 13. + off + 9.3)) - .5) * .09 + (vec2f(vn(P * 3.1 + off + 4.), vn(P * 3.1 + off + 14.)) - .5) * .30;
   let q = vec2f(dot(Pw, a), dot(Pw, vec2f(-a.y, a.x)));
   return .5 + (vn(vec2f(q.x * 75., q.y * 24.) + off) - .5) * (1. - ss(.5, 1.4, px * 75.)) * .8 + (vn(vec2f(q.x * 24., q.y * 9.) + off + 11.) - .5) * (1. - ss(.5, 1.4, px * 24.)) * .55
     + (vn(vec2f(q.x * 7., q.y * 4.5) + off + 23.) - .5) * (1. - ss(.5, 1.4, px * 7.)) * .26; }
@@ -98,15 +101,22 @@ struct LO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   @location(3) @interpolate(flat) col: vec3f, @location(4) @interpolate(flat) pr: vec2f };
 override WS: f32 = 1.;
 // One leaf or blade: a strip of 10 vertices bent, tapered and moved here from 12 numbers per instance.
+// (kind 10 is a spray of blossom, see scene.wgsl)
 // a: base xyz, length · b: yaw, elevation, half width, droop · c: kind (0 leaf, 1 palm leaflet, 2 grass, 3 green rice, 4 ripe rice, 5 banana leaf), seed, shade, height above the plant's foot
-fn leafV(vi: u32, a: vec4f, b: vec4f, c: vec4f) -> LO {
+fn leafV(vi: u32, a0: vec4f, b0: vec4f, c: vec4f) -> LO {
   var o: LO;
   let u = f32(vi & 1u) * 2. - 1.; let v = f32(vi >> 1u) / 4.;
   let kind = i32(c.x + .5);
+  var a = a0; var b = b0;
+  if (kind == 11) {        // a petal in the air: it falls from where it was put (b0.y is how far down the ground is), swinging from side to side, turning over, carried off by the wind; then another starts
+    let tt = fract(g.cam.w * (.045 + .035 * c.y) + b0.x); let drift = tt * b0.y * (.12 + .55 * g.misc.y * (.3 + gust(a0.xz)));
+    a = vec4f(a0.x + sin(tt * 11. + b0.x * 40.) * .35 + .8 * drift, a0.y - tt * b0.y, a0.z + cos(tt * 8. + b0.x * 23.) * .35 + .55 * drift, a0.w * ss(0., .04, tt));
+    b = vec4f(b0.x * 6.2832 + g.cam.w * (2. + 3. * c.y), sin(g.cam.w * 3.1 + b0.x * 50.) * 1.2, b0.z, 0.);
+  }
   let cy = cos(b.x); let sy = sin(b.x); let ce = cos(b.y); let se = sin(b.y);
   var dir = vec3f(ce * cy, se, ce * sy); var side = vec3f(-sy, 0., cy);
   var shp = pow(max(sin(3.14159 * pow(v, .75)), 0.), .6);
-  if (kind == 0) { shp = 1.; }                                         // a sprig: the fragment stage cuts the leaves out of it
+  if (kind == 0 || kind == 10) { shp = 1.; }                                         // a sprig: the fragment stage cuts the leaves out of it
   if (kind == 1) { shp = pow(max(sin(3.14159 * pow(v, .5)), 0.), .5); }
   let blade = kind >= 2 && kind <= 4;
   if (blade) { shp = 1. - v * .93; }
@@ -149,7 +159,8 @@ fn leafV(vi: u32, a: vec4f, b: vec4f, c: vec4f) -> LO {
   if (kind == 8) { col = mix(vec3f(.060, .105, .050), vec3f(.105, .150, .065), c.y); }
   if (kind == 9) { col = mix(vec3f(.90, .48, .03), vec3f(.95, .72, .06), c.y); if (c.z < .8) { col = mix(vec3f(.80, .25, .50), vec3f(.88, .84, .86), step(.6, c.y)); } tr = .7; }      // a flower head
   let snl = nw(a.z); if (snl > .01) { col = mix(col, vec3f(.74, .77, .82), snl * (.3 + .5 * c.z)); }                                      // snow lying on the leaves
-  o.col = col; o.pr = vec2f(c.z, tr + 2. * f32(kind == 0) + 4. * c.y * f32(kind == 0) + 10. * f32(kind == 8) + 20. * f32(kind == 9) + (30. + 4. * c.y) * f32(kind == 5));
+  if (kind == 10 || kind == 11) { col = mix(vec3f(.62, .09, .26), vec3f(.80, .24, .42), c.y); if (c.y > .85) { col = vec3f(.88, .46, .60); } }      // cherry blossom: deep pink to nearly white
+  o.col = col; o.pr = vec2f(c.z, tr + (40. + 4. * c.y) * f32(kind == 10) + 2. * f32(kind == 0) + 4. * c.y * f32(kind == 0) + 10. * f32(kind == 8) + 20. * f32(kind == 9) + (30. + 4. * c.y) * f32(kind == 5));
   return o;
 }
 struct BO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) uv: vec2f, @location(3) @interpolate(flat) m: f32 };

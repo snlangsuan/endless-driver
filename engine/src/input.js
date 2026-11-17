@@ -1,6 +1,6 @@
 // --------------------------------------------------------------------------------------------------------- input, car, camera
 const keys = new Set();
-const auto = { on: false, limit: 80 };   // self-driving: keeps the left lane and holds the speed limit (km/h)
+const auto = { on: false, limit: 90 };   // self-driving: keeps the left lane and holds the speed limit (km/h)
 // The drive starts somewhere different each time: any stretch within about 14 km of the origin (further out the ground's fine grain, which is worked out from world position, begins to lose precision), in the left lane, facing along the road.
 const SPAWN = (floor(Math.random() * 24) - 12 + 0.15 + Math.random() * 0.7) * SEG, SP = rp(SPAWN, 1.7);
 const car = { x: SP[0], z: SP[1], y: 0, yaw: atan2(roadSl(SPAWN), 1), v: 0, pit: 0, ly: 0, lp: 0, bump: 0 };
@@ -19,6 +19,7 @@ addEventListener('keydown', (e) => {
   else if (e.code === 'Equal' || e.code === 'NumpadAdd' || e.code === 'BracketRight') auto.limit = min(160, auto.limit + 10);
   else if (e.code === 'Minus' || e.code === 'NumpadSubtract' || e.code === 'BracketLeft') auto.limit = max(30, auto.limit - 10);
   else if ((e.code === 'KeyA' || e.code === 'KeyD' || e.code === 'KeyS') && !fly.on) auto.on = false;      // taking the wheel or braking hands control back
+  else if (e.code === 'KeyG' && !e.repeat) { try { const r = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); if (r && r.catch) r.catch(() => {}); } catch (err) {} }      // G: full screen and back (the whole page, so the text and the music player stay)
   else if (e.code === 'KeyH' && !e.repeat) { const off = document.body.classList.toggle('noui'); try { localStorage.setItem('endless.noui', off ? '1' : ''); } catch (err) {} }      // H hides or shows the text over the picture (not the music player)
   else if (e.code === 'KeyF') { fly.on = !fly.on; if (fly.on) { fly.x = car.x; fly.z = car.z; fly.y = car.y + 4; fly.yaw = car.yaw; fly.pit = -0.1; } }
 });

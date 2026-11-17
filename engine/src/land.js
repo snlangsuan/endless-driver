@@ -25,6 +25,8 @@ const townW = (z) => { const p = z / SEG, s0 = floor(p); let w = 0;
   for (let s = s0 - 1; s <= s0 + 1; s++) { const sp = townSpan(s); if (!sp) continue; const q = p - s - 0.5, e = q < 0 ? sp[0] : sp[1], v = 1 - sm(e - 0.09, e, abs(q)); if (v > w) { w = v; twS = s; } }
   return w; };
 const hillW = (z) => zw(z, 1, 0.46, 0.7), seaW = (z) => zw(z, 3, 0.45, 0.5), snowW = (z) => zw(z, 4, 0.46, 0.6);
+// พญาเสือโคร่ง (wild Himalayan cherry) in bloom: 1 on a hill stretch whose woods and roadside are mostly cherry, 2 on a flat stretch with an avenue of them
+const chyAt = (z) => { const s = floor(z / SEG), k = zoneOf(s); return k === 1 && ph(s, 61) < 0.55 ? 1 : k === 0 && !flwAt(z) && ph(s, 63) < 0.25 ? 2 : 0; };
 const flwAt = (z) => { const s = floor(z / SEG); return zoneOf(s) === 0 && (s === 4 || ph(s, 51) < 0.5); };        // a plain stretch where many plots are flower fields
 // Along the coast the shore is sometimes a cliff of rocks under a high road and sometimes a sand beach the road comes down to.
 // beachW is 1 on the beaches; shoreX is how far from the road the water begins (pushed far away where the coast stretch starts and ends).
@@ -140,4 +142,12 @@ function ground(x, z) {
   return h;
 }
 const rng = (seed) => { let s = (seed >>> 0) || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); };
-
+// The speed limit in force at z (km/h): 50 in town, 40 on the switchbacks, 60 on hill roads and in snow, 80 along the coast, 90 in open country.
+// A sign stands wherever this changes (see the chunks), and the self-driving keeps to it.
+const zlim = (z) => townW(z) > 0.02 ? 50 : hpW(z) > 0.5 ? 40 : hillW(z) > 0.5 || snowW(z) > 0.5 ? 60 : seaW(z) > 0.5 ? 80 : 90;
+// Traffic lights: in town, at one street corner in every ten blocks (360 m). tlOf(g): where the lights of the g-th ten blocks stand (null: none);
+// tlNext(z, dir): the next ones ahead of z going dir (+1 up the road, -1 down) as [z, their place in the cycle 0..1]; tlState: 0 green, 1 amber, 2 red.
+// The cycle is 30 s: 16 green, 3 amber, 11 red (the signal head's shader works the same sum, from the same clock).
+const tlOf = (g) => { const zs = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36; return townW(zs) > 0.6 && !nearRiv(zs, 24) ? zs : null; };
+const tlNext = (z, dir) => { for (let g = floor(z / 360), i = 0; i < 3; i++, g += dir) { const zs = tlOf(g); if (zs !== null && (zs - z) * dir > -4) return [zs, ph(g, 521)]; } return null; };
+const tlState = (off, t) => { const p = (t / 30 + off) % 1; return p > 19 / 30 ? 2 : p > 16 / 30 ? 1 : 0; };

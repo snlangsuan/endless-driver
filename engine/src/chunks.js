@@ -36,13 +36,46 @@ function buildChunk(cx, cz) {
   const twc = townW(oz + CH / 2); let dbgHouse = null, reach = 0;      // reach: how far (m) this chunk's longest wire runs on beyond a pole's ordinary span
   const stamp = (B, x, y, z, yaw, s1, s2, fl = 0) => { const c = cos(yaw), sn = sin(yaw); for (const b of B) boxes.push(x + b[0] * c + b[2] * sn, y + b[1], z - b[0] * sn + b[2] * c, yaw, b[3], b[4], b[5], b[6], b[7], b[7] === 1 || b[7] === 9 ? s2 : b[7] === 17 ? ph(floor(x * 7 + b[0] * 13), floor(z * 5 + b[1] * 11)) : s1, b[4], fl ? 2 : b[8] || 0); };
   const swc = seaW(oz + CH / 2);
+  // Speed limit signs: wherever the limit changes there is one for each direction of travel, on the driver's left, facing the traffic that is about
+  // to come under it and showing the limit that begins there.
+  for (let zq = Math.ceil((oz - 8) / 4) * 4; zq < oz + CH + 8; zq += 4) {
+    const la = zlim(zq - 2), lb = zlim(zq + 2); if (la === lb || nearRiv(zq, 14)) continue;
+    for (const e of [-1, 1]) {          // e = -1: for traffic going up the road (+z), which meets lb; e = 1: for traffic coming down, which meets la
+      const a = atan2(roadX(zq + 1) - roadX(zq - 1), 2), x = roadX(zq) - e * 5.2 * cos(a), zz = zq + e * 5.2 * sin(a); if (!inside(x, zz)) continue;
+      const yaw = a + (e > 0 ? 0 : PI), c = cos(yaw), sn = sin(yaw), y = ground(x, zz);
+      boxes.push(x - 0.06 * sn, y + 1.2, zz - 0.06 * c, yaw, 0.07, 2.4, 0.07, 0, 34, 0, 2.4, 0, x, y + 2.4, zz, yaw, 0.75, 0.75, 0.04, 0, 37, 0, e < 0 ? lb : la, 0);
+    }
+  }
+  // Traffic lights (see tlOf in land.js). For each direction: a stop line across its lane six metres short of the corner, and beyond the corner, on the
+  // driver's left, a steel post with an arm reaching out over the lane; one signal head hangs from the arm's end and a second is on the post.
+  for (let g = floor((oz - 16) / 360); g <= floor((oz + CH + 16) / 360); g++) {
+    const zs = tlOf(g); if (zs === null) continue; const off = ph(g, 521);
+    for (const e of [-1, 1]) {          // e = -1: for traffic going up the road (+z); e = 1: for traffic coming down
+      const zp = zs - e * 5, a = atan2(roadX(zp + 1) - roadX(zp - 1), 2), ca = cos(a), sa = sin(a), x = roadX(zp) - e * 5.0 * ca, zz = zp + e * 5.0 * sa;
+      if (inside(x, zz)) {
+        const yaw = a + (e > 0 ? 0 : PI), y = ground(x, zz), hx = roadX(zp) - e * 1.9 * ca, hz = zp + e * 1.9 * sa;
+        far.push(x, y, zz, 0.11, x, y + 5.9, zz, 0.08, -1, 4, x, y + 5.75, zz, 0.06, hx, y + 5.95, hz, 0.045, -1, 4);
+        boxes.push(hx, y + 5.3, hz, yaw, 0.38, 1.1, 0.26, 0, 45, off, 1.1, 0, x - e * 0.35 * ca, y + 3.0, zz + e * 0.35 * sa, yaw, 0.38, 1.1, 0.26, 0, 45, off, 1.1, 0);
+        boxes.push(x - e * 0.3 * ca, y + 2.2, zz + e * 0.3 * sa, a + e * PI / 2, 0.3, 0.66, 0.2, 0, 46, off, 0.66, 0);          // for people crossing: on this post, facing the far kerb
+      }
+      // the side street: its own signal head on a short post at the far corner (green inside the main road's red)
+      const a0 = atan2(roadX(zs + 1) - roadX(zs - 1), 2), jx = roadX(zs);
+      if (inside(jx, zs)) {
+        const yw = e < 0 ? a0 : a0 + PI, cy = cos(yw), sy = sin(yw), fx = cy, fz = -sy, lx2 = -sy, lz2 = -cy;      // the way traffic out of that side street goes (f) and its left (l)
+        const px = jx + fx * 5.4 + lx2 * 3.2, pz = zs + fz * 5.4 + lz2 * 3.2, py = ground(px, pz);
+        far.push(px, py, pz, 0.07, px, py + 3.7, pz, 0.055, -1, 4); boxes.push(px - fx * 0.22, py + 3.1, pz - fz * 0.22, yw - PI / 2, 0.38, 1.1, 0.26, 0, 45, 1 + off, 1.1, 0);
+      }
+      const zl = zs + e * 6, a2 = atan2(roadX(zl + 1) - roadX(zl - 1), 2), lx = roadX(zl) - e * 1.8 * cos(a2), lz = zl + e * 1.8 * sin(a2);
+      if (inside(lx, lz)) boxes.push(lx, surf(lx, lz) + 0.012, lz, a2, 3.3, 0.02, 0.45, 0, 19, 0, 0.02, 0);
+    }
+  }
   // Nothing stands across the road where a town begins. What tells the driver is at the roadside, on the left as you come in: first the
   // speed limit (50, a white disc ringed in red), then the board with the town's name, white or green, on two steel posts.
   for (let s0 = floor(oz / SEG), s = s0 - 2; s <= s0 + 2; s++) {
     const sp = townSpan(s); if (!sp) continue;
     for (const e of [-1, 1]) {
       const z0 = (s + 0.5 + e * ((e < 0 ? sp[0] : sp[1]) - 0.045)) * SEG; if (townW(z0 + e * 80) > 0.5) continue;      // (two towns grown together have no edge here)
-      for (const [dz, off, kind] of [[30, 6.8, 0], [90, 5.2, 1]]) {
+      for (const [dz, off, kind] of [[30, 6.8, 0]]) {          // (the 50 sign is put up with all the other limit signs, below)
         const z = z0 + e * dz, a = atan2(roadX(z + 1) - roadX(z - 1), 2), x = roadX(z) - e * off * cos(a), zz = z + e * off * sin(a); if (!inside(x, zz) || nearRiv(z, 14)) continue;
         const yaw = a + (e > 0 ? 0 : PI), c = cos(yaw), sn = sin(yaw), y = ground(x, zz);            // turned to face the traffic coming in
         const put = (lx, ly, lz, sx, sy, sz, mat, seed = 0, h = sy) => boxes.push(x + lx * c + lz * sn, y + ly, zz - lx * sn + lz * c, yaw, sx, sy, sz, 0, mat, seed, h, 0);
@@ -68,6 +101,10 @@ function buildChunk(cx, cz) {
         const seg = tseg, tch = ph(seg, 300), bq = blk * 2 + (side > 0 ? 1 : 0), bt = ph(bq, 310 + seg), len = 4 + floor(ph(bq, 320 + seg) * 5), sb = 8 + floor(ph(bq, 330 + seg) * 3) * 1.3;
         let kind = bt < 0.13 ? 1 : bt < 0.27 ? 2 : bt < 0.27 + (tch < 0.6 ? 0.13 : 0.04) ? 3 : bt > 0.94 ? 5 : 0;
         if (((blk % 24) + 24) % 24 === floor(tch * 24) && (side > 0) === (ph(seg, 301) < 0.5)) kind = 4;
+        // convenience stores are spaced out: one to every twelve blocks of street (about 430 m), on one side or the other, and never in the first or
+        // last two blocks of its twelve, so two of them are at least 180 m apart. It takes the place of a row of shophouses or of a large shop.
+        const sg = floor(blk / 12), store = (kind === 0 || kind === 2) && blk - sg * 12 === 2 + floor(ph(sg, 346 + seg) * 7.99) && (side > 0) === (ph(sg, 348 + seg) < 0.5);
+        if (store) kind = 2;
         const nx = cos(a) * side, nz = -sin(a) * side, cx = roadX(z) + nx * (sb + DEP / 2), cz = z + nz * (sb + DEP / 2); const own = inside(cx, cz); if (!own && !(cx >= ox - 18 && cx < ox + CH + 18 && cz >= oz - 18 && cz < oz + CH + 18)) continue;
         const hb = ph(blk, side + 7 + seg), stB = hb < (tch < 0.4 ? 0.62 : tch > 0.75 ? 0.08 : 0.2) ? 2 : hb < (tch > 0.75 ? 0.6 : 0.85) ? 3 : 4, old = stB === 2 && ph(blk, side + 11) < 0.7, balc = ph(blk, side + 13) < 0.55;
         const uv_ = ph(k * 7 + 60, side + 40), st = old ? 2 : clamp(stB + (uv_ < 0.22 ? 1 : uv_ > 0.86 ? -1 : 0), 2, 5);          // units in a newer row are not all one height
@@ -90,15 +127,52 @@ function buildChunk(cx, cz) {
           if (kind === 1) {            // a small square: shade trees, benches, a pavilion, a low kerb round it
             for (let i = 0; i < 5; i++) tree(X - 12 + i * 6 + (ph(bq, 360 + i) - 0.5) * 3, 2 - ph(bq, 370 + i) * 9, 0.7 + ph(bq, 380 + i) * 0.5, ph(bq, 390 + i));
             for (const bx of [-8, 0, 8]) { put(X + bx, 0.72, 4.6, 1.7, 0.07, 0.45, 0); put(X + bx, 1.0, 4.36, 1.7, 0.4, 0.06, 0); put(X + bx - 0.7, 0.5, 4.6, 0.08, 0.4, 0.4, 2); put(X + bx + 0.7, 0.5, 4.6, 0.08, 0.4, 0.4, 2); }
-            put(X, 0.42, 5.7, 31, 0.25, 0.3, 2); { const q = Wd(X - 11, 4.2); far.push(q[0], y, q[1], 0.06, q[0], y + 8.3, q[1], 0.045, -1, 0); put(X - 10.05, 7.6, 4.2, 1.8, 1.2, 0.03, 38); }      // the flag
+            put(X, 0.42, 5.7, 31, 0.25, 0.3, 2); { const q = Wd(X - 11, 4.2); far.push(q[0], y, q[1], 0.06, q[0], y + 8.3, q[1], 0.045, -1, 0); for (let i = 0; i < 9; i++) put(X - 10.95 + (i + 0.5) * 0.2, 7.6, 4.2, 0.2, 1.2, 0.02, 38, (i + 0.5) * 0.2); }      // the flag: nine strips of cloth (the vertex stage waves them as one)
             { const q = Wd(X + 4, -4); stamp(SALA, q[0], y + 0.3, q[1], yaw, 0.7, s1); }
           } else if (kind === 2) {     // one large shop set back behind its forecourt: glass front, a long sign, a pylon sign at the kerb
-            const Wb = 20 + floor(s1 * 3) * 3, Hb = s2 < 0.5 ? 4.6 : 8;
-            put(X, Hb / 2 + 0.3, -1.5, Wb, Hb, 9, 18, s1); put(X, 1.75, 3.03, Wb - 3, 2.7, 0.08, 17, s2); put(X, 3.75, 3.1, Wb - 1, 1.0, 0.16, 23, s2); put(X, 3.2, 4.0, Wb, 0.12, 2.0, 2);
-            if (Hb > 5) for (let i = 0; i < 5; i++) { const wx = X - Wb / 2 + (i + 0.5) * Wb / 5; put(wx, 6.2, 3.03, Wb / 5 - 1.2, 1.5, 0.08, 17, ph(bq, 400 + i)); put(wx, 7.1, 3.2, Wb / 5 - 0.9, 0.07, 0.45, 2); }
-            put(X + Wb / 2 - 3, Hb + 0.75, -3, 2.4, 0.9, 1.2, 22); put(X - Wb / 2 + 3, Hb + 0.75, -2, 2.4, 0.9, 1.2, 22);
-            { const q = Wd(X - Wb / 2 - 1.5, 5.4); far.push(q[0], y, q[1], 0.11, q[0], y + 6.2, q[1], 0.09, -1, 0); } put(X - Wb / 2 - 1.5, 6.0, 5.4, 1.9, 2.3, 0.28, 23, s1);
-            tree(X + Wb / 2 + 2.5, 3, 0.6, s2); { const q = Wd(X - Wb / 2 - 2.4, 1.2); if (soiD(q[0], q[1]) > 3.9) stamp(SHRINE_B, q[0], y + 0.3, q[1], yaw, 0, 0); }      // the shop's spirit houses at the corner of its forecourt
+            const conv = store, Wt = 20 + floor(s1 * 3) * 3, small = conv && ph(bq, 346 + seg) < 0.5, Wb = conv ? (small ? 11 : 20) : Wt, Hb = conv ? (small ? 3.7 : 5.1) : s2 < 0.5 ? 4.6 : 8;
+            if (conv) {                // the parking in front of either kind of convenience store: bays marked in yellow, a couple of motorcycles
+              for (let i = 0; i <= 5; i++) put(X - 5 + i * 2.4, 0.325, 7.0, 0.11, 0.02, 2.6, 33, 0.3);
+              for (let i = 0; i < 2; i++) if (ph(bq, 347 + i) < 0.7) { const lx = X + Wb / 2 - 0.9 - i * 0.8, lz = 5.9, bc = [0.1, 0.48, 0.9][floor(ph(bq, 349 + i) * 2.99)];
+                put(lx, 0.74, lz - 0.05, 0.2, 0.26, 0.85, 33, bc); put(lx, 0.93, lz - 0.3, 0.24, 0.08, 0.7, 3); put(lx, 0.95, lz + 0.4, 0.22, 0.6, 0.06, 33, bc, -0.3); put(lx, 1.28, lz + 0.34, 0.62, 0.04, 0.04, 3);
+                for (const wz of [0.62, -0.62]) put(lx, 0.57, lz + wz, 0.09, 0.56, 0.56, 39, 0); }
+            }
+            if (conv) {                // The shop itself is a real room, not a picture on the glass: floor, walls, roof and a lit ceiling, and inside it rows of low
+              // white shelves end-on to the street, a wall of drinks chillers across the back, and the counter by the door. The front has its frames
+              // and a frosted band at waist height but no pane (nothing here is drawn see-through), so the inside is seen as it really stands.
+              const gh = small ? 3.1 : 3.35, wm = small ? 41 : 2, IN = 3, cx = small ? 2.2 : 6.4;      // top of the glass, wall material, "lit indoors" (see the shader), where the door is
+              put(X, 0.34, -1.5, Wb, 0.08, 9, 19, 0, 0, IN); put(X, Hb + 0.27, -1.5, Wb + 0.1, 0.14, 9.1, 2); put(X, Hb / 2 + 0.3, -5.9, Wb, Hb, 0.2, wm, s1);
+              for (const d of [-1, 1]) { put(X + d * (Wb / 2 - 0.1), Hb / 2 + 0.3, -1.5, 0.2, Hb, 9, wm, s1); put(X + d * (Wb / 2 - 0.24), 1.85, -1.45, 0.05, 3.0, 8.7, 19, 0, 0, IN); }
+              put(X, (gh + Hb + 0.3) / 2, 2.9, Wb, Hb + 0.3 - gh, 0.2, wm, s1); put(X, gh - 0.04, -1.45, Wb - 0.5, 0.06, 8.7, 44, 0, 0, IN);
+              put(X, 1.5, -5.74, Wb - 0.6, 2.3, 0.1, 43, s1, 0, IN); put(X, 2.9, -5.76, Wb - 0.6, 0.5, 0.06, 19, 0, 0, IN);
+              for (let gx = -Wb / 2 + 1.9, j = 0; gx < cx - 2.2; gx += 2.4, j++) put(X + gx, 1.08, -1.9, 0.9, 1.4, 5.0, 42, ph(bq, 351 + j), 0, IN);
+              put(X + cx + 0.2, 0.86, 0.5, 2.8, 0.95, 0.7, 19, 0, 0, IN); put(X + cx + 0.9, 1.5, 0.5, 0.4, 0.34, 0.4, 3, 0, 0, IN); put(X + cx + 0.2, 1.7, -1.2, 2.8, 2.6, 0.35, 42, s2, 0, IN);
+              put(X, 1.2, 3.03, Wb - 0.8, 0.2, 0.02, 19, 0, 0, IN);
+            }
+            if (small) {               // the small kind: a white box with a white sloping canopy and, above it, a raised front carrying the board; two bays of glass between white piers, the door in the right-hand one
+              for (const px of [-Wb / 2 + 0.25, -0.9, Wb / 2 - 0.25]) put(X + px, 1.85, 3.06, 0.5, 3.1, 0.16, 19);
+              for (const fx of [-4.95, -3.0, -1.2, -0.6, 1.4, 3.0, 4.95]) put(X + fx, 1.75, 3.1, fx === 1.4 || fx === 3.0 ? 0.09 : 0.05, 2.7, 0.07, 3);          // black frames; the door between the two thick ones
+              put(X, 3.08, 3.1, Wb - 0.8, 0.06, 0.07, 3); put(X, 0.42, 3.1, Wb - 0.8, 0.06, 0.07, 3); put(X, 0.36, 4.3, Wb + 1.0, 0.12, 2.7, 2);
+              put(X, 3.55, 4.25, Wb + 1.4, 0.06, 2.7, 41, s1, 0.17); put(X, 4.55, 3.35, Wb + 0.5, 1.45, 0.5, 41, s2); put(X, 4.55, 3.63, 6.6, 0.95, 0.08, 23, 2);
+              for (let i = 0; i < 4; i++) { const bx = X - 3.6 + i * 1.9; put(bx, 0.82, 5.5, 0.17, 0.8, 0.17, 19); put(bx, 1.28, 5.5, 0.18, 0.14, 0.18, 33, 0.3); }      // white posts with yellow caps
+              for (let i = 0; i < 4; i++) put(X + Wb / 2 - 0.65, 0.62 + i * 0.3, 3.55, 0.6, 0.28, 0.4, 33, 0.9);                                              // a stack of orange crates by the door
+              put(X - 2, Hb + 0.75, -3, 2.4, 0.9, 1.2, 22);
+            } else if (conv) {         // the long kind: a long low grey box with a tall plain front above a thin flat canopy, glass from end
+              // to end with the lit shop behind it, the door toward one end, a row of white posts along the front, the name on a board in the middle of the wall above
+              put(X, 4.3, 3.06, 8.5, 0.95, 0.12, 23, 2);
+              put(X, 3.42, 3.9, Wb + 0.7, 0.13, 2.1, 2); put(X, 3.42, 4.96, Wb + 0.7, 0.2, 0.05, 3); put(X, 5.36, 3.02, Wb + 0.1, 0.1, 0.12, 19);
+              for (let i = 0; i <= 12; i++) put(X - (Wb - 0.6) / 2 + i * (Wb - 0.6) / 12, 1.85, 3.08, i === 9 || i === 11 ? 0.13 : 0.05, 3.0, 0.1, 19);          // the frames of the glass; the door is between the thicker ones
+              put(X, 0.4, 3.07, Wb - 0.6, 0.12, 0.1, 19); put(X, 2.55, 3.07, Wb - 0.6, 0.05, 0.1, 19); put(X + (Wb - 0.6) / 12 * 4, 1.5, 3.1, 0.06, 0.5, 0.06, 2);
+              for (let i = 0; i <= 10; i++) put(X - Wb / 2 + 0.6 + i * (Wb - 1.2) / 10, 0.75, 5.0, 0.13, 0.9, 0.13, 19);                                    // the posts that keep cars off the pavement
+              put(X - Wb / 2 + 1.4, 0.8, 3.72, 1.7, 1.0, 0.8, 19, s1); put(X - Wb / 2 + 1.4, 1.34, 3.72, 1.74, 0.08, 0.84, 2); put(X + Wb / 2 - 0.9, 0.75, 3.75, 0.5, 0.9, 0.5, 2);
+              put(X + 4, Hb + 0.75, -3, 2.4, 0.9, 1.2, 22); put(X - 4, Hb + 0.75, -2, 2.4, 0.9, 1.2, 22);
+            } else {
+              put(X, Hb / 2 + 0.3, -1.5, Wb, Hb, 9, 18, s1); put(X, 1.75, 3.03, Wb - 3, 2.7, 0.08, 17, s2); put(X, 3.75, 3.1, Wb - 1, 1.0, 0.16, 23, s2); put(X, 3.2, 4.0, Wb, 0.12, 2.0, 2);
+              if (Hb > 5) for (let i = 0; i < 5; i++) { const wx = X - Wb / 2 + (i + 0.5) * Wb / 5; put(wx, 6.2, 3.03, Wb / 5 - 1.2, 1.5, 0.08, 17, ph(bq, 400 + i)); put(wx, 7.1, 3.2, Wb / 5 - 0.9, 0.07, 0.45, 2); }
+              put(X + Wb / 2 - 3, Hb + 0.75, -3, 2.4, 0.9, 1.2, 22); put(X - Wb / 2 + 3, Hb + 0.75, -2, 2.4, 0.9, 1.2, 22);
+            }
+            { const q = Wd(X - Wb / 2 - 1.5, 5.4); far.push(q[0], y, q[1], 0.11, q[0], y + 6.2, q[1], 0.09, -1, 0); } put(X - Wb / 2 - 1.5, 6.0, 5.4, 1.9, 2.3, 0.28, 23, conv ? 2 : s1);
+            tree(X + Wt / 2 + 2.5, 3, 0.6, s2); { const q = Wd(X - Wb / 2 - 2.4, 1.2); if (soiD(q[0], q[1]) > 3.9) stamp(SHRINE_B, q[0], y + 0.3, q[1], yaw, 0, 0); }      // the shop's spirit houses at the corner of its forecourt
           } else if (kind === 3) {     // the market: tin roofs on posts, tables of goods under them, stalls with umbrellas out at the kerb
             for (const bx of [-10.5, 0, 10.5]) {
               put(X + bx, 3.5, -0.5, 9.4, 0.08, 9.5, 1, ph(bq, 410 + bx), bx ? 0.1 : -0.1);
@@ -437,8 +511,36 @@ function buildChunk(cx, cz) {
   for (let t = 0; t < 42 * hwc * (1 - twc); t++) {
     const x = ox + R() * CH, z = oz + R() * CH, d = abs(rdist(x, z));
     if (d < 8.5 || fbm(x * 0.012 + 40, z * 0.012, 2) < 0.4) continue;
-    const T = TREES[BL[floor(R() * 8)]], turn = R() * TAU, sz = R();
+    const T = chyAt(z) === 1 && R() < 0.72 ? TREES[14 + (R() < 0.5 ? 1 : 0)] : TREES[BL[floor(R() * 8)]], turn = R() * TAU, sz = R();      // on a cherry hill most of the wood is cherry
     if (d < 22) plant(T, x, z, turn, 0.75 + sz * 0.7, 2); else if (d < 60) plant(T, x, z, turn, 0.75 + sz * 0.7, 3, false, 7); else plant(T, x, z, turn, 0.9 + sz * 0.6, 4, false, 7);
+  }
+  // the cherry road: a tree every eight or nine metres down both sides. The trunks are clear to four metres and the heads are big enough to
+  // meet over the middle of the road, so the two rows make an arch of blossom that the car drives through, with nothing hanging in its way
+  for (let k = Math.ceil(oz / 8.5) - 2; k * 8.5 < oz + CH + 17; k++) for (const sd of [-1, 1]) {
+    const z0 = k * 8.5 + ph(k, 300 + sd) * 4, c = chyAt(z0); if (!c || townW(z0) > 0.05 || nearRiv(z0, 14)) continue;
+    const q = z0 / SEG - floor(z0 / SEG); if (ph(k, 310 + sd) > sm(0, 0.07, q) * sm(1, 0.93, q) * 0.95) continue;      // thinning out toward the ends of the stretch, and a gap here and there
+    const offA = 6.3 + ph(k, 320 + sd) * 0.9, [x, z] = rp(z0, sd * offA); if (!inside(x, z) || abs(rdist(x, z)) < 5.6) continue;
+    plant(TREES[14 + (ph(k, 330 + sd) < 0.5 ? 1 : 0)], x, z, ph(k, 340 + sd) * TAU, 1.08 + ph(k, 350 + sd) * 0.27, 2);
+    // The arch: from each trunk three long boughs climb out over the road, highest above the near lane, and end a little past the middle,
+    // where they meet those from the other side. They carry blossom all along. Nothing of them is lower than five metres over the road.
+    const gy0 = surf(x, z), E = (h, r) => Math.round(clamp(h, 0, 60) * 32) + min(r, 5) / 32;
+    for (let b = 0; b < 3; b++) {
+      const hb = (m) => ph(k * 8 + b, 410 + m + sd), dz = (b - 1) * 2.7 + (hb(0) - 0.5) * 1.6, y0 = 4.3 + hb(1) * 1.2, rise = 3.0 + hb(2) * 1.0, past = 0.3 + hb(3) * 1.5;
+      const pt = (u) => { const off = offA - (offA + past) * u, q = rp(z0 + dz * u, sd * off); return [q[0], surf(q[0], q[1]) + y0 + rise * sin(u * 2.0), q[1], offA - off]; };
+      let a = pt(0);
+      for (let i = 1; i <= 6; i++) {
+        const q = pt(i / 6); far.push(a[0], a[1], a[2], 0.115 - 0.016 * (i - 1), q[0], q[1], q[2], 0.115 - 0.016 * i, E(a[1] - gy0, a[3]), E(q[1] - gy0, q[3]));
+        for (let j = 0; j < 22; j++) {
+          const hj = (m) => ph((k * 8 + b) * 256 + i * 32 + j, 430 + m + sd), f = hj(0), L = 0.5 + hj(4) * 0.25, y = mix(a[1], q[1], f) + (hj(2) - 0.55) * 1.5;
+          leaves.push(mix(a[0], q[0], f) + (hj(1) - 0.5) * 1.9, y, mix(a[2], q[2], f) + (hj(3) - 0.5) * 1.9, L, hj(5) * TAU, -0.35 + hj(6) * 1.1, L * 0.36, 0.5 + hj(7), 10, hj(8), 0.55 + 0.45 * hj(9), E(y - gy0, mix(a[3], q[3], f)));
+        }
+        a = q;
+      }
+    }
+    for (let j = 0; j < 16; j++) {          // petals coming down round it, some of them over the road (leaf kind 11: yaw slot = where in its fall it starts, elevation slot = the height it falls)
+      const a = ph(k * 16 + j, 360 + sd) * TAU, r = ph(k * 16 + j, 370 + sd) * 6.5, px = x + cos(a) * r, pz = z + sin(a) * r, gy = surf(px, pz), hh = 2.5 + ph(k * 16 + j, 380 + sd) * 4.5;
+      leaves.push(px, gy + hh, pz, 0.085, ph(k * 16 + j, 390 + sd), hh, 0.032, 0, 11, ph(k * 16 + j, 400 + sd), 1, 0);
+    }
   }
   for (let t = 0; t < 10 * hwc * (1 - twc); t++) {
     const x = ox + R() * CH, z = oz + R() * CH, d = abs(rdist(x, z)), u = R(), sz = R(), turn = R() * TAU;

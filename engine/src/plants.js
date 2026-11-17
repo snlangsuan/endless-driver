@@ -9,7 +9,7 @@ function makeTree(seed, o) {
   const branch = (p0, d0, len, rad, lvl) => {
     // No limb grows straight: each piece turns a little from the last, now and then sharply (where a shoot once died back);
     // a long limb sags under its own weight in the middle and turns up to the light at its end.
-    const n = lvl === 0 ? 8 : lvl === 1 ? 7 : 5, pts = [p0.slice()], dirs = [], d = d0.slice(), p = p0.slice(), wob = o.wob * (lvl ? 1.25 : 0.6), tip = lvl === 0 ? 0.16 : 0.4;
+    const n = lvl === 0 ? 8 : lvl === 1 ? 7 : lvl === 2 ? 4 : 3, pts = [p0.slice()], dirs = [], d = d0.slice(), p = p0.slice(), wob = o.wob * (lvl ? 1.25 : 0.6), tip = lvl === 0 ? 0.16 : 0.4;
     for (let i = 0; i < n; i++) {
       const kink = R() < 0.22 ? 2.6 : 1, flat = 1 - abs(d[1]);
       d[0] += (R() - 0.5) * wob * kink; d[2] += (R() - 0.5) * wob * kink; d[1] += lvl ? (R() - 0.5) * wob * 0.6 + (i / n - 0.42) * 0.3 * flat + o.trop * 0.2 : 0.05; nrm3(d);
@@ -44,7 +44,7 @@ function makeTree(seed, o) {
     const f = R(), a = i < t.length - 1 ? t[i] : t[i - 1], b = i < t.length - 1 ? t[i + 1] : t[i];
     const x = mix(a[0], b[0], f), y = mix(a[1], b[1], f), z = mix(a[2], b[2], f);
     const dist = hypot(x - cx, y - cy, z - cz) / rad, shade = 0.42 + 0.58 * clamp((dist - 0.25) / 0.6, 0, 1), L = o.leaf * (0.7 + R() * 0.6);
-    leaves.push(x, y, z, L, R() * TAU, -0.35 + R() * 1.1, L * o.wide, 0.5 + R() * 1.0, 0, R(), shade, y);
+    leaves.push(x, y, z, L, R() * TAU, -0.35 + R() * 1.1, L * o.wide, 0.5 + R() * 1.0, o.bloom && R() < o.bloom ? 10 : 0, R(), shade, y);      // (o.bloom: that share of the sprigs are sprays of blossom)
   }
   shuffleLeaves(leaves, R);
   const all = [].concat(segs[0], segs[1], segs[2], segs[3]);

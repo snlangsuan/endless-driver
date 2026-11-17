@@ -25,7 +25,7 @@ const sShadowCmp = device.createSampler({ compare: 'less', magFilter: 'linear', 
 const signW = (B) => { for (let i = 0; i < B.length; i += 12) if (B[i + 8] === 23) B[i + 11] = 10 + Math.max(B[i + 4], B[i + 6]); return B; };      // a sign board carries its own width, so the words can be fitted to it
 const SIGNS = ['อาหารตามสั่ง', 'ก๋วยเตี๋ยวเรือ', 'ข้าวมันไก่', 'ร้านขายยา', 'ห้างทอง', 'ซ่อมมอเตอร์ไซค์', 'ตัดผมชาย', 'เสริมสวย', 'วัสดุก่อสร้าง', 'กาแฟสด', 'ซักอบรีด', 'ร้านชำ', 'มินิมาร์ท', 'คลินิก', 'ทันตกรรม', 'ร้านดอกไม้',
   'อะไหล่ยนต์', 'ร้านหนังสือ', 'เครื่องเขียน', 'ถ่ายรูปด่วน', 'มือถือ ซิม', 'เบเกอรี่', 'ส้มตำ ไก่ย่าง', 'โจ๊ก ต้มเลือดหมู', 'เสื้อผ้าแฟชั่น', 'รองเท้า กระเป๋า', 'หอพัก ห้องว่าง', 'ให้เช่า', 'ขายส่ง ขายปลีก', 'น้ำแข็ง น้ำดื่ม', 'ข้าวแกง', 'ขนมไทย',
-  'ผลไม้สด', 'เครื่องใช้ไฟฟ้า', 'เฟอร์นิเจอร์', 'ร้านแว่นตา', 'อู่ซ่อมรถ', 'ล้างอัดฉีด', 'ยางรถยนต์', 'แก๊ส', 'ข้าวสาร', 'ของฝาก', 'นวดแผนไทย', 'โรงรับจำนำ', 'ปุ๋ย ยาเกษตร', 'อาหารสัตว์', 'เปิด 24 ชม.', 'ยินดีต้อนรับ',
+  'ผลไม้สด', 'เครื่องใช้ไฟฟ้า', 'เฟอร์นิเจอร์', 'ร้านแว่นตา', 'อู่ซ่อมรถ', 'ล้างอัดฉีด', 'ยางรถยนต์', 'แก๊ส', 'ข้าวสาร', 'ของฝาก', 'นวดแผนไทย', 'โรงรับจำนำ', 'ปุ๋ย ยาเกษตร', 'อาหารสัตว์', 'เปิด 24 ชม.', '1 มาร์ท',
   'ตัวเมือง', 'ตลาดสด', 'วัด', 'โรงเรียน', 'ชายหาด', 'น้ำตก', 'อุทยาน', 'ขับช้าๆ', 'เขตชุมชน', 'ลดความเร็ว', 'ระวังทางโค้ง', 'จุดชมวิว', 'ที่พักริมทาง', 'สะพาน', 'ใช้เกียร์ต่ำ', 'เดินทางปลอดภัย'];
 const vSign = (() => {
   const cv = document.createElement('canvas'); cv.width = 2048; cv.height = 1024; const x = cv.getContext('2d'), FONT = '"Sukhumvit Set", Thonburi, "Noto Sans Thai", Sarabun, "Leelawadee UI", Tahoma, sans-serif';
@@ -60,8 +60,8 @@ const shadowPipe = (vs, buffers, topology = 'triangle-list', ws = 1) => device.c
   primitive: { topology, cullMode: 'none' },
   depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less', depthBias: 2, depthBiasSlopeScale: 2.5 } });
 const pTerrain = scenePipe('vsTerrain', 'fsTerrain', LB_TERRAIN), pBranch = scenePipe('vsBranch', 'fsBranch', LB_BRANCH), pBox = scenePipe('vsBox', 'fsBox', LB_BOX);
-// leaves come in three densities: every leaf nearby, then a third and a ninth of them made wider to cover the same area
-const LODW = [1, 1.75, 3.1], LODN = [1, 3, 9];
+// leaves come in four densities: every leaf nearby, then a third, a ninth and (far off) a twenty-seventh of them, made wider to cover the same area
+const LODW = [1, 1.75, 3.1, 5.4], LODN = [1, 3, 9, 27];
 const pLeaf = LODW.map((w) => scenePipe('vsLeaf', 'fsLeaf', LB_LEAF, 'triangle-strip', w));
 const pSky = scenePipe('vsSky', 'fsSky', [], 'triangle-list', 1, 'less-equal');
 const pBoxS = shadowPipe('vsBox', LB_BOX);
@@ -83,6 +83,13 @@ for (let k = 0; k <= SIDES; k++) { const a = k / SIDES * TAU; tubeV.set([cos(a),
 for (let k = 0; k < SIDES; k++) tubeI.set([2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 2, 2 * k + 1, 2 * k + 3], k * 6);
 const vbuf = (data, usage = GPUBufferUsage.VERTEX) => { const b = device.createBuffer({ size: max(16, (data.byteLength + 3) & ~3), usage: usage | GPUBufferUsage.COPY_DST }); Q.writeBuffer(b, 0, data); return b; };
 const vbTube = vbuf(tubeV), ibTube = vbuf(tubeI, GPUBufferUsage.INDEX);
+// and one of 4 sides, a third of the triangles: for twigs, for everything beyond 85 m, and for shadows
+const tubeV4 = new Float32Array(5 * 6), tubeI4 = new Uint16Array(4 * 6);
+// (its corners stand out 1.4 times the radius, so that seen from any side it is as wide as the round tube: a distant wire is kept one pixel
+// wide by its radius, and a square of the bare radius, seen flat on, came out thinner than that and broke up into dashes)
+for (let k = 0; k <= 4; k++) { const a = (k + 0.5) / 4 * TAU; tubeV4.set([cos(a) * 1.4, sin(a) * 1.4, 0, cos(a) * 1.4, sin(a) * 1.4, 1], k * 6); }
+for (let k = 0; k < 4; k++) tubeI4.set([2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 2, 2 * k + 1, 2 * k + 3], k * 6);
+const vbTube4 = vbuf(tubeV4), ibTube4 = vbuf(tubeI4, GPUBufferUsage.INDEX);
 // unit cube shared by every box
 const cubeV = [], cubeI = [];
 for (const [nx, ny, nz, ux, uy, uz, vx, vy, vz] of [[1, 0, 0, 0, 0, 1, 0, 1, 0], [-1, 0, 0, 0, 0, -1, 0, 1, 0], [0, 1, 0, 1, 0, 0, 0, 0, 1], [0, -1, 0, 1, 0, 0, 0, 0, -1], [0, 0, 1, -1, 0, 0, 0, 1, 0], [0, 0, -1, 1, 0, 0, 0, 1, 0]]) {

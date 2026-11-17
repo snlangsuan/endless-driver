@@ -10,7 +10,13 @@ struct XO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
     if (v.y > 0.) { vv.z = 0.; }
     if (abs(nv.z) > .5) { nn = normalize(vec3f(0., b.z * .5, sign(nv.z) * b.y)); }
   }
-  var l = vv * b.xyz; let ct = cos(b.w); let st = sin(b.w);
+  var l = vv * b.xyz;
+  if (c.x > 37.5 && c.x < 38.5) {                   // a flag is cloth: it is made of narrow upright strips (the seed says how far each is from the pole), and here a wave
+    let d = c.y + l.x; let W = g.misc.y; let t = g.cam.w; let gs = gust(a.xz);      // runs out along them from the pole, bigger toward the free end and with the wind; in a calm the cloth hangs
+    l.z += d * (.07 + .15 * W * (.5 + gs)) * sin(t * (3.5 + 3. * W) - d * 3.6 + a.x) + d * d * .035 * sin(t * 2.3 - d * 1.9 + a.z);
+    l.y -= d * d * .10 * max(0., 1. - W * (.5 + gs));
+  }
+  let ct = cos(b.w); let st = sin(b.w);
   l = vec3f(l.x, l.y * ct - l.z * st, l.y * st + l.z * ct); var n = vec3f(nn.x, nn.y * ct - nn.z * st, nn.y * st + nn.z * ct);
   let cy = cos(a.w); let sy = sin(a.w);
   let lo = vec3f(l.x * cy + l.z * sy, l.y, -l.x * sy + l.z * cy); let w0 = lo + a.xyz;

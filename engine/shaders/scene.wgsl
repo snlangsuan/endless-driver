@@ -68,7 +68,7 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   let f5 = 1. - ss(.5, 1.4, px * 34.); let r5 = vn(Pr * 23.) * .6 + vn(Pr * 51. + 7.) * .4; let n5 = mix(.5, r5, f5);
   let fbx = (vn((Pr + vec2f(e2, 0.)) * 23.) * .6 + vn((Pr + vec2f(e2, 0.)) * 51. + 7.) * .4 - r5) * f5; let fbz = (vn((Pr + vec2f(0., e2)) * 23.) * .6 + vn((Pr + vec2f(0., e2)) * 51. + 7.) * .4 - r5) * f5;
   let tfv = turf(P); let rag = (mix(.5, vnp(Pf * 6., 1536.), 1. - ss(.5, 1.4, px * 6.)) * .55 + n5 * .45 - .5) * .17;                 // the turf's edge is ragged: tufts push out over the earth
-  let s1 = stk(Pf, vec2f(.955, .296), 0., px); let s2 = stk(Pf, vec2f(.17, .985), 31., px); let s3 = stk(Pf, vec2f(-.80, .60), 57., px);
+  let Pb = stkw(Pf); let s1 = stk(Pb, vec2f(.955, .296), 0., px); let s2 = stk(Pb, vec2f(.17, .985), 31., px); let s3 = stk(Pb, vec2f(-.80, .60), 57., px);
   let wsel = vn(P * 1.3 + 5.); let blades = max(mix(s1, s2, ss(.35, .65, wsel)), s3 * .85);
   let straw = vec3f(.27, .22, .08);
   let gcol = mix(mix(vec3f(.085, .135, .025), vec3f(.150, .170, .045), n1), straw * .85, g.fog.w * .75);      // the blades' own colours
@@ -93,7 +93,9 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   let twz = tw(wp.z); let swz = sw(wp.z); let hz_ = hw(wp.z) * (1. - twz); let slope = 1. - n.y; let nwz = nw(wp.z);
   let fq = P * .012 + vec2f(40., 0.); let fm = (2. * pn(fq) + pn(fq * 2.03 + vec2f(17.1, 9.7))) / 3.; let wood = hz_ * ss(.37, .45, fm);      // the script plants the forest by this same number (fbm, two octaves)
   alb = mix(alb, mix(mix(vec3f(.060, .095, .025), vec3f(.11, .13, .04), n2), vec3f(.10, .075, .04) * (.7 + .6 * n3), ss(.45, .7, vn(P * 1.9 + 3.)) * .6) * (.75 + .4 * n4), wood * .9);      // shaded turf and leaf litter
-  alb = mix(alb, vec3f(.05, .10, .03) * (.7 + .6 * vn(P * .2)), wood * ss(120., 300., dcam) * .7);
+  let ck = chy(wp.z);
+  var canopy = vec3f(.05, .10, .03) * (.7 + .6 * vn(P * .2)); if (ck == 1) { canopy = mix(canopy, vec3f(.40, .12, .22) * (.75 + .5 * vn(P * .13 + 5.)), ss(.25, .45, vn(P * .06 + 11.)) * .85); }      // a cherry hill is pink from far off too
+  alb = mix(alb, canopy, wood * ss(120., 300., dcam) * mix(.7, .85, f32(ck == 1)));
   let strata = sin(wp.y * 1.1 + n1 * 7.) * .5 + .5;
   let rk = ss(.30, .50, slope + (n2 - .5) * .14) * max(hz_, swz);
   alb = mix(alb, mix(vec3f(.23, .20, .17), vec3f(.36, .32, .27), strata) * (.6 + .7 * n2) * (.8 + .4 * n4), rk); bump = mix(bump, 2.2, rk);
@@ -172,6 +174,14 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   road = mix(road, vec3f(.55, .55, .52) * (.8 + .25 * n4), zebra);
   road = mix(road, vec3f(.56, .58, .63) * (.9 + .1 * n4), nwz * .85 * (1. - ss(.55, .25, min(abs(rd - .95), abs(rd - 2.55)))) * ss(.3, .6, vn(P * .45) + .15));      // snow on the road, worn away in the wheel tracks
   alb = mix(alb, road, asp); bump = mix(bump, .25, asp); gloss = mix(gloss, .22, asp);
+  // under the cherries: fallen petals, on the verges and the road's edges and (on a cherry hill) all through the wood; fewer where the wheels run
+  if (ck > 0 && nk > .01) {
+    var area = 1. - ss(9., 17., rd); if (ck == 1) { area = max(area, wood * .8); }
+    let pc = P * 10.; let ci = floor(pc); let pd = length(fract(pc) - .5 - (vec2f(h2(ci + 7.3), h2(ci + 19.1)) - .5) * .55);
+    let dens = area * (.12 + .50 * vn(P * .35 + 3.)) * (1. - .75 * asp * ss(3.1, 2.2, rd));
+    let pet = step(h2(ci), dens) * ss(.26, .18, pd) * nk * (1. - ss(.5, 1.4, px * 10.));
+    alb = mix(alb, mix(vec3f(.62, .16, .30), vec3f(.84, .46, .58), h2(ci + 3.1)), pet * .92);
+  }
   n = normalize(n - vec3f(bx + fbx * nk * 1.4 * (1. - asp * .7), 0., bz + fbz * nk * 1.4 * (1. - asp * .7)) * bump * (1. - wet));
   let L = g.sun.xyz; let V = normalize(g.cam.xyz - wp);
   let ndl = max(dot(n, L), 0.);
@@ -215,6 +225,13 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   let L = g.sun.xyz; let V = normalize(g.cam.xyz - i.wp);
   var alb = i.col * mix(.50, 1.18, i.uv.y) * (.74 + .26 * ss(0., .3, abs(i.uv.x)));
   var trv = i.pr.y;
+  if (i.pr.y > 39.) {          // a spray of cherry blossom: small round five-petalled flowers set close together, a few gaps, each with a darker eye
+    let sd = (i.pr.y - 41.) / 4.; trv = .55;
+    let q = vec2f(i.uv.x * 1.5 + 1.5 + .35 * sin(i.uv.y * 9. + sd * 20.), i.uv.y * 5. + .3 * sin(i.uv.x * 5. + sd * 31.)); let cl = floor(q); let hh = h2(cl + sd * 37.); let hh2 = h2(cl * 1.7 + sd * 11. + 5.);
+    let dd = fract(q) - .5 - (vec2f(hh, fract(hh2 * 7.3)) - .5) * .5; let rr = length(dd); let an = atan2(dd.y, dd.x) + hh * 6.;
+    if (hh2 < .2 || rr > .17 + .16 * fract(hh * 5.7) + .11 * abs(cos(an * 2.5))) { discard; }      // each flower its own size and place in its cell, so no grid shows
+    alb = mix(i.col * vec3f(.55, .22, .30), i.col * (.92 + .3 * hh), ss(.04, .15, rr));
+  } else
   if (i.pr.y > 29.) {          // banana leaf, cut from the strip: a long paddle with a wavy edge and a round end, a thick pale midrib, close veins running out to the edge, and notches torn in along the veins - few on a young leaf, many and deep on an old one
     let sd = (i.pr.y - 31.) / 4.; let ax = abs(i.uv.x); let v = i.uv.y; trv = .5;
     var wv = min(pow(ss(0., .12, v), .65), sqrt(max(1. - pow(max(v - .80, 0.) / .20, 2.), 0.))) * (.84 + .16 * sin(3.14159 * v));
@@ -490,6 +507,46 @@ fn pal(h: f32) -> vec3f {
     alb = mix(vec3f(.07, .06, .05), goods, step(.14, f.y) * step(f.y, .14 + .5 + .3 * hsh) * step(.1, f.x));
     alb = mix(alb, vec3f(.34, .31, .27), step(f.y, .09)); alb = mix(alb, vec3f(.20, .17, .14), ss(25., 70., dcb)); emi = alb * night * 1.3;
   }
+  else if (mat == 42) {      // a modern shop shelf: white steel, levels 30 cm apart, small packets in rows (each kind four facings wide), a white price strip along every shelf's edge
+    let c2 = vec2f(uv.x / .11, uv.y / .30); let id = floor(c2); let f = fract(c2); let grp = h2(vec2f(floor(id.x / 4.), id.y) + sd * 13.);
+    let goods = mix(pal2(grp), vec3f(.86, .85, .80), .2 + .45 * h2(id + sd * 57.)) * (.72 + .28 * h2(id * 1.7 + sd));
+    alb = mix(vec3f(.78, .78, .76), goods, step(.17, f.y) * step(f.y, .6 + .3 * grp) * step(.1, f.x));
+    alb = mix(alb, vec3f(.94, .94, .91), step(f.y, .12)); if (abs(i.ln.y) > .5) { alb = vec3f(.86); }
+    alb = mix(alb, vec3f(.62, .62, .60), ss(25., 70., dcb));
+  }
+  else if (mat == 43) {      // a wall of drinks chillers: glass doors in dark frames, bright inside, bottles and cans in rows on white wire shelves
+    let dw = fract(uv.x / .78); let c2 = vec2f(uv.x / .078, uv.y / .36); let id = floor(c2); let f = fract(c2); let grp = h2(vec2f(floor(id.x / 3.), id.y) + sd * 31.);
+    let bt = step(.18, f.x) * step(f.x, .82) * step(.1, f.y) * step(f.y, .8);
+    alb = mix(vec3f(.84, .88, .90), mix(pal2(grp), vec3f(.92), .18 + .3 * h2(id + 5.)), bt); alb = mix(alb, vec3f(.80, .84, .86), ss(25., 70., dcb));
+    alb = mix(alb, vec3f(.06), max(step(dw, .05), step(.95, dw))); emi = alb * .2; gloss = .5;
+  }
+  else if (mat == 45) {      // a traffic signal head: a black case with three lamps on its front, red above amber above green; which is lit follows the clock
+    alb = vec3f(.025); gloss = .3;        // (seed: the signal's place in its 30 s cycle - 16 s green, 3 amber, 11 red - as tlState in land.js)
+    if (i.ln.z > .5) {
+      let ph_ = fract(g.cam.w / 30. + sd); var on = 2; if (ph_ > 16. / 30.) { on = 1; } if (ph_ > 19. / 30.) { on = 0; }
+      if (sd > .9995) { on = 0; if (ph_ > .655) { on = 2; } if (ph_ > .90) { on = 1; } if (ph_ > .97) { on = 0; } }      // (seed 1 + place: the side street's head, green inside the main road's red)
+      for (var j = 0; j < 3; j++) {
+        let r = length(i.lp.xy - vec2f(0., .34 - f32(j) * .34)); if (r > .135) { continue; }
+        var lc = vec3f(1., .06, .04); if (j == 1) { lc = vec3f(1., .62, .05); } if (j == 2) { lc = vec3f(.08, 1., .45); }
+        alb = lc * .10; if (j == on) { alb = lc; emi = lc * (2.2 + 2.5 * night) * (1. - .5 * ss(.06, .135, r)); }
+      }
+    }
+  }
+  else if (mat == 46) {      // the lights for people crossing: red above, green below; green while the main road is stopped
+    alb = vec3f(.025); gloss = .3;
+    if (i.ln.z > .5) {
+      let ph_ = fract(g.cam.w / 30. + sd); let walk = ph_ > .665 && ph_ < .93;
+      for (var j = 0; j < 2; j++) {
+        let r = length(i.lp.xy - vec2f(0., .15 - f32(j) * .30)); if (r > .11) { continue; }
+        var lc = vec3f(1., .06, .04); if (j == 1) { lc = vec3f(.08, 1., .45); }
+        alb = lc * .10; if ((j == 1) == walk) { alb = lc; emi = lc * (2. + 2.5 * night); }
+      }
+    }
+  }
+  else if (mat == 44) {      // a shop ceiling: white tiles, set with rows of light panels that are on day and night
+    let q = i.lp.xz; let lp = step(.3, fract(q.x / 1.2)) * step(.72, fract(q.y / 1.25));
+    alb = vec3f(.86, .86, .84) * (.97 + .03 * step(.03, fract(q.x / .6)) * step(.03, fract(q.y / .6))); emi = vec3f(1., 1., .94) * lp * (1.1 + 1.6 * night);
+  }
   else if (mat == 32) {      // roller shutter: steel slats, bare or painted, rust creeping up from the foot
     let hh = i.m.z * .5; let slat = mix(.92, .68 + .32 * ss(.0, .5, abs(fract(uv.y * 11.) - .5) * 2.), fN);
     alb = mix(vec3f(.36, .37, .38), pal(fract(sd * 5.3)) * .62, step(.55, sd)) * slat * (.88 + .15 * vn(uv * 5.));
@@ -528,12 +585,13 @@ fn pal(h: f32) -> vec3f {
     // under it a row of small figures (the telephone number). A lightbox at night, unless the height slot is negative (road signs are not lit).
     var q = i.lp.xy; if (abs(i.ln.x) > .5) { q = i.lp.zy; }
     if (i.ln.z < -.5 || i.ln.x > .5) { q.x = -q.x; }                 // so the words read the right way round on every face
-    let hgt = abs(i.m.z); let bg = pal2(sd); var fg = vec3f(.95, .93, .86);
+    let hgt = abs(i.m.z); var bg = pal2(sd); var fg = vec3f(.95, .93, .86); let brand = sd > 1.5;      // (seed 2: the convenience store's board, see below)
     if (dot(bg, vec3f(.3, .6, .1)) > .45) { fg = mix(vec3f(.60, .04, .04), vec3f(.05, .13, .45), step(.5, h2(vec2f(sd * 13., 2.)))); }      // on yellow or white: red or blue letters
     if (i.m.z < 0. && dot(bg, vec3f(.3, .6, .1)) > .45) { fg = vec3f(.04); }
     // which words: a shop name (0-47) or, on a road board, one of the road words (48-63); written across, or downward on a tall board
     var wd = hgt * 4.; if (i.m.w > 10.05) { wd = i.m.w - 10.; }
-    var idx = floor(h2(vec2f(sd * 91., 5.)) * 47.99); if (i.m.z < 0.) { idx = 48. + floor(h2(vec2f(sd * 57., 9.)) * 15.99); }
+    var idx = floor(h2(vec2f(sd * 91., 5.)) * 46.99); if (i.m.z < 0.) { idx = 48. + floor(h2(vec2f(sd * 57., 9.)) * 15.99); }
+    if (brand) { idx = 47.; bg = vec3f(.24, .07, .36); fg = vec3f(.97, .96, .92); }      // the made-up chain's colours: purple, white letters, a yellow line above and below
     var ink = 0.;
     if (hgt > wd * 1.4) {
       let u = q.x / (wd * .86) + .5; let v = .5 - q.y / (hgt * .92);
@@ -543,7 +601,9 @@ fn pal(h: f32) -> vec3f {
       let u = q.x / tw + .5; let v = .5 - q.y / th;
       if (u > 0. && u < 1. && v > 0. && v < 1.) { ink = textureSampleLevel(tSign, sMir, vec2f((idx % 4. + u) * 256., (floor(idx / 4.) + v) * 64.) / vec2f(2048., 1024.), 0.).r; }
     }
-    alb = mix(bg, fg, mix(ink, .25, ss(20., 55., dcb))) * (.9 + .1 * vn(q * 6.)); emi = alb * night * 1.4 * step(0., i.m.z); gloss = .25;
+    alb = mix(bg, fg, mix(ink, .25, ss(20., 55., dcb))) * (.9 + .1 * vn(q * 6.));
+    if (brand) { let vv = abs(q.y) / hgt; alb = mix(alb, vec3f(.95, .72, .08), step(.36, vv) * step(vv, .43)); }
+    emi = alb * night * 1.4 * step(0., i.m.z); gloss = .25;
     if (abs(i.ln.y) > .5 || (abs(i.ln.z) > .5 && abs(i.ln.x) > .5)) { alb = vec3f(.2); }
   }
   else if (mat == 24) {      // retaining wall of fitted rubble stone, pale mortar between
@@ -651,6 +711,7 @@ fn pal(h: f32) -> vec3f {
   if (i.m.z > .5 && abs(i.ln.y) < .5 && mat != 38) { let hh = i.m.z * .5; ao = mix(.55, 1., ss(0., .45, hh - i.lp.y)) * mix(.72, 1., max(ss(0., .5, i.lp.y + hh), f32(mat == 6))); }      // (a shophouse's upper floors do not start at the ground)
   let ndl = max(dot(n, L), 0.);
   let E = g.sunCol.rgb * shadow(i.wp + n * .1);
+  if (i.m.w > 2.5 && i.m.w < 3.5) { emi += alb * (.36 + .7 * night); }      // (shape 3) indoors under the shop's own lights, which are on all the time
   var c = alb * (E * ndl + sky(n) * ao) + E * pow(max(dot(n, normalize(V + L)), 0.), 40.) * ndl * gloss + alb * head(i.wp, n) + emi;
   return vec4f(fogged(c, i.wp), 1.);
 }

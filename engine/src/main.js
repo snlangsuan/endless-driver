@@ -9,7 +9,7 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 // --------------------------------------------------------------------------------------------------------- frame
 const hud = $('hud');
 let last = performance.now(), time = 0, fN = 0, fT = 0, fWorst = 0, fps = 60, onRoad = true, tris = 0;
-const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0;
+const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0, lodK = 1;      // lodK: 1 = full drawing distances for leaves, twigs and grass; lowered (to 0.9 at least) when the frame rate cannot be held otherwise
 updateChunks(car.x, car.z, 30);
 function frame(now) {
   requestAnimationFrame(frame);
@@ -17,21 +17,27 @@ function frame(now) {
   fN++; fT += dtr; if (dtr > fWorst) fWorst = dtr;
   if (fT > 500) {
     fps = fN * 1000 / fT;
-    // hold 30 fps or better: lower the render resolution when slow, give it back when there is room
+    // Hold the frame rate up without spoiling the picture: when it falls a fifth below what the display shows (or under 60), first
+    // draw the picture a little smaller, then draw a little less of the far leaves, twigs and grass (lodK), then a little smaller again; give it
+    // back in the reverse order. Looks come first: see the floor below.
     // The picture is drawn smaller when the frame rate is low and back at full size when it has recovered. "Low" is judged against the best
     // rate this display has shown, so a screen that runs at 30 or 50 Hz is not mistaken for a slow one; and if a step down did not help
     // (the rate is capped, or the machine is not held back by pixels) the best rate is taken to be the one we have.
     if (fWorst < 400) {
       if (fps > rBest) rBest = fps;
       if (rPrev) { rFlat = fps < rPrev * 1.04 ? rFlat + 1 : 0; rPrev = 0; if (rFlat >= 2) { rBest = fps; rFlat = 0; rKnown = 1; } }
-      const dn = rKnown ? min(34, rBest * 0.8) : 34, up = min(55, rBest * 0.92);      // (until a step down has been seen not to help, 34 is the mark: a slow machine must not be taken for a capped display)
+      const dn = rKnown || rBest > 50 ? min(60, rBest * 0.8) : 34, up = min(100, rBest * 0.95);      // looks before speed: nothing is given up until the rate is a fifth below the display's (or under 60)      // (until a step down has been seen not to help, 34 is the mark: a slow machine must not be taken for a capped display)
       if (rLidN > 0 && --rLidN === 0) rLid = 1;
       rSince++;
-      if (fps < dn && scale > 0.5) { scale = max(0.5, scale * 0.9); upOK = 0; rPrev = fps; if (rSince <= 2) { rLid = scale; rLidN = 120; } }
-      else if (fps > up && scale < rLid) { if (++upOK >= 8) { scale = min(rLid, scale * 1.06); upOK = 0; rSince = 0; } }
+      // Quality has a floor: the picture is never drawn below 85% size nor the drawing distances cut below 90%. Past that the frame rate is let fall.
+      if (fps < dn && (scale > 0.85 || lodK > 0.9)) {
+        if (scale > 0.92 || lodK <= 0.9) { scale = max(0.85, scale * 0.95); if (rSince <= 2) { rLid = scale; rLidN = 120; } } else lodK = max(0.9, lodK * 0.95);
+        upOK = 0; rPrev = fps;
+      }
+      else if (fps > up && (scale < rLid || lodK < 1)) { if (++upOK >= 6) { if (scale < 0.92 || lodK >= 1) scale = min(rLid, scale * 1.05); else lodK = min(1, lodK * 1.08); upOK = 0; rSince = 0; } }
       else upOK = 0;
     }
-    hud.textContent = `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? 'ทุ่งหิมะ' : flwAt(car.z) ? 'ทุ่งดอกไม้และนาข้าว' : 'ทุ่งนา'} · ${todName()} ${wxName()} ${AT.dry > 0.5 ? 'หน้าแล้ง' : 'หน้าฝน'} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'} (จำกัด ${auto.limit} km/h)\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
+    hud.textContent = `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${chyAt(car.z) ? 'ถนนพญาเสือโคร่ง' : hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? 'ทุ่งหิมะ' : flwAt(car.z) ? 'ทุ่งดอกไม้และนาข้าว' : 'ทุ่งนา'} · ${todName()} ${wxName()} ${chyAt(car.z) ? 'หน้าหนาว' : AT.dry > 0.5 ? 'หน้าแล้ง' : 'หน้าฝน'} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'} (จำกัด ${auto.limit} km/h) · ป้าย ${zlim(car.z)}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
     fN = 0; fT = 0; fWorst = 0;
   }
   resize();
@@ -78,9 +84,9 @@ function frame(now) {
   for (const c of chunks.values()) {
     const d = hypot(c.x - sc[0], c.z - sc[2]), dc = hypot(c.x - ex, c.z - ez); if (d > SHR * 1.45 + CH + 40 / max(shL[1], 0.2) + (c.reach || 0)) continue;      // (with room for the long shadows of a low sun)
     p.setPipeline(pTerrainS); p.setVertexBuffer(0, c.vb); p.setIndexBuffer(ibGrid, 'uint16'); p.drawIndexed(gridI.length);
-    if (c.nSeg) { p.setPipeline(pBranchS); p.setVertexBuffer(0, vbTube); p.setVertexBuffer(1, c.segB); p.setIndexBuffer(ibTube, 'uint16'); p.drawIndexed(tubeI.length, c.nSegFar); }
+    if (c.nSegFar) { p.setPipeline(pBranchS); p.setVertexBuffer(0, vbTube4); p.setVertexBuffer(1, c.segB); p.setIndexBuffer(ibTube4, 'uint16'); p.drawIndexed(tubeI4.length, c.nSegFar); }
     if (c.nBox) { p.setPipeline(pBoxS); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, c.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, c.nBox); }
-    if (c.nLeaf) { const l = dc > 120 ? 2 : 1; p.setPipeline(l === 2 ? pLeafS2 : pLeafS); p.setVertexBuffer(0, c.leafB); p.draw(10, floor(c.nLeaf / LODN[l])); }
+    if (c.nLeaf) { if (dc > 260 * lodK) continue; const l = dc > 80 * lodK ? 2 : 1; p.setPipeline(l === 2 ? pLeafS2 : pLeafS); p.setVertexBuffer(0, c.leafB); p.draw(10, floor(c.nLeaf / LODN[l])); }
   }
   if (SHOW_CAR) { p.setPipeline(pCarS); p.setVertexBuffer(0, carVB); p.setIndexBuffer(carIB, 'uint16'); p.drawIndexed(CAR.idx.length); }
   p.end();
@@ -120,10 +126,15 @@ function frame(now) {
       if (abs(f[1]) < 0.3 ? (fw < -Rc || Math.sqrt(max(d * d - fw * fw, 0)) > k * max(fw, 0) + Rc * hypot(1, k)) : (dx * f[0] + dz * f[2]) / d < -0.35) continue;
     }
     p.setPipeline(pTerrain); p.setVertexBuffer(0, c.vb); p.setIndexBuffer(ibGrid, 'uint16'); p.drawIndexed(gridI.length); tris += GN * GN * 2;
-    if (c.nSeg) { const n = d < 110 ? c.nSeg : c.nSegFar; p.setPipeline(pBranch); p.setVertexBuffer(0, vbTube); p.setVertexBuffer(1, c.segB); p.setIndexBuffer(ibTube, 'uint16'); p.drawIndexed(tubeI.length, n); tris += n * SIDES * 2; }
+    if (c.nSeg) {          // trunks and boughs nearby are round (8 sides); twigs, and everything from 85 m on, have 4
+      const nR = d < 85 * lodK ? c.nSegFar : 0, n4 = d < 85 * lodK ? c.nSeg - c.nSegFar : c.nSegFar; p.setPipeline(pBranch); p.setVertexBuffer(1, c.segB);
+      if (nR) { p.setVertexBuffer(0, vbTube); p.setIndexBuffer(ibTube, 'uint16'); p.drawIndexed(tubeI.length, nR); }
+      if (n4) { p.setVertexBuffer(0, vbTube4); p.setIndexBuffer(ibTube4, 'uint16'); p.drawIndexed(tubeI4.length, n4, 0, 0, nR); }
+      tris += nR * SIDES * 2 + n4 * 8;
+    }
     if (c.nBox) { p.setPipeline(pBox); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, c.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, c.nBox); tris += c.nBox * 12; }
-    if (c.nLeaf) { const l = d < 75 ? 0 : d < 180 ? 1 : 2, n = floor(c.nLeaf / LODN[l]); p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.leafB); p.draw(10, n); tris += n * 8; }
-    if (c.nGrass && d < 130) { const l = d < 48 ? 0 : d < 85 ? 1 : 2, n = floor(c.nGrass / LODN[l]); p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.grassB); p.draw(10, n); tris += n * 8; }
+    if (c.nLeaf) { const l = d < 62 * lodK ? 0 : d < 150 * lodK ? 1 : d < 250 * lodK ? 2 : 3, n = floor(c.nLeaf / LODN[l]); p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.leafB); p.draw(10, n); tris += n * 8; }
+    if (c.nGrass && d < 130 * lodK) { const l = d < 48 * lodK ? 0 : d < 85 * lodK ? 1 : 2, n = floor(c.nGrass / LODN[l]); p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.grassB); p.draw(10, n); tris += n * 8; }
   }
   p.setPipeline(pSky); p.draw(3);
   p.end();
