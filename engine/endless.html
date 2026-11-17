@@ -24,6 +24,7 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none}
 #mpV{width:70px;accent-color:#6ee7b7;height:3px}
 #mpU{display:none;width:100%;box-sizing:border-box;margin-top:6px;padding:5px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(0,0,0,.35);color:#eef2f8;font:12px system-ui,sans-serif;outline:none}
 #mpU:focus{border-color:#6ee7b7} #mp.url #mpU{display:block}
+body.noui #hud,body.noui #keys{display:none}
 #mpY{position:fixed;right:12px;bottom:12px;width:320px;height:200px;z-index:-1;opacity:.01;pointer-events:none}
 #err{position:fixed;inset:0;display:none;padding:24px;background:#200;color:#fbb;font:13px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow:auto;z-index:9}
 </style>
@@ -44,7 +45,7 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none}
     <input id="mpU" type="text" placeholder="ลิงก์ playlist หรือวิดีโอจาก YouTube" spellcheck="false"></div>
 </div>
 <div id="mpY"><div id="mpF"></div></div>
-<div id="keys">W A S D ขับ · Shift เร่ง · P ขับอัตโนมัติ · - / + จำกัดความเร็ว · ลากเมาส์มองรอบ · T ข้ามเวลา · R เลือกอากาศ · Y สุ่มอากาศ เปิด/ปิด · L ไฟหน้า · F กล้องบิน (Q/E ลงขึ้น) · M เสียง</div>
+<div id="keys">W A S D ขับ · Shift เร่ง · P ขับอัตโนมัติ · - / + จำกัดความเร็ว · คลิกจอเพื่อจับเมาส์มองรอบ (Esc ปล่อย) · T ข้ามเวลา · R เลือกอากาศ · Y สุ่มอากาศ เปิด/ปิด · L ไฟหน้า · F กล้องบิน (Q/E ลงขึ้น) · M เสียง · H ซ่อน/แสดงข้อความ</div>
 <div id="err"></div>
 <script>
 // =====================================================================================================================
@@ -250,9 +251,12 @@ fn turf(P: vec2f) -> f32 { return pn(P * .09) * .5 + pn(P * .37) * .32 + pn(P * 
 fn vnp(p: vec2f, n: f32) -> f32 { let i = floor(p); let f = fract(p); let u = f * f * (3. - 2. * f); let a = i - n * floor(i / n); let b = (i + 1.) - n * floor((i + 1.) / n);
   return mix(mix(h2(a), h2(vec2f(b.x, a.y)), u.x), mix(h2(vec2f(a.x, b.y)), h2(b), u.x), u.y); }
 fn stk(P: vec2f, a: vec2f, off: f32, px: f32) -> f32 {
-  let q = vec2f(dot(P, a), dot(P, vec2f(-a.y, a.x)));
-  return .5 + (vn(vec2f(q.x * 75., q.y * 8.) + off) - .5) * (1. - ss(.5, 1.4, px * 75.)) * .8 + (vn(vec2f(q.x * 22., q.y * 2.6) + off + 11.) - .5) * (1. - ss(.5, 1.4, px * 22.)) * .6
-    + (vn(vec2f(q.x * 7., q.y * 2.4) + off + 23.) - .5) * (1. - ss(.5, 1.4, px * 7.)) * .26; }      // (the broadest scale is faint and short: tufts, not strokes a metre long)
+  // short blades, each lying a little off the others' line: the ground is bent by a slow noise first, and a blade is only three or four
+  // times as long as it is wide (long straight strokes in three fixed directions read as woven cord, not grass)
+  let Pw = P + (vec2f(vn(P * 13. + off), vn(P * 13. + off + 9.3)) - .5) * .09 + (vec2f(vn(P * 3.1 + off + 4.), vn(P * 3.1 + off + 14.)) - .5) * .30;
+  let q = vec2f(dot(Pw, a), dot(Pw, vec2f(-a.y, a.x)));
+  return .5 + (vn(vec2f(q.x * 75., q.y * 24.) + off) - .5) * (1. - ss(.5, 1.4, px * 75.)) * .8 + (vn(vec2f(q.x * 24., q.y * 9.) + off + 11.) - .5) * (1. - ss(.5, 1.4, px * 24.)) * .55
+    + (vn(vec2f(q.x * 7., q.y * 4.5) + off + 23.) - .5) * (1. - ss(.5, 1.4, px * 7.)) * .26; }
 // stones lying on bare earth. x: 1 on a stone, y: which stone, z: how near its middle (for the light on its rounded top)
 fn pebble(P: vec2f, dens: f32) -> vec3f {
   let c = floor(P); var o = vec3f(0.);
@@ -298,6 +302,14 @@ fn wind(p: vec2f, hgt: f32) -> vec2f {
   let sway = vec2f(sin(t * 2.1 + ph) + .4 * sin(t * 4.3 + ph * 2.1), cos(t * 1.7 + ph * 1.3) + .35 * sin(t * 3.7 + ph));
   return pow(hgt, 1.5) * .008 * W * (vec2f(.8, .55) * (.15 + 1.0 * gs) + sway * (.25 + .5 * gs));
 }
+// The whole movement of a point of a plant: the trunk's sway (wind), and on top of it the bough's own - the further out from the
+// trunk, the more it streams downwind, dips, and tosses.
+fn wind3(p: vec2f, hgt: f32, reach: f32) -> vec3f {
+  let w = wind(p, hgt); let W = g.misc.y; let gs = gust(p); let t = g.cam.w; let ph = dot(p, vec2f(.37, .29));
+  let k = pow(reach, 1.25) * (.02 + .0012 * min(hgt, 12.));
+  let hz = vec2f(.8, .55) * (W * (.25 + 1.3 * gs) + (sin(t * 2.6 + ph) * .5 + sin(t * 4.1 + ph * 1.7) * .3) * W * (.3 + .5 * gs)) * k;
+  return vec3f(w.x + hz.x, -length(hz) * .35 + sin(t * 3.3 + ph * 2.3) * W * k * .25, w.y + hz.y);
+}
 struct LO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) uv: vec2f,
   @location(3) @interpolate(flat) col: vec3f, @location(4) @interpolate(flat) pr: vec2f };
 override WS: f32 = 1.;
@@ -314,7 +326,7 @@ fn leafV(vi: u32, a: vec4f, b: vec4f, c: vec4f) -> LO {
   if (kind == 1) { shp = pow(max(sin(3.14159 * pow(v, .5)), 0.), .5); }
   let blade = kind >= 2 && kind <= 4;
   if (blade) { shp = 1. - v * .93; }
-  if (kind == 5) { shp = 1. - pow(v, 4.) * .55; }                       // a segment of banana leaf: broad to the end, rounded
+  if (kind == 5) { shp = 1.; }      // a whole banana leaf: narrow at the stalk, then a long even paddle, rounded at the end
   if (kind == 7) { shp = 1. - v * .6; }
   if (kind == 8) { shp = 1. - v * .35; }
   if (kind == 9) { shp = 1.; }                                         // a flower head: a square the fragment stage cuts petals from                                // a spray of needles: the fragment stage draws the needles
@@ -327,13 +339,14 @@ fn leafV(vi: u32, a: vec4f, b: vec4f, c: vec4f) -> LO {
   let tng = normalize(dir + vec3f(0., -b.w * v, 0.));
   var n = normalize(cross(side, tng));
   let t = g.cam.w;
-  let w = wind(a.xz, c.w + v * a.w * se); let gs = gust(a.xz);
-  p.x += w.x; p.z += w.y;
+  let pk = !blade && kind != 9; var hgt = c.w; var rch = 0.; if (pk) { hgt = floor(c.w) / 32.; rch = fract(c.w) * 32.; }      // leaves of trees carry height and reach packed together
+  let w = wind3(a.xz, hgt + v * a.w * se, rch); let gs = gust(a.xz);
+  p += w;
   if (blade) { let bend = g.misc.y * (.08 + .5 * gs) * v * v * a.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // waves run through grass and rice
   if (kind == 9) { let bend = g.misc.y * (.08 + .5 * gs) * c.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // rides on the tip of its stalk
   let fl = g.misc.y * (.4 + 1.2 * gs) * sin(t * (6. + c.y * 4.) + c.y * 40. + a.x * 1.7) * .07 * v * a.w;
   p += mix(n, side, f32(blade)) * fl + side * (fl * .4 * (1. - f32(blade)));
-  if (!blade) { let bp = h2(floor(a.xz / 1.3) + floor(a.y / 1.3) * 7.); p += vec3f(.8, .35, .55) * (g.misc.y * (.2 + gs) * .006 * min(c.w, 9.) * sin(t * 3.1 + bp * 6.2832)); }      // each bough tosses on its own
+  if (!blade) { let bp = h2(floor(a.xz / 1.3) + floor(a.y / 1.3) * 7.); p += vec3f(.8, .35, .55) * (g.misc.y * (.2 + gs) * .006 * min(hgt, 9.) * sin(t * 3.1 + bp * 6.2832)); }      // each bough tosses on its own
   p += side * (u * b.z * shp * WS);
   o.wp = p + g.cam.xyz; o.n = normalize(n + side * (u * .35)); o.uv = vec2f(u, v); o.cp = g.vp * vec4f(p, 1.);
   var col = mix(vec3f(.070, .140, .020), vec3f(.045, .100, .020), c.y);
@@ -343,7 +356,7 @@ fn leafV(vi: u32, a: vec4f, b: vec4f, c: vec4f) -> LO {
   if (kind == 2) { col = mix(vec3f(.11, .17, .03), vec3f(.17, .20, .045), c.y); if (c.y > .8) { col = vec3f(.24, .21, .07); } }
   if (kind == 3) { col = mix(vec3f(.085, .20, .025), vec3f(.13, .23, .035), c.y); }
   if (kind == 4) { col = mix(vec3f(.30, .24, .06), vec3f(.36, .27, .08), c.y); }
-  if (kind == 5) { col = mix(vec3f(.085, .19, .03), vec3f(.14, .23, .04), c.y); if (c.y > .9) { col = vec3f(.20, .21, .05); } }
+  if (kind == 5) { col = mix(vec3f(.10, .23, .03), vec3f(.065, .17, .025), c.y); if (c.y > .93) { col = vec3f(.20, .21, .05); } }
   if (kind == 7) { col = mix(vec3f(.20, .13, .06), vec3f(.26, .19, .09), c.y); tr = .3; }
   if (kind == 6) { col = mix(vec3f(.70, .06, .32), vec3f(.85, .30, .50), c.y); if (c.y > .8) { col = vec3f(.85, .80, .75); } }
   // dry season: grass turns to straw, trees yellow a little
@@ -352,7 +365,7 @@ fn leafV(vi: u32, a: vec4f, b: vec4f, c: vec4f) -> LO {
   if (kind == 8) { col = mix(vec3f(.060, .105, .050), vec3f(.105, .150, .065), c.y); }
   if (kind == 9) { col = mix(vec3f(.90, .48, .03), vec3f(.95, .72, .06), c.y); if (c.z < .8) { col = mix(vec3f(.80, .25, .50), vec3f(.88, .84, .86), step(.6, c.y)); } tr = .7; }      // a flower head
   let snl = nw(a.z); if (snl > .01) { col = mix(col, vec3f(.74, .77, .82), snl * (.3 + .5 * c.z)); }                                      // snow lying on the leaves
-  o.col = col; o.pr = vec2f(c.z, tr + 2. * f32(kind == 0) + 4. * c.y * f32(kind == 0) + 10. * f32(kind == 8) + 20. * f32(kind == 9));
+  o.col = col; o.pr = vec2f(c.z, tr + 2. * f32(kind == 0) + 4. * c.y * f32(kind == 0) + 10. * f32(kind == 8) + 20. * f32(kind == 9) + (30. + 4. * c.y) * f32(kind == 5));
   return o;
 }
 struct BO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) uv: vec2f, @location(3) @interpolate(flat) m: f32 };
@@ -367,8 +380,8 @@ fn branchV(v: vec3f, p0: vec4f, p1: vec4f, h: vec2f) -> BO {
   if (h.x < -.5) { rr = max(rr, length(pc) * .0009); }      // a wire is never drawn thinner than a pixel: it would break up into flickering dots
   var p = pc + nn * rr;
   let plant = step(-.5, h.x);                                  // h.x = -1 marks a made thing: h.y 0 concrete pole, 1 wire, 2 green stem
-  let w = wind(mix(p0.xz, p1.xz, v.z), max(mix(h.x, h.y, v.z), 0.)) * plant;
-  p.x += w.x; p.z += w.y;
+  let hd = max(h, vec2f(0.)); let w = wind3(mix(p0.xz, p1.xz, v.z), mix(floor(hd.x), floor(hd.y), v.z) / 32., mix(fract(hd.x), fract(hd.y), v.z) * 32.) * plant;
+  p += w;
   o.m = (1. - plant) * (h.y + 1.);
   o.wp = p + g.cam.xyz; o.n = nn; o.uv = vec2f(atan2(v.y, v.x) / 6.2832, p.y + g.cam.y); o.cp = g.vp * vec4f(p, 1.);
   return o;
@@ -391,7 +404,7 @@ struct XO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   l = vec3f(l.x, l.y * ct - l.z * st, l.y * st + l.z * ct); var n = vec3f(nn.x, nn.y * ct - nn.z * st, nn.y * st + nn.z * ct);
   let cy = cos(a.w); let sy = sin(a.w);
   let lo = vec3f(l.x * cy + l.z * sy, l.y, -l.x * sy + l.z * cy); let w0 = lo + a.xyz;
-  var wf = w0; if (c.w > 1.5) { let t = g.cam.w; wf.y += .10 * sin(w0.x * .42 + w0.z * .17 + t * 1.3) + .07 * sin(w0.z * .5 - w0.x * .2 + t * .9); }      // afloat: rides the swell
+  var wf = w0; if (c.w > 1.5 && c.w < 2.5) { let t = g.cam.w; wf.y += .10 * sin(w0.x * .42 + w0.z * .17 + t * 1.3) + .07 * sin(w0.z * .5 - w0.x * .2 + t * .9); }      // afloat: rides the swell
   let w = wf; o.wp = w; o.n = vec3f(n.x * cy + n.z * sy, n.y, -n.x * sy + n.z * cy); o.lp = vv * b.xyz; o.ln = nv; o.m = c;
   // Places far from the origin are drawn from where they stand relative to the eye, not from their world position: 40 km out a world
   // coordinate is only good to 4 mm, and every corner of every box would jitter from frame to frame.
@@ -407,6 +420,7 @@ const W_SCENE = W_COMMON + W_VERT + /* wgsl */`
 @group(0) @binding(2) var sSh: sampler_comparison;
 @group(0) @binding(3) var tMir: texture_2d<f32>;
 @group(0) @binding(4) var sMir: sampler;
+@group(0) @binding(5) var tSign: texture_2d<f32>;
 fn shadow(wp: vec3f) -> f32 {
   let s = g.sm * vec4f(wp - g.cam.xyz, 1.); let uv = vec2f(s.x * .5 + .5, .5 - s.y * .5);
   if (uv.x < 0. || uv.x > 1. || uv.y < 0. || uv.y > 1. || s.z > 1.) { return 1.; }
@@ -618,6 +632,19 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   let L = g.sun.xyz; let V = normalize(g.cam.xyz - i.wp);
   var alb = i.col * mix(.50, 1.18, i.uv.y) * (.74 + .26 * ss(0., .3, abs(i.uv.x)));
   var trv = i.pr.y;
+  if (i.pr.y > 29.) {          // banana leaf, cut from the strip: a long paddle with a wavy edge and a round end, a thick pale midrib, close veins running out to the edge, and notches torn in along the veins - few on a young leaf, many and deep on an old one
+    let sd = (i.pr.y - 31.) / 4.; let ax = abs(i.uv.x); let v = i.uv.y; trv = .5;
+    var wv = min(pow(ss(0., .12, v), .65), sqrt(max(1. - pow(max(v - .80, 0.) / .20, 2.), 0.))) * (.84 + .16 * sin(3.14159 * v));
+    wv *= 1. - .05 * sin(v * 46. + sd * 40.) - .03 * sin(v * 17. + sd * 9.);
+    if (ax > wv && (ax > .07 || v > .3)) { discard; }
+    let sg = step(0., i.uv.x); let s = v * 24. - ax * 2.4 + sd * 7.; let cell = floor(s);
+    let hs = h2(vec2f(cell + sg * 57., sd * 53. + 3.)); let hd = h2(vec2f(cell * 1.7 + sg * 31., sd * 17. + 1.)); let amt = .10 + sd * .62;
+    if (hs < amt && v > .1) { let dep = wv * (.10 + .8 * hd * (1. - .45 * sd)); if (ax > dep && fract(s) < (.14 + .4 * hd) * (.55 + sd) * (ax - dep) / max(wv - dep, .02)) { discard; } }
+    let vein = .91 + .09 * sin(s * 31.);
+    alb = i.col * vein * mix(1.12, .86, ax / max(wv, .05)) * mix(.88, 1.08, v);
+    alb = mix(alb, vec3f(.40, .45, .15), ss(.085, .03, ax));
+    alb = mix(alb, vec3f(.24, .17, .07), ss(.8, 1., ax / max(wv, .05)) * ss(.45, .9, sd) * .8);
+  } else
   if (i.pr.y > 19.) {          // a flower seen from above or the side: eight petals round a dark eye
     trv = .7; let q = vec2f(i.uv.x, i.uv.y * 2. - 1.); let rr = length(q); let an = atan2(q.y, q.x);
     if (rr > .52 + .44 * abs(cos(an * 4.))) { discard; }
@@ -683,6 +710,9 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   if (i.m > 5.5) { alb = mix(vec3f(.22, .04, .10), vec3f(.32, .08, .14), fur); }                    // banana flower bud
   if (i.m > 6.5) { alb = vec3f(.80, .79, .75) * (.88 + .14 * fur); }                                // whitewash (a chedi)
   if (i.m > 7.5) { alb = vec3f(.82, .62, .12); }                                                    // gilding
+  if (i.m > 8.5) { alb = mix(vec3f(.16, .26, .04), vec3f(.30, .36, .07), ss(.3, .7, vn(i.wp.xz * 9. + i.wp.y * 5.))) * (.85 + .2 * fur); }      // green bananas on the bunch
+  if (i.m > 9.5) { let st = vn(vec2f(i.uv.x * 44., i.uv.y * 1.3)); alb = mix(vec3f(.30, .22, .11), vec3f(.52, .42, .23), st) * (.85 + .3 * fur); alb = mix(alb, vec3f(.15, .10, .06), ss(.62, .88, vn(vec2f(i.uv.x * 7., i.uv.y * 2.2))) * .6); }      // foot of a banana stem: dry brown sheaths, stringy, with dark patches
+  if (i.m > 10.5) { let st = vn(vec2f(i.uv.x * 30., i.uv.y * 1.1)); alb = mix(vec3f(.30, .38, .11), vec3f(.46, .47, .20), st); alb = mix(alb, vec3f(.30, .21, .10), ss(.5, .8, vn(vec2f(i.uv.x * 6., i.uv.y * 1.4))) * .6); }      // top of the stem: yellow-green sheaths, streaked brown      // banana stem: pale green, with brown dried sheaths
   let E = g.sunCol.rgb * shadow(i.wp + n * .08);
   var c = alb * (E * max(dot(nb, L), 0.) + sky(nb) * .8) + alb * head(i.wp, nb);
   return vec4f(fogged(c, i.wp), 1.);
@@ -914,16 +944,22 @@ fn pal(h: f32) -> vec3f {
   else if (mat == 23) {      // a sign board. The name in one row of large letters of even height, with the small marks Thai writes above some letters and below a few;
     // under it a row of small figures (the telephone number). A lightbox at night, unless the height slot is negative (road signs are not lit).
     var q = i.lp.xy; if (abs(i.ln.x) > .5) { q = i.lp.zy; }
+    if (i.ln.z < -.5 || i.ln.x > .5) { q.x = -q.x; }                 // so the words read the right way round on every face
     let hgt = abs(i.m.z); let bg = pal2(sd); var fg = vec3f(.95, .93, .86);
     if (dot(bg, vec3f(.3, .6, .1)) > .45) { fg = mix(vec3f(.60, .04, .04), vec3f(.05, .13, .45), step(.5, h2(vec2f(sd * 13., 2.)))); }      // on yellow or white: red or blue letters
     if (i.m.z < 0. && dot(bg, vec3f(.3, .6, .1)) > .45) { fg = vec3f(.04); }
-    let cx = q.x / (hgt * .30) + 50.; let id = floor(cx); let fx = fract(cx); let hc = h2(vec2f(id, sd * 31.)); let yy = q.y / hgt; let wch = .62 + .3 * hc;
-    var ink = step(abs(fx - .5), wch * .5) * step(abs(yy - .06), .2) * step(.07, hc);
-    ink *= 1. - step(abs(fx - .5), wch * .5 - .17) * step(abs(yy - .06 - (step(.5, fract(hc * 7.)) - .5) * .24), .11);          // each letter open at the top or at the foot
-    ink = max(ink, step(abs(fx - (.5 - wch * .5 + .1)), .1) * step(abs(yy - .2), .06) * step(.07, hc));                         // the little head a Thai letter starts from
-    ink = max(ink, step(abs(fx - .55), .22) * step(abs(yy - .355), .035) * step(fract(hc * 5.3), .36));                       // marks above
-    ink = max(ink, step(abs(fx - .5), .2) * step(abs(yy + .2), .028) * step(fract(hc * 11.7), .1));                           // and below
-    let dg = q.x / (hgt * .11) + 30.; ink = max(ink, step(.22, fract(dg)) * step(abs(yy + .36), .05) * step(.2, h2(vec2f(floor(dg), sd * 17.))));
+    // which words: a shop name (0-47) or, on a road board, one of the road words (48-63); written across, or downward on a tall board
+    var wd = hgt * 4.; if (i.m.w > 10.05) { wd = i.m.w - 10.; }
+    var idx = floor(h2(vec2f(sd * 91., 5.)) * 47.99); if (i.m.z < 0.) { idx = 48. + floor(h2(vec2f(sd * 57., 9.)) * 15.99); }
+    var ink = 0.;
+    if (hgt > wd * 1.4) {
+      let u = q.x / (wd * .86) + .5; let v = .5 - q.y / (hgt * .92);
+      if (u > 0. && u < 1. && v > 0. && v < 1.) { ink = textureSampleLevel(tSign, sMir, vec2f(1024. + (idx % 16. + u) * 64., (floor(idx / 16.) + v) * 256.) / vec2f(2048., 1024.), 0.).r; }
+    } else {
+      var tw = wd * .92; var th = tw / 4.; if (th > hgt * .86) { th = hgt * .86; tw = th * 4.; }
+      let u = q.x / tw + .5; let v = .5 - q.y / th;
+      if (u > 0. && u < 1. && v > 0. && v < 1.) { ink = textureSampleLevel(tSign, sMir, vec2f((idx % 4. + u) * 256., (floor(idx / 4.) + v) * 64.) / vec2f(2048., 1024.), 0.).r; }
+    }
     alb = mix(bg, fg, mix(ink, .25, ss(20., 55., dcb))) * (.9 + .1 * vn(q * 6.)); emi = alb * night * 1.4 * step(0., i.m.z); gloss = .25;
     if (abs(i.ln.y) > .5 || (abs(i.ln.z) > .5 && abs(i.ln.x) > .5)) { alb = vec3f(.2); }
   }
@@ -1155,7 +1191,8 @@ const bglScene = device.createBindGroupLayout({ entries: [
   { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {} },
   { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth' } },
   { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'comparison' } },
-  { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: {} }, { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: {} }] });
+  { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: {} }, { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+  { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: {} }] });
 const bglShadow = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: {} }] });
 // The mirrors show a real picture: the scene behind the car is drawn once more, small, from a camera looking back (uboR), into tMir,
 // and the mirror glass looks its reflection up in that picture. While that picture is being drawn a blank stands in for it.
@@ -1165,7 +1202,28 @@ const vMirD = device.createTexture({ size: [MIRW, MIRH], format: DEPTH, sampleCo
 const vMir = device.createTexture({ size: [MIRW, MIRH], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING }).createView();
 const vBlank = device.createTexture({ size: [1, 1], format: HDR, usage: GPUTextureUsage.TEXTURE_BINDING }).createView();
 const sShadowCmp = device.createSampler({ compare: 'less', magFilter: 'linear', minFilter: 'linear' }), sMirror = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
-const mkScene = (buf, mir) => device.createBindGroup({ layout: bglScene, entries: [{ binding: 0, resource: { buffer: buf } }, { binding: 1, resource: vShadow }, { binding: 2, resource: sShadowCmp }, { binding: 3, resource: mir }, { binding: 4, resource: sMirror }] });
+// Sign writing. The words on shop signs and road boards are real Thai, written once at start-up with the machine's own Thai typeface
+// onto a sheet (no image file is loaded) which the sign material reads. Left half: 64 names written across, in cells 256 x 64.
+// Right half: the same names written downward, letter under letter, in cells 64 x 256, for tall boards. The last 16 are for road boards.
+const signW = (B) => { for (let i = 0; i < B.length; i += 12) if (B[i + 8] === 23) B[i + 11] = 10 + Math.max(B[i + 4], B[i + 6]); return B; };      // a sign board carries its own width, so the words can be fitted to it
+const SIGNS = ['อาหารตามสั่ง', 'ก๋วยเตี๋ยวเรือ', 'ข้าวมันไก่', 'ร้านขายยา', 'ห้างทอง', 'ซ่อมมอเตอร์ไซค์', 'ตัดผมชาย', 'เสริมสวย', 'วัสดุก่อสร้าง', 'กาแฟสด', 'ซักอบรีด', 'ร้านชำ', 'มินิมาร์ท', 'คลินิก', 'ทันตกรรม', 'ร้านดอกไม้',
+  'อะไหล่ยนต์', 'ร้านหนังสือ', 'เครื่องเขียน', 'ถ่ายรูปด่วน', 'มือถือ ซิม', 'เบเกอรี่', 'ส้มตำ ไก่ย่าง', 'โจ๊ก ต้มเลือดหมู', 'เสื้อผ้าแฟชั่น', 'รองเท้า กระเป๋า', 'หอพัก ห้องว่าง', 'ให้เช่า', 'ขายส่ง ขายปลีก', 'น้ำแข็ง น้ำดื่ม', 'ข้าวแกง', 'ขนมไทย',
+  'ผลไม้สด', 'เครื่องใช้ไฟฟ้า', 'เฟอร์นิเจอร์', 'ร้านแว่นตา', 'อู่ซ่อมรถ', 'ล้างอัดฉีด', 'ยางรถยนต์', 'แก๊ส', 'ข้าวสาร', 'ของฝาก', 'นวดแผนไทย', 'โรงรับจำนำ', 'ปุ๋ย ยาเกษตร', 'อาหารสัตว์', 'เปิด 24 ชม.', 'ยินดีต้อนรับ',
+  'ตัวเมือง', 'ตลาดสด', 'วัด', 'โรงเรียน', 'ชายหาด', 'น้ำตก', 'อุทยาน', 'ขับช้าๆ', 'เขตชุมชน', 'ลดความเร็ว', 'ระวังทางโค้ง', 'จุดชมวิว', 'ที่พักริมทาง', 'สะพาน', 'ใช้เกียร์ต่ำ', 'เดินทางปลอดภัย'];
+const vSign = (() => {
+  const cv = document.createElement('canvas'); cv.width = 2048; cv.height = 1024; const x = cv.getContext('2d'), FONT = '"Sukhumvit Set", Thonburi, "Noto Sans Thai", Sarabun, "Leelawadee UI", Tahoma, sans-serif';
+  x.fillStyle = '#000'; x.fillRect(0, 0, 2048, 1024); x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  const seg = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter('th', { granularity: 'grapheme' }) : null;
+  SIGNS.forEach((t, i) => {
+    x.font = '700 40px ' + FONT; const w = x.measureText(t).width, k = Math.min(1, 236 / w), cx = (i % 4) * 256 + 128, cy = floor(i / 4) * 64 + 34;
+    x.save(); x.translate(cx, cy); x.scale(k, 1); x.fillText(t, 0, 0); x.restore();
+    const cl = (seg ? [...seg.segment(t)].map((q) => q.segment) : [...t]).filter((q) => q.trim()).slice(0, 8), n = cl.length, fs = Math.min(40, 236 / n * 0.86); x.font = '700 ' + fs + 'px ' + FONT;
+    cl.forEach((ch, j) => x.fillText(ch, 1024 + (i % 16) * 64 + 32, floor(i / 16) * 256 + 128 + (j - (n - 1) / 2) * (236 / n)));
+  });
+  const tx = device.createTexture({ size: [2048, 1024], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  Q.copyExternalImageToTexture({ source: cv }, { texture: tx }, [2048, 1024]); return tx.createView();
+})();
+const mkScene = (buf, mir) => device.createBindGroup({ layout: bglScene, entries: [{ binding: 0, resource: { buffer: buf } }, { binding: 1, resource: vShadow }, { binding: 2, resource: sShadowCmp }, { binding: 3, resource: mir }, { binding: 4, resource: sMirror }, { binding: 5, resource: vSign }] });
 const bgScene = mkScene(ubo, vMir), bgSceneR = mkScene(uboR, vBlank);
 const bgShadow = device.createBindGroup({ layout: bglShadow, entries: [{ binding: 0, resource: { buffer: uboS } }] });
 const plScene = device.createPipelineLayout({ bindGroupLayouts: [bglScene] }), plShadow = device.createPipelineLayout({ bindGroupLayouts: [bglShadow] });
@@ -1246,9 +1304,12 @@ function shuffleLeaves(L, R) { const n = L.length / 12, t = new Array(12); for (
 function makeTree(seed, o) {
   const R = rng(seed), segs = [[], [], [], []], twigs = [];
   const branch = (p0, d0, len, rad, lvl) => {
-    const n = lvl === 0 ? 7 : lvl === 1 ? 5 : 3, pts = [p0.slice()], dirs = [], d = d0.slice(), p = p0.slice(), wob = o.wob * (lvl ? 1 : 0.35), tip = lvl === 0 ? 0.16 : 0.4;
+    // No limb grows straight: each piece turns a little from the last, now and then sharply (where a shoot once died back);
+    // a long limb sags under its own weight in the middle and turns up to the light at its end.
+    const n = lvl === 0 ? 8 : lvl === 1 ? 7 : 5, pts = [p0.slice()], dirs = [], d = d0.slice(), p = p0.slice(), wob = o.wob * (lvl ? 1.25 : 0.6), tip = lvl === 0 ? 0.16 : 0.4;
     for (let i = 0; i < n; i++) {
-      d[0] += (R() - 0.5) * wob; d[2] += (R() - 0.5) * wob; d[1] += lvl ? o.trop * 0.35 : 0.06; nrm3(d);
+      const kink = R() < 0.22 ? 2.6 : 1, flat = 1 - abs(d[1]);
+      d[0] += (R() - 0.5) * wob * kink; d[2] += (R() - 0.5) * wob * kink; d[1] += lvl ? (R() - 0.5) * wob * 0.6 + (i / n - 0.42) * 0.3 * flat + o.trop * 0.2 : 0.05; nrm3(d);
       const r0 = rad * (1 - (1 - tip) * i / n) * (lvl === 0 && i === 0 ? 1.6 : 1), r1 = rad * (1 - (1 - tip) * (i + 1) / n);
       const q = [p[0] + d[0] * len / n, p[1] + d[1] * len / n, p[2] + d[2] * len / n];
       segs[lvl].push(p[0], p[1], p[2], r0, q[0], q[1], q[2], r1, max(p[1], 0), max(q[1], 0));
@@ -1340,38 +1401,47 @@ function makeSugarPalm(seed) {
   shuffleLeaves(leaves, R);
   return { segs: new Float32Array(segs), nSeg: segs.length / 10, nSegFar: nTrunk + 26, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
-// banana clump: stems of different ages. Each leaf is an arching midrib carrying two rows of broad segments that meet in a
-// shallow V and hang a little apart, the way real banana leaves tear in the wind; old leaves hang brown against the stem,
-// and the tallest stem carries a flower bud on a drooping stalk.
+// banana clump (กอกล้วย): four or five thick stems of different heights leaning apart, brown and stringy at the foot and green above.
+// Each stem carries a head of big paddle leaves on long stalks - the young ones standing up in the middle, the old ones arching over
+// and hanging, torn along the veins. The tallest stem carries the bunch (เครือ): a thick stalk bends over out of the crown and hangs
+// straight down, with hands of fruit in tiers round it, a bare length below them, and the purple bud (ปลี) at the end.
 function makeBanana(seed) {
-  const R = rng(seed), segs = [], leaves = [], tube = (a, ra, b, rb, mat) => segs.push(a[0], a[1], a[2], ra, b[0], b[1], b[2], rb, -1, mat);
-  for (let s = 0; s < 4; s++) {
-    const a0 = s * 1.9 + R(), rr = s ? 0.45 + R() * 0.5 : 0, bx = cos(a0) * rr, bz = sin(a0) * rr, Hs = s === 0 ? 2.9 : 1.3 + R() * 1.3, lean = (R() - 0.5) * 0.3, la = R() * TAU;
-    const sp = (t) => [bx + cos(la) * lean * t * t, -0.2 + (Hs + 0.2) * t, bz + sin(la) * lean * t * t];
-    for (let i = 0; i < 3; i++) tube(sp(i / 3), 0.15 * Hs / 2.9 * (1 - 0.14 * i) + 0.03, sp((i + 1) / 3), 0.15 * Hs / 2.9 * (1 - 0.14 * (i + 1)) + 0.03, 2);
-    const top = sp(1), nl = s === 0 ? 8 : 5 + floor(R() * 3);
-    for (let k = 0; k < nl; k++) {
-      const az = k * 2.39996 + R() * 0.5, age = k / nl, el = 1.25 - age * 1.0 + (R() - 0.5) * 0.2, L = (1.5 + R() * 0.9) * (0.55 + 0.45 * Hs / 2.9), sag = 0.25 + age * 0.55 + R() * 0.15;
-      const dx = cos(az) * cos(el), dy = sin(el), dz = sin(az) * cos(el), sx = -sin(az), sz = cos(az);
-      const rib = (t) => [top[0] + dx * L * t, top[1] + dy * L * t - sag * t * t * L, top[2] + dz * L * t];
-      for (let i = 0; i < 5; i++) tube(rib(i / 5), 0.032 - 0.005 * i, rib((i + 1) / 5), 0.027 - 0.005 * i, 2);
-      const N = 10, step = L * 0.9 / N, vAng = 0.3 + R() * 0.25;
-      for (let j = 0; j < N; j++) for (const sd of [1, -1]) {
-        const t = 0.12 + 0.88 * (j + 0.5) / N, p = rib(t), wl = (0.34 + 0.1 * Hs / 2.9) * Math.sqrt(sin(PI * (0.07 + 0.9 * t))), tear = R() < 0.3 ? 0.5 + R() * 0.6 : 0;
-        const ddx = sx * sd * cos(vAng), ddy = sin(vAng) - tear * 0.3, ddz = sz * sd * cos(vAng), dl = hypot(ddx, ddy, ddz);
-        leaves.push(p[0], p[1], p[2], wl, atan2(ddz, ddx), Math.asin(clamp(ddy / dl, -1, 1)), step * 0.54, 0.5 + tear + age * 0.5, 5, R(), 0.65 + 0.35 * t, p[1]);
-      }
+  const R = rng(seed), segs = [], fine = [], leaves = [], tube = (a, ra, b, rb, mat, o = segs) => o.push(a[0], a[1], a[2], ra, b[0], b[1], b[2], rb, -1, mat);
+  const HS = [3.4, 2.7, 3.0, 2.1, 1.0];
+  for (let s = 0; s < 5; s++) {
+    const a0 = s * 2.4 + R() * 0.7, rr = s ? 0.42 + R() * 0.25 : 0.08, bx = cos(a0) * rr, bz = sin(a0) * rr, Hs = HS[s] * (0.92 + R() * 0.16), k = Hs / 3.4, lean = s ? 0.3 + R() * 0.35 : 0.12;
+    const sp = (t) => [bx + cos(a0) * lean * k * t * t, -0.2 + (Hs + 0.2) * t, bz + sin(a0) * lean * k * t * t];
+    const rad = (t) => (0.095 + 0.115 * Math.pow(1 - t, 1.4)) * (0.5 + 0.5 * k) + (t === 0 ? 0.05 : 0);
+    for (let i = 0; i < 6; i++) tube(sp(i / 6), rad(i / 6), sp((i + 1) / 6), rad((i + 1) / 6), i < 3 ? 9 : 10);
+    const top = sp(1), nl = s === 4 ? 5 : 9 + floor(R() * 3);
+    for (let j = 0; j < nl; j++) {
+      const az = j * 2.39996 + R() * 0.5 + s, age = j / (nl - 1), el = 1.32 - age * 1.3 + (R() - 0.5) * 0.2, L = (1.9 + R() * 0.6) * (0.45 + 0.55 * k) * (0.8 + 0.2 * sin(PI * age) + 0.1), droop = 0.45 + age * 0.95 + R() * 0.2;
+      const pel = el * 0.55 + 0.7, pl = (0.4 + R() * 0.3) * (0.5 + 0.5 * k);                                  // the leaf stalk leaves the stem more steeply than the blade it carries
+      const pe = [top[0] + cos(az) * cos(pel) * pl, top[1] + sin(pel) * pl, top[2] + sin(az) * cos(pel) * pl];
+      tube([top[0], top[1] - 0.35 * k, top[2]], 0.06 * (0.5 + 0.5 * k), pe, 0.028, 10);
+      leaves.push(pe[0], pe[1], pe[2], L, az, el, L * 0.175, droop, 5, clamp(age * 0.9 + (R() - 0.5) * 0.15, 0, 0.99), 0.85 + R() * 0.15, pe[1]);
     }
-    for (let k = 0; k < 3; k++) { const az = R() * TAU, p = sp(0.75 + R() * 0.2); leaves.push(p[0] + cos(az) * 0.1, p[1], p[2] + sin(az) * 0.1, 0.9 + R() * 0.5, az, -1.2, 0.13, 0.4, 7, R(), 0.6, p[1]); }    // dead leaves
-    if (s === 0) {           // the flower stalk curls out and down, ending in the purple bud
-      const az = R() * TAU, q = (t) => [top[0] + cos(az) * (0.5 * t + 0.25 * t * t), top[1] + 0.25 * t - 1.15 * t * t, top[2] + sin(az) * (0.5 * t + 0.25 * t * t)];
-      for (let i = 0; i < 4; i++) tube(q(i / 4), 0.035, q((i + 1) / 4), 0.03, 2);
-      const e = q(1); tube(e, 0.03, [e[0], e[1] - 0.12, e[2]], 0.085, 5); tube([e[0], e[1] - 0.12, e[2]], 0.085, [e[0], e[1] - 0.36, e[2]], 0.012, 5);
-      for (let h2 = 0; h2 < 3; h2++) for (let f = 0; f < 6; f++) { const b = q(0.45 + h2 * 0.16), fa = f / 6 * TAU; tube(b, 0.022, [b[0] + cos(fa) * 0.1, b[1] + 0.13, b[2] + sin(fa) * 0.1], 0.016, 2); }
+    if (s < 4) for (let j = 0; j < 3; j++) { const az = R() * TAU, p = sp(0.86 + R() * 0.1); leaves.push(p[0] + cos(az) * 0.1, p[1], p[2] + sin(az) * 0.1, (1.0 + R() * 0.5) * k, az, -1.25, 0.15, 0.3, 7, R(), 0.6, p[1]); }    // dead leaves hang down against the stem
+    if (s === 0) {
+      const az = a0 + 1.2 + R() * 3.9, cx = cos(az), cz = sin(az);
+      const q = (t) => { const u = min(t / 0.25, 1), out = 0.45 * sin(u * PI / 2); return [top[0] + cx * out, top[1] - 0.1 + 0.5 * u * (1 - u) - 0.12 * u - max(t - 0.25, 0) * 1.95, top[2] + cz * out]; };
+      for (let i = 0; i < 14; i++) tube(q(i / 14 * 0.88), 0.042 - 0.001 * i, q((i + 1) / 14 * 0.88), 0.041 - 0.001 * i, 2);
+      const e = q(0.88), dn = (d) => [e[0], e[1] - d, e[2]];                                                 // the bud: a fat purple teardrop
+      tube(e, 0.03, dn(0.07), 0.078, 5); tube(dn(0.07), 0.078, dn(0.17), 0.07, 5); tube(dn(0.17), 0.07, dn(0.34), 0.008, 5);
+      for (let hd = 0; hd < 8; hd++) {                                                                       // the hands: each a ring of fingers that leave the stalk and curve upward, smaller toward the bud
+        const b = q(0.33 + hd * 0.05), sz = 1 - hd * 0.055, nf = 13 - floor(hd / 2);
+        for (let f = 0; f < nf; f++) {
+          const fa = f / nf * TAU + hd * 0.9, inr = f & 1, fx = cos(fa), fz = sin(fa), l = (0.17 + R() * 0.04) * sz, r0 = 0.035 + inr * 0.03;
+          const a = [b[0] + fx * 0.03, b[1] + inr * 0.03, b[2] + fz * 0.03], m = [b[0] + fx * (r0 + l * 0.6), b[1] + l * 0.12 + inr * 0.03, b[2] + fz * (r0 + l * 0.6)], e2 = [b[0] + fx * (r0 + l * 0.85), b[1] + l * 0.85 + inr * 0.03, b[2] + fz * (r0 + l * 0.85)];
+          tube(a, 0.02 * sz, m, 0.034 * sz, 8, fine); tube(m, 0.034 * sz, e2, 0.014 * sz, 8, fine);
+        }
+      }
+      tube(top, 0.05, [top[0] + (R() - 0.5) * 0.15, top[1] + 1.0, top[2] + (R() - 0.5) * 0.15], 0.03, 2); tube([top[0], top[1] + 1.0, top[2]], 0.03, [top[0], top[1] + 1.6, top[2]], 0.008, 2);      // the new leaf, still rolled, stands straight up out of the middle
     }
   }
   shuffleLeaves(leaves, R);
-  return { segs: new Float32Array(segs), nSeg: segs.length / 10, nSegFar: segs.length / 10, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
+  const all = segs.concat(fine);
+  return { segs: new Float32Array(all), nSeg: all.length / 10, nSegFar: segs.length / 10, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
 // Houses are assembled from boxes and gable prisms: [x y z, sx sy sz, tilt, material, shape (1 = gable)].
 // materials: 0 upright boards, 1 corrugated sheet, 2 concrete, 3 dark opening, 4 dark timber, 9 roof tiles, 16 weatherboard, 17 glass, 18 painted render, 19 white trim
@@ -1465,14 +1535,25 @@ const HOUSE2 = (() => {
 }
 // a shrub: a low dome of small leaves; some bloom (bougainvillea)
 function makeBush(seed, flower) {
-  const R = rng(seed), segs = [], leaves = [];
-  for (let k = 0; k < 16; k++) {
-    const a = k * 2.39996, el = 0.25 + R() * 1.1, L = 0.6 + R() * 0.7, dx = cos(a) * cos(el), dy = sin(el), dz = sin(a) * cos(el);
-    segs.push(0, -0.1, 0, 0.03, dx * L, dy * L, dz * L, 0.012, 0, dy * L);
-    for (let j = 0; j < 26; j++) { const t = 0.3 + 0.7 * R(), sp = 0.3; leaves.push(dx * L * t + (R() - 0.5) * sp, dy * L * t + (R() - 0.5) * sp, dz * L * t + (R() - 0.5) * sp, 0.16 + R() * 0.12, R() * TAU, -0.3 + R() * 1.2, 0.055, 0.4 + R(), flower && R() < 0.4 && t > 0.6 ? 6 : 0, R(), 0.5 + 0.5 * t, dy * L * t); }
+  // A shrub: a rounded, lumpy mound of foliage that comes right down to the ground, thick at the skin and darker inside.
+  // The stems are thin, bend outward and fork, and end inside the leaves, so that what shows is the mound and not the sticks.
+  const R = rng(seed), segs = [], leaves = [], p1 = R() * TAU, p2 = R() * TAU, RX = 0.9, RY = 1.15;
+  const rim = (az, el) => 1 + 0.16 * sin(az * 3 + p1) * cos(el) + 0.10 * sin(az * 5 + p2 + el * 3);       // how far out the mound reaches that way
+  const at = (az, el, f) => { const r = rim(az, el) * f; return [cos(az) * cos(el) * RX * r, 0.12 + sin(el) * RY * r, sin(az) * cos(el) * RX * r]; };
+  const limb = (a, b, r0, r1, n) => { const mid = [(a[0] + b[0]) / 2 + (R() - 0.5) * 0.12, (a[1] + b[1]) / 2 + 0.06, (a[2] + b[2]) / 2 + (R() - 0.5) * 0.12]; let q = a;
+    for (let i = 1; i <= n; i++) { const t = i / n, w = [0, 1, 2].map((k) => (1 - t) * (1 - t) * a[k] + 2 * t * (1 - t) * mid[k] + t * t * b[k]); segs.push(q[0], q[1], q[2], r0 + (r1 - r0) * (i - 1) / n, w[0], w[1], w[2], r0 + (r1 - r0) * t, max(q[1], 0), w[1]); q = w; } };
+  for (let k = 0; k < 7; k++) {
+    const az = k * 2.39996 + R() * 0.5, el = 0.35 + R() * 0.95, foot = [cos(az) * 0.05, -0.1, sin(az) * 0.05], fork = at(az, el, 0.42);
+    limb(foot, fork, 0.02, 0.012, 3);
+    for (let j = 0; j < 3; j++) limb(fork, at(az + (R() - 0.5) * 1.3, clamp(el + (R() - 0.5) * 0.9, 0.05, 1.5), 0.72 + R() * 0.12), 0.011, 0.004, 2);
+  }
+  for (let i = 0; i < 760; i++) {
+    const az = R() * TAU, el = Math.asin(-0.08 + 1.08 * R()), f = 0.5 + 0.5 * Math.pow(R(), 0.4), q = at(az, el, f); if (q[1] < 0.04) q[1] = 0.04 + R() * 0.08;
+    const bloom = flower && f > 0.86 && R() < 0.3;
+    leaves.push(q[0], q[1], q[2], 0.2 + R() * 0.13, az + (R() - 0.5) * 2.2, -0.35 + R() * 1.2 + sin(el) * 0.3, 0.085, 0.3 + R() * 0.8, bloom ? 6 : 0, R(), 0.42 + 0.58 * (f - 0.5) * 2, q[1]);
   }
   shuffleLeaves(leaves, R);
-  return { segs: new Float32Array(segs), nSeg: 16, nSegFar: 0, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
+  return { segs: new Float32Array(segs), nSeg: segs.length / 10, nSegFar: 0, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
 // Spirit houses, always as a pair on one concrete pad: ศาลพระภูมิ (taller, on a single post) and ศาลเจ้าที่ (lower and wider, on four legs).
 // A: the traditional kind, little teak houses hung with marigold garlands, a red cloth round the post, an offering table in front.
@@ -1546,15 +1627,16 @@ const SALA = [[-1.6, 1.2, -1, 0.12, 2.4, 0.12, 0, 4], [1.6, 1.2, -1, 0.12, 2.4, 
 const FIELDHUT = [[-1.1, 1.15, -1, 0.1, 2.3, 0.1, 0, 4], [1.1, 1.15, -1, 0.1, 2.3, 0.1, 0, 4], [-1.1, 1.15, 1, 0.1, 2.3, 0.1, 0, 4], [1.1, 1.15, 1, 0.1, 2.3, 0.1, 0, 4],
   [0, 0.85, 0, 2.5, 0.07, 2.3, 0, 0], [0, 2.55, -0.62, 3.0, 0.05, 1.6, -0.5, 1], [0, 2.55, 0.62, 3.0, 0.05, 1.6, 0.5, 1]];
 const TREES = [
-  makeTree(11, { H: 8, r: 0.34, n: [9, 5, 3], ang: [1.1, 0.9, 0.85], crown: 0.32, len0: 0.5, lenR: 0.6, trop: 0.2, wob: 0.2, per: 5, leaf: 0.62, wide: 0.3 }),
-  makeTree(23, { H: 10, r: 0.4, n: [10, 5, 3], ang: [1.15, 0.9, 0.85], crown: 0.38, len0: 0.46, lenR: 0.6, trop: 0.18, wob: 0.22, per: 5, leaf: 0.66, wide: 0.3 }),
-  makeTree(37, { H: 6.5, r: 0.26, n: [8, 4, 3], ang: [1.2, 0.95, 0.85], crown: 0.28, len0: 0.6, lenR: 0.62, trop: 0.14, wob: 0.26, per: 5, leaf: 0.56, wide: 0.3 }),
+  makeTree(11, { H: 8, r: 0.34, n: [9, 5, 3], ang: [1.1, 0.9, 0.85], crown: 0.32, len0: 0.5, lenR: 0.6, trop: 0.2, wob: 0.2, per: 3, leaf: 0.62, wide: 0.3 }),
+  makeTree(23, { H: 10, r: 0.4, n: [10, 5, 3], ang: [1.15, 0.9, 0.85], crown: 0.38, len0: 0.46, lenR: 0.6, trop: 0.18, wob: 0.22, per: 3, leaf: 0.66, wide: 0.3 }),
+  makeTree(37, { H: 6.5, r: 0.26, n: [8, 4, 3], ang: [1.2, 0.95, 0.85], crown: 0.28, len0: 0.6, lenR: 0.62, trop: 0.14, wob: 0.26, per: 3, leaf: 0.56, wide: 0.3 }),
   makePalm(71), makePalm(79), makeSugarPalm(91), makeSugarPalm(97), makeBanana(105), makeBush(121, false), makeBush(127, true),
   // a rain tree (จามจุรี): short thick trunk under a wide flat umbrella; and a tall forest tree with a clean bole and a high crown
-  makeTree(53, { H: 8.5, r: 0.52, n: [11, 6, 3], ang: [1.38, 1.0, 0.9], crown: 0.34, len0: 0.9, lenR: 0.6, trop: 0.04, wob: 0.26, per: 5, leaf: 0.55, wide: 0.3 }),
-  makeTree(67, { H: 17, r: 0.44, n: [10, 5, 3], ang: [1.05, 0.9, 0.85], crown: 0.62, len0: 0.3, lenR: 0.6, trop: 0.2, wob: 0.14, per: 5, leaf: 0.64, wide: 0.3 }),
+  makeTree(53, { H: 8.5, r: 0.52, n: [11, 6, 3], ang: [1.38, 1.0, 0.9], crown: 0.34, len0: 0.9, lenR: 0.6, trop: 0.04, wob: 0.26, per: 3, leaf: 0.55, wide: 0.3 }),
+  makeTree(67, { H: 17, r: 0.44, n: [10, 5, 3], ang: [1.05, 0.9, 0.85], crown: 0.62, len0: 0.3, lenR: 0.6, trop: 0.2, wob: 0.14, per: 3, leaf: 0.64, wide: 0.3 }),
 ];
 TREES.push(makeCasuarina(141), makeCasuarina(149));      // 12, 13
+const DEMO = Number(new URLSearchParams(location.search).get('plant') ?? -1);
 const BL = [0, 1, 2, 10, 11, 0, 1, 2];      // the broadleaf kinds, the rarer ones met less often
 
 // --------------------------------------------------------------------------------------------------------- world chunks
@@ -1582,14 +1664,16 @@ function buildChunk(cx, cz) {
     if (wetAt(x, z)) return;
     const y = hAt(x, z), c = cos(turn), sn = sin(turn), S = T.segs, Lf = T.leaves;
     const tr = (px, py, pz, o) => { o.push(x + (px * c - pz * sn) * sc, y + py * sc, z + (px * sn + pz * c) * sc); };
+    const enc = (h, r) => Math.round(min(max(h, 0), 60) * 32) + min(r, 31.9) / 32;       // height above the foot (whole part / 32) and reach out from the trunk (fraction * 32), in one number
     const nS = twigs ? T.nSeg : (T.nSegMid || T.nSeg), lw = [1, 1, 1.5, 1.8, 2.1][thin];
     for (let i = 0; i < nS; i++) {
       const o = i < farN ? far : segs, k = i * 10, made = S[k + 8] < -0.5;
-      tr(S[k], S[k + 1], S[k + 2], o); o.push(S[k + 3] * sc); tr(S[k + 4], S[k + 5], S[k + 6], o); o.push(S[k + 7] * sc, made ? -1 : S[k + 8] * sc, made ? S[k + 9] : S[k + 9] * sc);
+      tr(S[k], S[k + 1], S[k + 2], o); o.push(S[k + 3] * sc); tr(S[k + 4], S[k + 5], S[k + 6], o); o.push(S[k + 7] * sc, made ? -1 : enc(S[k + 8] * sc, hypot(S[k], S[k + 2]) * sc), made ? S[k + 9] : enc(S[k + 9] * sc, hypot(S[k + 4], S[k + 6]) * sc));
     }
-    for (let i = 0; i < T.nLeaf; i += thin) { const k = i * 12; tr(Lf[k], Lf[k + 1], Lf[k + 2], leaves); leaves.push(Lf[k + 3] * sc, Lf[k + 4] + turn, Lf[k + 5], Lf[k + 6] * sc * lw, Lf[k + 7], Lf[k + 8], Lf[k + 9], Lf[k + 10], Lf[k + 11] * sc); }
+    for (let i = 0; i < T.nLeaf; i += thin) { const k = i * 12; tr(Lf[k], Lf[k + 1], Lf[k + 2], leaves); leaves.push(Lf[k + 3] * sc, Lf[k + 4] + turn, Lf[k + 5], Lf[k + 6] * sc * lw, Lf[k + 7], Lf[k + 8], Lf[k + 9], Lf[k + 10], enc(Lf[k + 11] * sc, hypot(Lf[k], Lf[k + 2]) * sc)); }
   };
   const inside = (x, z) => x >= ox && x < ox + CH && z >= oz && z < oz + CH;
+  if (DEMO >= 0 && TREES[DEMO]) for (let k = Math.ceil(oz / 14); k * 14 < oz + CH; k++) { const z = k * 14, x = roadX(z) + 7.5; if (inside(x, z)) plant(TREES[DEMO], x, z, k * 1.7, 1); }      // ?plant=N lines the road with plant N, for looking at one kind closely
   const twc = townW(oz + CH / 2); let dbgHouse = null, reach = 0;      // reach: how far (m) this chunk's longest wire runs on beyond a pole's ordinary span
   const stamp = (B, x, y, z, yaw, s1, s2, fl = 0) => { const c = cos(yaw), sn = sin(yaw); for (const b of B) boxes.push(x + b[0] * c + b[2] * sn, y + b[1], z - b[0] * sn + b[2] * c, yaw, b[3], b[4], b[5], b[6], b[7], b[7] === 1 || b[7] === 9 ? s2 : b[7] === 17 ? ph(floor(x * 7 + b[0] * 13), floor(z * 5 + b[1] * 11)) : s1, b[4], fl ? 2 : b[8] || 0); };
   const swc = seaW(oz + CH / 2);
@@ -1825,7 +1909,7 @@ function buildChunk(cx, cz) {
         const W2 = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c], tree = (T, lx, lz, sc, thin = 1) => { const q = W2(lx, lz); if (inside(q[0], q[1])) plant(T, q[0], q[1], h(lx + 20) * 6, sc, thin); };
         const put = (lx, ly, lz, sx, sy, sz, mat, seed = 0) => { if (own) boxes.push(x + lx * c + lz * sn, y + ly, z - lx * sn + lz * c, yaw, sx, sy, sz, 0, mat, seed, sy, 0); };
         if (u < 0.08 || h(0) < (i - 3) * 0.1) {               // an empty lot
-          if (h(1) < 0.7) tree(TREES[7], -3 + h(2) * 6, -2 + h(3) * 5, 0.8 + h(4) * 0.3); if (h(5) < 0.5) tree(TREES[BL[floor(h(6) * 8)]], 4 - h(7) * 8, 1 - h(8) * 5, 0.6 + h(9) * 0.4, 2); if (h(10) < 0.4) tree(TREES[8], 5, 5, 0.9);
+          if (h(1) < 0.7) tree(TREES[8 + (h(2) < 0.4 ? 1 : 0)], -3 + h(2) * 6, -2 + h(3) * 5, 0.8 + h(4) * 0.3); if (h(5) < 0.5) tree(TREES[BL[floor(h(6) * 8)]], 4 - h(7) * 8, 1 - h(8) * 5, 0.6 + h(9) * 0.4, 2); if (h(10) < 0.4) tree(TREES[8], 5, 5, 0.9);
           continue;
         }
         if (u < 0.11 && i > 1) {                                // a block of flats
@@ -1843,13 +1927,13 @@ function buildChunk(cx, cz) {
         if (u < 0.55) {                                         // the two-storey house; its own low wall, and a gate between the posts
           if (own) stamp(HOUSE2, x, y, z, yaw, h(13), h(14)); put(0, 0.8, 8, 1.6, 1.45, 0.05, 27, gs);
           if (h(15) < 0.6) tree(TREES[BL[floor(h(16) * 8)]], h(17) < 0.5 ? -6.6 : 6.6, -1 + h(18) * 5, 0.5 + h(19) * 0.3, 2); if (h(20) < 0.5) tree(TREES[8 + (h(21) < 0.5 ? 1 : 0)], h(17) < 0.5 ? 6.3 : -6.3, 6.5, 0.8);
-          if (h(22) < 0.35) tree(TREES[7], h(17) < 0.5 ? 6.5 : -6.5, -3, 0.75);
+          if (h(22) < 0.35) tree(TREES[9], h(17) < 0.5 ? 6.5 : -6.5, -3, 0.75);
         } else {                                                // the one-storey house, or the old timber one, in a walled yard with a sliding gate across the drive
           const old = u > 0.88; if (own) stamp(old ? HOUSE : HOUSE3, x, y, z, yaw, h(13), h(14));
           for (const [lx, lz, sx, sz] of [[0, -6.7, 16.7, 0.16], [-8.3, 0.8, 0.16, 15], [8.3, 0.8, 0.16, 15]]) { put(lx, 0.875, lz, sx, 1.75, sz, 18, fs); put(lx, 1.78, lz, sx + 0.08, 0.06, sz + 0.08, 19); } wallB(1.85, 8.3, 12.9, 0.16);
           post(-4.6, 8.3); post(-8.3, 8.3); post(8.3, 8.3); put(-6.45, 0.85, 8.3, 3.5, 1.6, 0.05, 27, gs);
           if (h(15) < 0.7) tree(TREES[BL[floor(h(16) * 8)]], 5.5 + h(17), old ? 5.5 : -4.2 - h(18), 0.5 + h(19) * 0.35, 2); if (h(20) < 0.6) tree(TREES[8 + (h(21) < 0.5 ? 1 : 0)], 6.8, 6.6, 0.8);
-          if (h(22) < 0.4) tree(TREES[7], -6.2, -4.8, 0.75); if (old) tree(TREES[3], -6, 4, 0.8);
+          if (h(22) < 0.4) tree(TREES[9], -6.2, -4.8, 0.75); if (old) tree(TREES[3], -6, 4, 0.8);
           if (own && h(20) >= 0.6 && h(23) < 0.85) { const q = W2(6.2, 6.7); stamp(old ? SHRINE_A : SHRINE_B, q[0], y, q[1], yaw, 0.2, 0); }      // the household's spirit houses in the front corner of the yard
         }
       }
@@ -2000,7 +2084,7 @@ function buildChunk(cx, cz) {
   for (let t = 0; t < 10 * hwc * (1 - twc); t++) {
     const x = ox + R() * CH, z = oz + R() * CH, d = abs(rdist(x, z)), u = R(), sz = R(), turn = R() * TAU;
     if (d < 7 || d > 50 || fbm(x * 0.012 + 40, z * 0.012, 2) < 0.4) continue;
-    if (u < 0.15) plant(TREES[7], x, z, turn, 1 + sz * 0.4); else plant(TREES[8], x, z, turn, 1.6 + sz, 2);
+    if (u < 0.15 && townW(z) < 0.03) plant(TREES[7], x, z, turn, 1 + sz * 0.4); else plant(TREES[8], x, z, turn, 1.6 + sz, 2);
   }
   // and now and then a warning sign: wild animals cross here
   if (hwc > 0.6 && twc < 0.1) for (let k = Math.ceil(oz / 320) - 1; k * 320 < oz + CH + 320; k++) {
@@ -2023,7 +2107,7 @@ function buildChunk(cx, cz) {
   for (let t = 0; t < 8 * (1 - hwc) * (1 - twc) * (1 - swc) * (snc > 0.3 ? 0 : 1); t++) {
     const z = oz + R() * CH, side = R() < 0.5 ? -1 : 1, off = R(), u = R(), sz = R(), turn = R() * TAU, d = vergeAt(z) - 3 - 8 * off, x = roadX(z) + side * d;
     if (d < 9.5 || !inside(x, z) || pn(z * 0.01, 3 + side) < 0.45) continue;
-    if (u < 0.55) plant(TREES[8 + (sz < 0.25 ? 1 : 0)], x, z, turn, 1.5 + sz * 0.9, 2); else if (u < 0.75) plant(TREES[7], x, z, turn, 0.9 + sz * 0.4); else plant(TREES[BL[floor(sz * 7.99)]], x, z, turn, 0.55 + sz * 0.3, 2, false, 7);
+    if (u < 0.55) plant(TREES[8 + (sz < 0.25 ? 1 : 0)], x, z, turn, 1.5 + sz * 0.9, 2); else if (u < 0.75 && townW(z) < 0.03) plant(TREES[7], x, z, turn, 0.9 + sz * 0.4); else plant(TREES[BL[floor(sz * 7.99)]], x, z, turn, 0.55 + sz * 0.3, 2, false, 7);
   }
   // roadside shelter with a bench, now and then on the plain
   if (hwc < 0.4 && twc < 0.1 && swc < 0.1) for (let k = Math.ceil(oz / 520); k * 520 < oz + CH; k++) {
@@ -2100,7 +2184,7 @@ function buildChunk(cx, cz) {
   { const order = new Uint32Array(nL); for (let i = 0; i < nL; i++) order[i] = i; for (let i = nL - 1; i > 0; i--) { const j = floor(Rs() * (i + 1)), t = order[i]; order[i] = order[j]; order[j] = t; } for (let i = 0; i < nL; i++) lf.set(leaves.slice(order[i] * 12, order[i] * 12 + 12), i * 12); }
   const allSeg = new Float32Array(far.length + segs.length); allSeg.set(far); allSeg.set(segs, far.length); nSegFar = far.length / 10;
   return { cx, cz, x: ox + CH / 2, z: oz + CH / 2, y: hg[(M * M) >> 1], vb: vbuf(v), nSeg: allSeg.length / 10, nSegFar, segB: allSeg.length ? vbuf(allSeg) : null,
-    reach, nLeaf: nL, leafB: nL ? vbuf(lf) : null, nGrass: 0, grassB: null, house: dbgHouse, nBox: boxes.length / 12, boxB: boxes.length ? vbuf(new Float32Array(boxes)) : null };
+    reach, nLeaf: nL, leafB: nL ? vbuf(lf) : null, nGrass: 0, grassB: null, house: dbgHouse, nBox: boxes.length / 12, boxB: boxes.length ? vbuf(new Float32Array(signW(boxes))) : null };
 }
 // grass is only grown for the chunks around the camera (and let go again further away): blades on level ground off the road
 const NG = 42000, gr = new Float32Array(NG * 12);
@@ -2229,15 +2313,22 @@ addEventListener('keydown', (e) => {
   else if (e.code === 'Equal' || e.code === 'NumpadAdd' || e.code === 'BracketRight') auto.limit = min(160, auto.limit + 10);
   else if (e.code === 'Minus' || e.code === 'NumpadSubtract' || e.code === 'BracketLeft') auto.limit = max(30, auto.limit - 10);
   else if ((e.code === 'KeyA' || e.code === 'KeyD' || e.code === 'KeyS') && !fly.on) auto.on = false;      // taking the wheel or braking hands control back
+  else if (e.code === 'KeyH' && !e.repeat) { const off = document.body.classList.toggle('noui'); try { localStorage.setItem('endless.noui', off ? '1' : ''); } catch (err) {} }      // H hides or shows the text over the picture (not the music player)
   else if (e.code === 'KeyF') { fly.on = !fly.on; if (fly.on) { fly.x = car.x; fly.z = car.z; fly.y = car.y + 4; fly.yaw = car.yaw; fly.pit = -0.1; } }
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
 let drag = false;
-canvas.addEventListener('pointerdown', (e) => { initSound(); drag = true; canvas.setPointerCapture(e.pointerId); });
+// A click on the picture takes hold of the mouse: the pointer disappears and cannot leave, and moving the mouse looks around.
+// Esc lets it go again (the browser does that). A finger on a touch screen still drags to look.
+const held = () => document.pointerLockElement === canvas;
+canvas.addEventListener('pointerdown', (e) => { initSound();
+  if (e.pointerType === 'mouse') { if (!held() && canvas.requestPointerLock) { try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) {} } }
+  else { drag = true; canvas.setPointerCapture(e.pointerId); } });
+document.addEventListener('pointerlockchange', () => { document.body.classList.toggle('held', held()); });
 canvas.addEventListener('pointerup', () => { drag = false; });
 canvas.addEventListener('pointermove', (e) => {
-  if (!drag) return;
+  if (!drag && !held()) return;
   if (fly.on) { fly.yaw -= e.movementX * 0.004; fly.pit = clamp(fly.pit - e.movementY * 0.004, -1.5, 1.5); }
   else { car.ly -= e.movementX * 0.004; car.lp = clamp(car.lp - e.movementY * 0.004, -1.1, 1.1); }
 });
@@ -2682,6 +2773,7 @@ function frame(now) {
   Q.submit([enc.finish()]);
 }
 requestAnimationFrame(frame);
+try { if (localStorage.getItem('endless.noui')) document.body.classList.add('noui'); } catch (err) {}
 window.__dbg = { snd: () => ({ state: AC && AC.state, now: AC && AC.currentTime, S: SND }), auto, car, fly, chunks, AT, setT: (t) => { tday = t; }, setWx: (k) => { wxAuto = false; wxCur = k; }, HUTS, get fps() { return fps; }, get tris() { return tris; } };
 })();
 </script>
