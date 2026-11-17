@@ -12,6 +12,13 @@ fn shadow(wp: vec3f) -> f32 {
   let edge = ss(.5, .44, max(abs(uv.x - .5), abs(uv.y - .5)));
   return mix(1., a / 9., edge);
 }
+// the same for leaves and twigs, at a ninth of the cost: one look-up (the sampler itself blends the four texels round the point). Their own
+// outlines are too fine and too many for the difference to show, and they are most of what a forest draws.
+fn shadowF(wp: vec3f) -> f32 {
+  let s = g.sm * vec4f(wp - g.cam.xyz, 1.); let uv = vec2f(s.x * .5 + .5, .5 - s.y * .5);
+  if (uv.x < 0. || uv.x > 1. || uv.y < 0. || uv.y > 1. || s.z > 1.) { return 1.; }
+  return mix(1., textureSampleCompareLevel(tSh, sSh, uv, s.z - .0012), ss(.5, .44, max(abs(uv.x - .5), abs(uv.y - .5))));
+}
 // the colour of the far distance in a given direction: the sky's horizon, glowing toward the sun
 fn horizon(rd: vec3f) -> vec3f {
   let hd = normalize(vec3f(rd.x, 0., rd.z) + vec3f(1e-5, 0., 0.));
@@ -27,7 +34,8 @@ fn head(wp: vec3f, n: vec3f) -> vec3f {
 // the sea: turquoise over the shallows, deep blue further out, waves that mirror the sky and glitter under the sun, foam at the rocks
 fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   let t = g.cam.w; let P = wp.xz; let d = distance(g.cam.xyz, wp);
-  let u = wp.x - roadX(wp.z) - shoreX(wp.z); let b = bch(wp.z);          // u: metres out from the waterline
+  var u = wp.x - roadX(wp.z) - shoreX(wp.z); var b = bch(wp.z);          // u: metres out from the waterline
+  let ui = ism(wp.xz); if (ui > -90.) { u = ui; b = 1.; }               // (round the island: measured from its own shores, which are sand)
   let calm = (.3 + .7 * ss(0., 22., u)) / (1. + d * .012);
   let wv = vec2f(vn(P * .35 + vec2f(t * .5, t * .2)) - .5 + (vn(P * 1.3 - vec2f(t * .6, 0.)) - .5) * .5, vn(P * .35 + vec2f(9., -t * .45)) - .5 + (vn(P * 1.3 + vec2f(3., t * .7)) - .5) * .5);
   let n = normalize(vec3f(wv.x * .5 * calm, 1., wv.y * .5 * calm));
@@ -59,7 +67,8 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   let dPx = dpdx(i.rel.xz); let dPy = dpdy(i.rel.xz); let pxa = length(dPx); let pxb = length(dPy); let px = sqrt(max(sqrt(pxa * pxb) * max(pxa, pxb), 1e-10));      // between the pixel's mean size and its long side on the ground
   let n1 = fbm(P * .045); let n2 = vn(P * .55); let n3 = mix(.5, vn(P * 3.7), 1. - ss(.5, 1.4, px * 3.7)); let n4 = mix(.5, vnp(Pf * 14., 3584.), 1. - ss(.5, 1.4, px * 14.));
   let e = .12; let f3 = 1. - ss(.5, 1.4, px * 3.7); let r3 = vn(P * 3.7); let bx = (vn((P + vec2f(e, 0.)) * 3.7) - r3) * f3; let bz = (vn((P + vec2f(0., e)) * 3.7) - r3) * f3;
-  let rd = abs(rdist(wp.xz));
+  if (i.w < -.5) { discard; }                      // the mouth of a tunnel: the ground is not drawn where it would lie across the opening
+  let rd = abs(rdist(wp.xz)) + (tunk(wp.z) + isb(wp.z)) * 999.;      // (over a tunnel, and under a bridge to the island, there is no road on the ground)
   // dry verge: patchy turf over red-brown laterite soil
   // Seen close, the ground has grain: on the turf, blades lying this way and that over dark thatch, straw among the green, hollows between
   // the clumps; on bare earth, grit, small stones, hairline cracks and pale dust where it has baked hard. Beyond 60 m only the tones are left.
@@ -143,12 +152,14 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   let sandM = sw5 * bz_ * ss(17., 24., dxs);
   let sand = mix(vec3f(.40, .345, .24), vec3f(.21, .175, .12), damp) * (.9 + .15 * n2) * (.93 + .12 * n4) * (.97 + .03 * sin(su * 7. + n2 * 9.));
   alb = mix(alb, sand, sandM); bump = mix(bump, .3, sandM); gloss = mix(gloss, .5 * damp, sandM);
+  let iw = ism(P);                                    // round the island and on the mainland's shore facing it: a strip of sand above the waterline, damp at the water's edge
+  if (iw > -25.) { let sI = ss(-24., -11., iw); alb = mix(alb, mix(vec3f(.40, .345, .24), vec3f(.21, .175, .12), ss(-3.5, -.5, iw + swash(wp.z) * .5)) * (.9 + .15 * n2) * (.93 + .12 * n4), sI); bump = mix(bump, .3, sI); }
   alb *= 1. - .5 * sw5 * (1. - bz_) * ss(-2.5, 0., su);
   let pin0 = mix(mix(6.15, 4.15, step(0., dxs)), 3.85, pnw);
   alb = mix(alb, mix(vec3f(.30, .19, .10), vec3f(.36, .30, .20), ss(.4, .7, n2)) * (.7 + .5 * n3) * (.85 + .3 * n4), pnw * ss(pin0, pin0 + .5, rd) * (1. - ss(mix(17., 30., step(dxs, 0.)), mix(23., 40., step(dxs, 0.)), abs(dxs))) * .9 * (1. - sandM));
   // in town. Behind the street the land is yards of swept earth and rough grass, cut by lanes (ซอย) of patched concrete that leave the
   // main road every 36 m. The shophouses stand on a concrete apron poured in bays; along the road a tiled footpath and a painted kerb.
-  var zebra = 0.;
+  var zebra = 0.; var xm = 0.;      // xm: in the mouth of a cross street, where the main road's kerb paint and edge lines stop
   if (twz > .01) {
     let so = soi(P); let tk = twz * (1. - rivK);
     let yard = mix(mix(soil, vec3f(.30, .235, .165) * (.75 + .4 * n3), .45), grass * .92, ss(-.03, .03, tfv - .52 + rag));      // swept earth, grass only where nobody walks
@@ -156,21 +167,24 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
     let cq = fract(P / 3.2); let cj = ss(0., .025, min(min(cq.x, 1. - cq.x), min(cq.y, 1. - cq.y)));
     let conc = vec3f(.30, .29, .27) * (.75 + .35 * n2) * (.85 + .3 * n4) * (.78 + .22 * cj);
     alb = mix(alb, mix(conc, conc * vec3f(.62, .6, .56), ss(.55, .8, vn(P * .21 + 3.)) * .6), tk * (1. - ss(25.5, 27.5 + n2 * 2., rd)));
-    let lane = (1. - ss(1.85, 2.05, abs(so.x))) * step(abs(so.y), 160.);
+    let xr = tlb(so.z); let lw = 1.85 + 1.65 * xr;                    // xr: this lane is a cross street (two lanes of asphalt, a centre line, zebra crossings on the main road each side of it)
+    let lane = (1. - ss(lw, lw + .2, abs(so.x))) * step(abs(so.y), 160.);
     let lcol = vec3f(.21, .205, .20) * (.72 + .4 * n2) * (.85 + .3 * n4) * (.78 + .22 * ss(0., .03, abs(fract(so.y / 5.) - .5)));
-    alb = mix(alb, mix(lcol, vec3f(.075, .075, .08) * (.8 + .4 * n4), ss(.5, .7, vn(P * .13 + so.z))), tk * lane);     // some lengths resurfaced in asphalt
-    alb = mix(alb, vec3f(.20, .15, .10) * (.7 + .5 * n3), tk * (1. - lane) * (1. - ss(2.0, 2.9, abs(so.x))) * ss(26., 28., rd) * .7);      // worn earth at the lane's edges
+    alb = mix(alb, mix(lcol, vec3f(.075, .075, .08) * (.8 + .4 * n4), max(xr, ss(.5, .7, vn(P * .13 + so.z)))), tk * lane);     // some lengths resurfaced in asphalt
+    alb = mix(alb, vec3f(.60, .47, .06), xr * tk * lane * step(abs(so.x), .07) * step(.45, fract(so.y / 6.)) * step(9., abs(so.y)));
+    alb = mix(alb, vec3f(.62, .62, .58), xr * tk * step(abs(abs(so.x) - 3.3), .06) * step(8.5, abs(so.y)) * step(abs(so.y), 160.));
+    alb = mix(alb, vec3f(.20, .15, .10) * (.7 + .5 * n3), tk * (1. - lane) * (1. - ss(lw + .15, lw + 1.05, abs(so.x))) * ss(26., 28., rd) * .7);      // worn earth at the lane's edges
     let ft = 1. - ss(.5, 1.4, px * 5.); let tq = fract(Pf / .4); let joint = mix(.8, ss(0., .06, min(min(tq.x, 1. - tq.x), min(tq.y, 1. - tq.y))), ft);
     let tile = mix(vec3f(.34, .33, .32), vec3f(.40, .27, .22), mix(.5, step(.5, fract((floor(Pf.x / .4) + floor(Pf.y / .4)) * .5)), ft) * .55);      // grey and brick-red paving blocks
     let kb = mix(kerb, mix(vec3f(.72, .72, .69), vec3f(.74, .58, .06), step(.5, fract(Pf.y / 1.6))) * (.85 + .2 * n4), step(.5, fract(so.z * .37))); let kbare = step(.6, fract(so.z * .61));      // four blocks in ten have bare kerbs
     let pave = mix(tile * (.8 + .25 * n4) * (.68 + .32 * joint), mix(kb, vec3f(.50, .49, .46) * (.85 + .2 * n4), kbare), 1. - ss(3.95, 4.02, rd));
-    alb = mix(alb, pave, tk * (1. - ss(7.7, 8.0, rd)) * (1. - lane * ss(4.0, 4.1, rd))); bump = mix(bump, .3, twz);
-    let zc = abs(so.x - 5.5);
-    zebra = twz * step(zc, 1.6) * step(rd, 3.0) * step(.5, fract(dxs / 1.1)) * step(fract(so.z * .5), .25);
+    alb = mix(alb, pave, tk * (1. - ss(7.7, 8.0, rd)) * (1. - lane * max(xr, ss(4.0, 4.1, rd)))); bump = mix(bump, .3, twz); let ud = udk(wp.z); xm = xr * twz * lane * (1. - ud);
+    let zc = mix(abs(so.x - 5.5), abs(abs(so.x) - 6.0), xr);
+    zebra = twz * step(zc, 1.6) * step(rd, 3.0) * step(.5, fract(dxs / 1.1)) * max(xr, step(fract(so.z * .5), .25)) * (1. - ud);
   }
   var road = vec3f(.034, .035, .038) * (.72 + .5 * n4) * (.85 + .3 * n2);
-  road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, abs(rd - 3.2)));
-  road = mix(road, vec3f(.58, .42, .04), ss(.09, .05, rd) * max(step(.5, fract(wp.z / 9.)), ss(0., .2, hpw(wp.z))));      // a solid line round the switchbacks
+  road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, abs(rd - 3.2)) * (1. - xm));
+  road = mix(road, vec3f(.58, .42, .04), ss(.09, .05, rd) * max(step(.5, fract(wp.z / 9.)), ss(0., .2, hpw(wp.z))) * (1. - xm));      // a solid line round the switchbacks
   road = mix(road, vec3f(.55, .55, .52) * (.8 + .25 * n4), zebra);
   road = mix(road, vec3f(.56, .58, .63) * (.9 + .1 * n4), nwz * .85 * (1. - ss(.55, .25, min(abs(rd - .95), abs(rd - 2.55)))) * ss(.3, .6, vn(P * .45) + .15));      // snow on the road, worn away in the wheel tracks
   alb = mix(alb, road, asp); bump = mix(bump, .25, asp); gloss = mix(gloss, .22, asp);
@@ -216,7 +230,7 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
     c += (g.amb.rgb + g.sunCol.rgb * .1) * (splash * .45 * g.sun.w * asp);
   }
   let land = fogged(c, wp);
-  let seaM = sw5 * ss(-.15, .15, su + swash(wp.z));
+  let seaM = max(sw5 * ss(-.15, .15, su + swash(wp.z)), ss(-.15, .15, iw + swash(wp.z) * .5));
   if (seaM > .001) { return vec4f(mix(land, seaC(wp, V, sh), seaM), 1.); }
   return vec4f(land, 1.);
 }
@@ -279,7 +293,7 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   }
   let ndl = dot(n, L);
   let ao = i.pr.x;
-  let E = g.sunCol.rgb * shadow(i.wp + L * .2);
+  let E = g.sunCol.rgb * shadowF(i.wp + L * .2);
   // light through the leaf from behind: warm and bright, the look of living foliage
   let through = (max(-ndl, 0.) * .8 + .1) * trv;
   var c = alb * E * (max(ndl, 0.) + through * vec3f(1.35, 1.3, .65));
@@ -313,7 +327,7 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   if (i.m > 8.5) { alb = mix(vec3f(.16, .26, .04), vec3f(.30, .36, .07), ss(.3, .7, vn(i.wp.xz * 9. + i.wp.y * 5.))) * (.85 + .2 * fur); }      // green bananas on the bunch
   if (i.m > 9.5) { let st = vn(vec2f(i.uv.x * 44., i.uv.y * 1.3)); alb = mix(vec3f(.30, .22, .11), vec3f(.52, .42, .23), st) * (.85 + .3 * fur); alb = mix(alb, vec3f(.15, .10, .06), ss(.62, .88, vn(vec2f(i.uv.x * 7., i.uv.y * 2.2))) * .6); }      // foot of a banana stem: dry brown sheaths, stringy, with dark patches
   if (i.m > 10.5) { let st = vn(vec2f(i.uv.x * 30., i.uv.y * 1.1)); alb = mix(vec3f(.30, .38, .11), vec3f(.46, .47, .20), st); alb = mix(alb, vec3f(.30, .21, .10), ss(.5, .8, vn(vec2f(i.uv.x * 6., i.uv.y * 1.4))) * .6); }      // top of the stem: yellow-green sheaths, streaked brown      // banana stem: pale green, with brown dried sheaths
-  let E = g.sunCol.rgb * shadow(i.wp + n * .08);
+  let E = g.sunCol.rgb * shadowF(i.wp + n * .08);
   var c = alb * (E * max(dot(nb, L), 0.) + sky(nb) * .8) + alb * head(i.wp, nb);
   return vec4f(fogged(c, i.wp), 1.);
 }
@@ -543,6 +557,26 @@ fn pal(h: f32) -> vec3f {
       }
     }
   }
+  else if (mat == 48) {      // the concrete of an old tunnel: grey gone brown, dark where water has run down it for years, green with algae where it stays
+    var q = vec2f(i.wp.x + i.wp.z, i.wp.y);        // damp, sooty higher up, with the lines of the boards it was cast against and the joints between pours
+    let flat_ = step(.6, abs(n.y)); if (flat_ > .5) { q = i.wp.xz * vec2f(1., .35); }      // (a level face - the walkway's top - is marked in plan, or its marks would follow the height and read as steps)
+    var cc = vec3f(.30, .28, .24) * (.65 + .55 * vn(q * .8)) * (.85 + .3 * vn(q * 7.));
+    let run = ss(.42, .78, vn(vec2f(q.x * 1.6, q.y * .11 + 3.)));
+    cc = mix(cc, vec3f(.075, .068, .058), run * .7);
+    cc = mix(cc, vec3f(.10, .14, .055), ss(.5, .8, vn(q * .55 + 9.)) * ss(.25, .7, run) * .7);
+    cc = mix(cc, vec3f(.035), ss(.45, .9, vn(q * .3 + 20.)) * .4);
+    cc *= mix((.9 + .1 * step(.06, fract(q.y / .45))) * (.9 + .1 * ss(0., .01, abs(fract(q.x / 6.) - .5))), 1., flat_);
+    alb = cc; gloss = .08 + .25 * run;
+  }
+  else if (mat == 47) {      // a concrete slab carrying a road along its length (local x): asphalt down the middle with a broken yellow centre line and white edge lines; bare concrete beside it and on its sides
+    let n4 = vn(i.wp.xz * 14.); alb = vec3f(.40, .39, .37) * (.8 + .3 * n4) * (.9 + .15 * vn(uv * 1.3));
+    if (i.ln.y > .5) {
+      let az = abs(i.lp.z); var road = vec3f(.034, .035, .038) * (.72 + .5 * n4) * (.85 + .3 * vn(i.wp.xz * .55));
+      road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, abs(az - 3.1)));
+      road = mix(road, vec3f(.58, .42, .04), ss(.09, .05, az) * step(.5, fract((i.wp.x + i.wp.z) * .12)));
+      alb = mix(alb, road, 1. - ss(3.5, 3.6, az)); gloss = .22;
+    }
+  }
   else if (mat == 44) {      // a shop ceiling: white tiles, set with rows of light panels that are on day and night
     let q = i.lp.xz; let lp = step(.3, fract(q.x / 1.2)) * step(.72, fract(q.y / 1.25));
     alb = vec3f(.86, .86, .84) * (.97 + .03 * step(.03, fract(q.x / .6)) * step(.03, fract(q.y / .6))); emi = vec3f(1., 1., .94) * lp * (1.1 + 1.6 * night);
@@ -669,7 +703,7 @@ fn pal(h: f32) -> vec3f {
   else if (mat == 20) { let bd = vec3f(i.lp.x, i.lp.y, i.lp.z) * 22.; alb = mix(vec3f(.95, .50, .03), vec3f(1., .78, .08), vn(bd.xy + bd.z)) * (.75 + .35 * abs(sin(bd.x + bd.y + bd.z))); emi = alb * g.sunCol.rgb * .04; }   // marigold garland
   else if (mat == 14) { alb = mix(vec3f(.62, .08, .06), vec3f(.80, .60, .12), step(.5, fract(i.lp.y * 9.)) * .6); gloss = .3; }      // spirit house: red and gold
   else if (mat == 15) { alb = vec3f(.82, .62, .12) * (.8 + .3 * vn(uv * 20.)); gloss = .6; }
-  else if (mat == 10) { alb = vec3f(.6); emi = vec3f(1., .8, .5) * night * 9.; }
+  else if (mat == 10) { alb = vec3f(.6); emi = vec3f(1., .8, .5) * max(night, .55 * step(3.5, i.m.w) * step(i.m.w, 4.5)) * 9.; }      // a lamp: lit at night (shape 4, a tunnel's: by day as well)
   else if (mat == 30) {      // a bridge deck: the road carried across, concrete at its edges and underneath
     let n4 = vn(i.wp.xz * 14.); alb = vec3f(.40, .39, .37) * (.8 + .3 * n4) * (.9 + .15 * vn(uv * 1.3));
     if (i.ln.y > .5) {
@@ -711,6 +745,7 @@ fn pal(h: f32) -> vec3f {
   if (i.m.z > .5 && abs(i.ln.y) < .5 && mat != 38) { let hh = i.m.z * .5; ao = mix(.55, 1., ss(0., .45, hh - i.lp.y)) * mix(.72, 1., max(ss(0., .5, i.lp.y + hh), f32(mat == 6))); }      // (a shophouse's upper floors do not start at the ground)
   let ndl = max(dot(n, L), 0.);
   let E = g.sunCol.rgb * shadow(i.wp + n * .1);
+  if (i.m.w > 4.5 && i.m.w < 5.5) { alb *= .30; emi += alb * vec3f(1.25, 1.05, .75) * .9; }      // (shape 5) inside a tunnel: dim concrete under the yellow of its lamps, not the light of the sky
   if (i.m.w > 2.5 && i.m.w < 3.5) { emi += alb * (.36 + .7 * night); }      // (shape 3) indoors under the shop's own lights, which are on all the time
   var c = alb * (E * ndl + sky(n) * ao) + E * pow(max(dot(n, normalize(V + L)), 0.), 40.) * ndl * gloss + alb * head(i.wp, n) + emi;
   return vec4f(fogged(c, i.wp), 1.);
@@ -763,7 +798,7 @@ struct SO { @builtin(position) cp: vec4f, @location(0) q: vec2f };
   var outc = mix(hz * .9, c, ss(-.02, .02, rd.y));
   if (rd.y < -.0015 && g.cam.y > SEA) {
     let hp = g.cam.xyz + rd * ((SEA - g.cam.y) / rd.y);
-    let m = step(.01, sw(hp.z)) * ss(-1., 1., hp.x - roadX(hp.z) - shoreX(hp.z));
+    let m = max(step(.01, sw(hp.z)) * ss(-1., 1., hp.x - roadX(hp.z) - shoreX(hp.z)), ss(-1., 1., ism(hp.xz)));
     if (m > .001) { outc = mix(outc, seaC(hp, -rd, 1.), m); }
   }
   return vec4f(outc, 1.);

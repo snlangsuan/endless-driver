@@ -64,16 +64,17 @@ function updateSound(dt) {
   const hl = hillW(pz), tn = townW(pz), sea = seaW(pz), trees = clamp(0.45 + 0.55 * hl - 0.3 * tn - 0.2 * sea, 0.1, 1);
   // wind: the same gusts that move the trees, heard as they pass
   const gs = vnoise(px * 0.02 - time * 0.35, pz * 0.02 - time * 0.22), w = AT.wind * (0.35 + 1.1 * gs);
-  set(SND.wind.g, 0.003 + 0.011 * w * w * 0.5, 0.5); set(SND.wind.f, 140 + 90 * w, 0.5);
-  set(SND.leaves.g, 0.004 * w * w * trees * 0.5, 0.4); set(SND.leaves.f, 2200 + 500 * w);
-  const sp = fly.on ? 0 : abs(car.v); set(SND.rush.g, 0.0004 * sp * sp ** 0.5, 0.15); set(SND.rush.f, 180 + sp * 14, 0.15);      // air and tyres at speed
+  const out = 1 - 0.85 * coverK;          // in a tunnel or under an underpass the wind, the leaves and the rain are shut out, and the car's own noise comes back off the walls
+  set(SND.wind.g, (0.003 + 0.011 * w * w * 0.5) * out, 0.5); set(SND.wind.f, 140 + 90 * w, 0.5);
+  set(SND.leaves.g, 0.004 * w * w * trees * 0.5 * out, 0.4); set(SND.leaves.f, 2200 + 500 * w);
+  const sp = fly.on ? 0 : abs(car.v); set(SND.rush.g, 0.0004 * sp * sp ** 0.5 * (1 + 1.6 * coverK), 0.15); set(SND.rush.f, 180 + sp * 14, 0.15);      // air and tyres at speed
   // the sea: each swell builds, breaks and hisses back down the sand
   let sv = 0; if (sea > 0.01) { const d = shoreX(pz) - (px - roadX(pz)); sv = sea * clamp(1 - max(d, 0) / 150, 0, 1) ** 2; }
   const ph1 = time * 0.85 + sin(time * 0.23) * 1.3, sw = Math.pow(0.5 + 0.5 * sin(ph1), 2.2), fm = Math.pow(0.5 + 0.5 * sin(ph1 - 0.9), 4);
   set(SND.sea.g, sv * (0.07 + 0.2 * sw), 0.3); set(SND.sea.f, 300 + 600 * sw, 0.3); set(SND.foam.g, sv * (0.008 + 0.05 * fm), 0.3);
   // what hour it is: morning, dusk, dark
   const bump = (c, wd) => max(0, 1 - abs(tday - c) / wd), calm = (1 - 0.6 * AT.mist) * (1 - AT.rain);
-  set(SND.rain.g, 0.05 * AT.rain, 0.5); set(SND.rainLow.g, 0.09 * AT.rain * AT.rain, 0.5);
+  set(SND.rain.g, 0.05 * AT.rain * out, 0.5); set(SND.rainLow.g, 0.09 * AT.rain * AT.rain * (1 - 0.6 * coverK), 0.5);
   const morning = max(bump(0.31, 0.11), 0.1 * (1 - AT.night) * bump(0.5, 0.3)), dusk = bump(0.71, 0.09), dark = AT.night;
   const cicV = dusk * trees * calm * (0.7 + 0.3 * sin(time * 0.4));
   set(SND.cic1, 0.05 * cicV, 0.8); set(SND.cic2, 0.035 * cicV * (0.5 + 0.5 * sin(time * 0.17 + 2)), 0.8);

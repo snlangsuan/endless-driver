@@ -9,7 +9,7 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 // --------------------------------------------------------------------------------------------------------- frame
 const hud = $('hud');
 let last = performance.now(), time = 0, fN = 0, fT = 0, fWorst = 0, fps = 60, onRoad = true, tris = 0;
-const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0, lodK = 1;      // lodK: 1 = full drawing distances for leaves, twigs and grass; lowered (to 0.9 at least) when the frame rate cannot be held otherwise
+const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0, coverK = 0, lodK = 1; const ordC = [];      // lodK: 1 = full drawing distances for leaves, twigs and grass; lowered (to 0.9 at least) when the frame rate cannot be held otherwise
 updateChunks(car.x, car.z, 30);
 function frame(now) {
   requestAnimationFrame(frame);
@@ -37,7 +37,7 @@ function frame(now) {
       else if (fps > up && (scale < rLid || lodK < 1)) { if (++upOK >= 6) { if (scale < 0.92 || lodK >= 1) scale = min(rLid, scale * 1.05); else lodK = min(1, lodK * 1.08); upOK = 0; rSince = 0; } }
       else upOK = 0;
     }
-    hud.textContent = `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${chyAt(car.z) ? 'ถนนพญาเสือโคร่ง' : hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? 'ทุ่งหิมะ' : flwAt(car.z) ? 'ทุ่งดอกไม้และนาข้าว' : 'ทุ่งนา'} · ${todName()} ${wxName()} ${chyAt(car.z) ? 'หน้าหนาว' : AT.dry > 0.5 ? 'หน้าแล้ง' : 'หน้าฝน'} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'} (จำกัด ${auto.limit} km/h) · ป้าย ${zlim(car.z)}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
+    hud.textContent = `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${isOf(car.z) && abs(car.z - IS.zc) < 525 ? (isBr(car.z) ? 'สะพานแขวนข้ามทะเล' : 'เกาะ') : inTun(car.z) ? 'อุโมงค์ลอดเขา' : udip(car.z) > 1 ? 'ทางลอด' : chyAt(car.z) ? 'ถนนพญาเสือโคร่ง' : hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? 'ทุ่งหิมะ' : flwAt(car.z) ? 'ทุ่งดอกไม้และนาข้าว' : 'ทุ่งนา'} · ${todName()} ${wxName()} ${chyAt(car.z) ? 'หน้าหนาว' : AT.dry > 0.5 ? 'หน้าแล้ง' : 'หน้าฝน'} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'} (จำกัด ${auto.limit} km/h) · ป้าย ${zlim(car.z)}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
     fN = 0; fT = 0; fWorst = 0;
   }
   resize();
@@ -75,7 +75,9 @@ function frame(now) {
   UB[80] = ((ex % 256) + 256) % 256; UB[81] = ((ez % 256) + 256) % 256;      // where the eye stands in its 256 m tile (camM)
   UBS.set(UB.subarray(16, UBN), 16);
   Q.writeBuffer(ubo, 0, UB); Q.writeBuffer(uboS, 0, UBS);
-  Q.writeBuffer(uFinal, 0, new Float32Array([T.ex, T.snow > T.rain ? -T.snow : T.rain, time, 0.25 + 0.12 * T.wind]));
+  { const cz2 = fly.on ? fly.z : car.z, cx2 = fly.on ? fly.x : car.x, cy2 = fly.on ? fly.y : car.y + 1.2;      // under cover (a tunnel, the slab of an underpass) no rain or snow crosses the view, and the sounds of outdoors fall away
+    const und = (inTun(cz2) && abs(cx2 - roadX(cz2)) < 5 && cy2 < roadY(cz2) + 6.5) || (udOf(cz2) && abs(cz2 - UD.zc) < 15 && cy2 < roadY(cz2) + 5.2) ? 1 : 0; coverK += (und - coverK) * min(1, dt * 4); }
+  Q.writeBuffer(uFinal, 0, new Float32Array([T.ex, (T.snow > T.rain ? -T.snow : T.rain) * (1 - coverK), time, 0.25 + 0.12 * T.wind]));
 
   const enc = device.createCommandEncoder();
   // 1. shadows
@@ -86,7 +88,7 @@ function frame(now) {
     p.setPipeline(pTerrainS); p.setVertexBuffer(0, c.vb); p.setIndexBuffer(ibGrid, 'uint16'); p.drawIndexed(gridI.length);
     if (c.nSegFar) { p.setPipeline(pBranchS); p.setVertexBuffer(0, vbTube4); p.setVertexBuffer(1, c.segB); p.setIndexBuffer(ibTube4, 'uint16'); p.drawIndexed(tubeI4.length, c.nSegFar); }
     if (c.nBox) { p.setPipeline(pBoxS); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, c.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, c.nBox); }
-    if (c.nLeaf) { if (dc > 260 * lodK) continue; const l = dc > 80 * lodK ? 2 : 1; p.setPipeline(l === 2 ? pLeafS2 : pLeafS); p.setVertexBuffer(0, c.leafB); p.draw(10, floor(c.nLeaf / LODN[l])); }
+    if (c.nLeaf) { if (dc > 230 * lodK) continue; const l = dc > 52 * lodK ? 2 : 1; p.setPipeline(l === 2 ? pLeafS2 : pLeafS); p.setVertexBuffer(0, c.leafB); p.draw(10, floor(c.nLeaf / LODN[l])); }
   }
   if (SHOW_CAR) { p.setPipeline(pCarS); p.setVertexBuffer(0, carVB); p.setIndexBuffer(carIB, 'uint16'); p.drawIndexed(CAR.idx.length); }
   p.end();
@@ -114,9 +116,11 @@ function frame(now) {
     depthStencilAttachment: { view: vDepth, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard' } });
   p.setBindGroup(0, bgScene); tris = 0; let grassBudget = 1;
   if (SHOW_CAR) { p.setPipeline(pCar); p.setVertexBuffer(0, carVB); p.setIndexBuffer(carIB, 'uint16'); p.drawIndexed(CAR.idx.length); }
-  for (const c of chunks.values()) {
-    const dx = c.x - ex, dz = c.z - ez, d = hypot(dx, dz);
-    if (d > 380) continue;
+  // nearest first: what is drawn early hides what comes after, and a hidden pixel costs nothing - in a forest most of what lies beyond the first trees is hidden
+  ordC.length = 0; for (const c of chunks.values()) { c.dd = hypot(c.x - ex, c.z - ez); if (c.dd <= 380) ordC.push(c); } ordC.sort((a, b) => a.dd - b.dd);
+  if (grassJob) { if (grassJob.dead) grassJob = null; else { growGrass(grassJob); grassBudget = 0; } }      // first go on with the chunk whose grass is half grown
+  for (const c of ordC) {
+    const dx = c.x - ex, dz = c.z - ez, d = c.dd;
     if (d < 150 && !c.grassTried && grassBudget > 0) { grassBudget--; growGrass(c); }      // (before the test below: grass must be there already when a chunk comes into view)
     else if (d > 230 && c.grassB) { c.grassB.destroy(); c.grassB = null; c.nGrass = 0; c.grassTried = false; }
     if (d > CH) {                          // behind the camera or off to the side of what the screen shows

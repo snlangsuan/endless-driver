@@ -46,9 +46,9 @@ function drive(dt) {
     const curv = max(kv(car.z + dirz * (12 + abs(car.v) * 1.2) / nn), kv(car.z + dirz * 5 / nn));
     const ahead = zlim(car.z + dirz * (6 + car.v * car.v / 9) / nn);                              // the sign coming up, seen in time to be down to its speed on reaching it
     let vt = min(min(auto.limit, zlim(car.z), ahead) / 3.6, Math.sqrt(4.5 / max(curv, 1e-4)));
-    // traffic lights: stop at the line (6 m short of the corner) for red, and for amber if there is room to; wait; go on green
+    // traffic lights: stop at the line (short of the zebra crossing) for red, and for amber if there is room to; wait; go on green
     const tl = tlNext(car.z, dirz); hold = false;
-    if (tl) { const dist = (tl[0] - car.z) * dirz * nn - 8.2, sg = tlState(tl[1], time);            // from the car's nose to the line
+    if (tl) { const dist = (tl[0] - car.z) * dirz * nn - 10.9, sg = tlState(tl[1], time);            // from the car's nose to the line
       if (dist > -1.5 && (sg === 2 || (sg === 1 && dist > car.v * car.v / 10))) { vt = min(vt, dist < 0.4 ? 0 : Math.sqrt(2 * 2.4 * dist)); hold = dist < 0.4; } }          // never over the driver's own limit, nor the sign's, nor what the bend allows
     const dv = vt - car.v; thr = dv > 0.3 ? min(1, dv * 0.6) : dv < -1.5 ? -1 : 0; if (hold && car.v > 0.2) thr = -1;
   }
@@ -58,8 +58,12 @@ function drive(dt) {
   if (car.v < -8) car.v = -8;
   car.steer = (car.steer || 0) + (st - (car.steer || 0)) * (1 - exp(-dt * 8));
   car.yaw += st * dt * 1.7 * clamp(car.v / 5, -1, 1) / (1 + abs(car.v) * 0.03);
-  const nx = car.x + sin(car.yaw) * car.v * dt, nz = car.z + cos(car.yaw) * car.v * dt, onBr = brAt(nx, nz), gy = onBr ? roadY(nz) + 0.03 : ground(nx, nz);
+  const nx = car.x + sin(car.yaw) * car.v * dt, nz = car.z + cos(car.yaw) * car.v * dt, top = udTop(nx, nz, car.y), pr = !top && pierAt(nx, nz), onBr = top || pr || brAt(nx, nz) || tunAt(nx, nz), gy = top ? roadYs(nz) + 0.03 : pr ? max(ground(nx, nz), PIERY + 0.06) : onBr ? roadY(nz) + 0.03 : ground(nx, nz);
   let blocked = gy - car.y > 1.1 || (!onBr && gw[0] > 0);
+  if (inTun(nz) && abs(nx - roadX(nz)) > 3.55 && abs(nx - roadX(nz)) > abs(car.x - roadX(car.z)) && abs(car.x - roadX(car.z)) <= 4.75) blocked = true;      // the tunnel's walkways and walls
+  { const dp = udip(nz); if (dp > 0.2) { const d0 = abs(car.x - roadX(car.z)), d1 = abs(nx - roadX(nz)), dz0 = abs(car.z - UD.zc), dz1 = abs(nz - UD.zc);      // an underpass:
+    if (car.y < roadY(nz) + dp * 0.5) { if (d1 > 2.85 && d1 > d0) blocked = true; }                                     // down in the cutting, its walls;
+    else if ((dz1 > 16 && d1 < 6.1 && d1 < d0) || (d0 < 7.6 && (dz0 - 15.4) * (dz1 - 15.4) < 0)) blocked = true; } }      // up at street level, the parapet along it and the rails of the slab
   if (brSpan(nz) && (abs(car.x - roadX(car.z)) - 4.3) * (abs(nx - roadX(nz)) - 4.3) < 0) blocked = true;      // the balustrade                  // steep ground and water stop the car
   if (seaW(nz) >= 0.35 && pineWt(nz) <= 0.35) {                                         // so do the guard rail and the retaining wall of the coast road
     const d0 = car.x - roadX(car.z), d1 = nx - roadX(nz);
@@ -67,7 +71,7 @@ function drive(dt) {
     if ((d0 + 6.5) * (d1 + 6.5) < 0) blocked = true;
   }
   if (blocked) car.v *= -0.25; else { car.x = nx; car.z = nz; car.y += (gy - car.y) * (1 - exp(-dt * 14)); }
-  const gf = surf(car.x + sin(car.yaw) * 1.6, car.z + cos(car.yaw) * 1.6);
+  const gf = surf(car.x + sin(car.yaw) * 1.6, car.z + cos(car.yaw) * 1.6, car.y);
   car.pit += (atan2(gf - car.y, 1.6) - car.pit) * (1 - exp(-dt * 6));
   if (abs(car.v) > 2 && !drag) car.ly *= exp(-dt * 0.9);
   car.bump += dt * abs(car.v) * 2.2;
@@ -76,7 +80,9 @@ function drive(dt) {
 function flyMove(dt) {
   const sp = (K('ShiftLeft') ? 60 : 14) * dt, f = K('KeyW') - K('KeyS'), r = K('KeyD') - K('KeyA'), u = K('KeyE') - K('KeyQ');
   const cp = cos(fly.pit), fx = sin(fly.yaw) * cp, fy = sin(fly.pit), fz = cos(fly.yaw) * cp, rx = -cos(fly.yaw), rz = sin(fly.yaw);
+  const was = tunAt(fly.x, fly.z) && fly.y < roadY(fly.z) + 6.4;                 // the flying camera can go through a tunnel: once in, it is kept between floor, walls and roof
   fly.x += (fx * f + rx * r) * sp; fly.y += (fy * f + u) * sp; fly.z += (fz * f + rz * r) * sp;
-  fly.y = max(fly.y, ground(fly.x, fly.z) + 0.8);
+  if (inTun(fly.z) && (was || (abs(fly.x - roadX(fly.z)) < 4.6 && fly.y < roadY(fly.z) + 6))) { fly.x = clamp(fly.x, roadX(fly.z) - 4.4, roadX(fly.z) + 4.4); fly.y = clamp(fly.y, roadY(fly.z) + 0.6, roadY(fly.z) + 5.2); }
+  else fly.y = max(fly.y, ground(fly.x, fly.z) + 0.8);
 }
 

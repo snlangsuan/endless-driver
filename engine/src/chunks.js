@@ -4,7 +4,7 @@ const gridI = new Uint16Array(GN * GN * 6);
 for (let j = 0; j < GN; j++) for (let i = 0; i < GN; i++) { const a = j * (GN + 1) + i, b = a + 1, c = a + GN + 1, d = c + 1; gridI.set([a, c, b, b, c, d], (j * GN + i) * 6); }
 const ibGrid = vbuf(gridI, GPUBufferUsage.INDEX);
 const chunks = new Map(), HUTS = [];
-const hg = new Float32Array((GN + 3) * (GN + 3)), hwet = new Float32Array((GN + 3) * (GN + 3));
+const hg = new Float32Array((GN + 3) * (GN + 3)), hwet = new Float32Array((GN + 3) * (GN + 3)), LBUF = new Float32Array(12 * 260000);
 function buildChunk(cx, cz) {
   const ox = cx * CH, oz = cz * CH, N = GN + 1, M = GN + 3;
   for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) { hg[j * M + i] = ground(ox + (i - 1) * GS, oz + (j - 1) * GS); hwet[j * M + i] = gw[0]; }
@@ -17,10 +17,21 @@ function buildChunk(cx, cz) {
   const hAt = (x, z) => { const fx = (x - ox) / GS + 1, fz = (z - oz) / GS + 1, ix = floor(fx), iz = floor(fz), u = fx - ix, w = fz - iz, k = iz * M + ix; return mix(mix(hg[k], hg[k + 1], u), mix(hg[k + M], hg[k + M + 1], u), w); };
   const R = rng((cx * 73856093) ^ (cz * 19349663) ^ 0x5bd1e995);
   // what stands on this piece of land
-  const segs = [], leaves = [], far = [], boxes = []; let nSegFar = 0; const po = [0, 0];
+  const segs = [], far = [], boxes = []; let nSegFar = 0; const po = [0, 0];
+  // leaves are written straight into one long array kept for the purpose (LBUF): a wooded chunk has tens of thousands of them, and gathering them in an
+  // ordinary list first, then copying, then shuffling leaf by leaf took most of the time a chunk takes to build - time taken out of a frame
+  const leaves = { n: 0, get length() { return this.n; }, push(...v) { if (this.n + v.length <= LBUF.length) { LBUF.set(v, this.n); this.n += v.length; } } };
   // thin: every n-th sprig only, each made wider. twigs false: the finest twigs, hidden in the leaves anyway, are left out. farN: how much of the tree still shows from far off.
+  // The fishing village on an island (built further down): where its houses stand, so that no tree is planted through one.
+  const vil = [], pr0 = pierOf(oz + CH / 2);
+  if (isOf(oz + CH / 2) && abs(oz + CH / 2 - IS.zc) < 240) { const zc = IS.zc, hv = (i, j) => ph(IS.s * 16 + i, 700 + j);
+    for (let i = 0; i < 9; i++) { const row = i < 5 ? 0 : 1, z = zc + 38 + (row ? (i - 5) * 23 + 11 : i * 19) + hv(i, 1) * 5, x = roadX(z) + (row ? 47 : 19) + hv(i, 2) * 9;
+      if (ism(x, z) < -52) vil.push([x, z, -PI / 2 + (hv(i, 4) - 0.5) * 0.3, hv(i, 3) < 0.7, hv(i, 5), hv(i, 6)]); } }
   const plant = (T, x, z, turn, sc, thin = 1, twigs = true, farN = T.nSegFar) => {
     if (wetAt(x, z)) return;
+    { const dp = udip(z); if (dp > 0.1) { const d = abs(x - roadX(z)); if (d < 8.4) return; } }          // nothing grows in an underpass's cutting, nor on the footpath along it
+    for (const v of vil) if (abs(x - v[0]) < 8.5 && abs(z - v[1]) < 8.5) return;
+    if (pr0 && abs(x - pr0[0]) < 4.5 && z > pr0[1] - 30 && z < pr0[2]) return;          // (nor on the way down to the pier)
     const y = hAt(x, z), c = cos(turn), sn = sin(turn), S = T.segs, Lf = T.leaves;
     const tr = (px, py, pz, o) => { o.push(x + (px * c - pz * sn) * sc, y + py * sc, z + (px * sn + pz * c) * sc); };
     const enc = (h, r) => Math.round(min(max(h, 0), 60) * 32) + min(r, 31.9) / 32;       // height above the foot (whole part / 32) and reach out from the trunk (fraction * 32), in one number
@@ -29,7 +40,11 @@ function buildChunk(cx, cz) {
       const o = i < farN ? far : segs, k = i * 10, made = S[k + 8] < -0.5;
       tr(S[k], S[k + 1], S[k + 2], o); o.push(S[k + 3] * sc); tr(S[k + 4], S[k + 5], S[k + 6], o); o.push(S[k + 7] * sc, made ? -1 : enc(S[k + 8] * sc, hypot(S[k], S[k + 2]) * sc), made ? S[k + 9] : enc(S[k + 9] * sc, hypot(S[k + 4], S[k + 6]) * sc));
     }
-    for (let i = 0; i < T.nLeaf; i += thin) { const k = i * 12; tr(Lf[k], Lf[k + 1], Lf[k + 2], leaves); leaves.push(Lf[k + 3] * sc, Lf[k + 4] + turn, Lf[k + 5], Lf[k + 6] * sc * lw, Lf[k + 7], Lf[k + 8], Lf[k + 9], Lf[k + 10], enc(Lf[k + 11] * sc, hypot(Lf[k], Lf[k + 2]) * sc)); }
+    { let o = leaves.n; const wk = sc * lw, nl = T.nLeaf; if (o + Math.ceil(nl / thin) * 12 > LBUF.length) return;
+      for (let i = 0; i < nl; i += thin) { const k = i * 12, px = Lf[k], py = Lf[k + 1], pz = Lf[k + 2], hh = min(max(Lf[k + 11] * sc, 0), 60), rr = min(Math.sqrt(px * px + pz * pz) * sc, 31.9);
+        LBUF[o] = x + (px * c - pz * sn) * sc; LBUF[o + 1] = y + py * sc; LBUF[o + 2] = z + (px * sn + pz * c) * sc; LBUF[o + 3] = Lf[k + 3] * sc; LBUF[o + 4] = Lf[k + 4] + turn; LBUF[o + 5] = Lf[k + 5];
+        LBUF[o + 6] = Lf[k + 6] * wk; LBUF[o + 7] = Lf[k + 7]; LBUF[o + 8] = Lf[k + 8]; LBUF[o + 9] = Lf[k + 9]; LBUF[o + 10] = Lf[k + 10]; LBUF[o + 11] = Math.round(hh * 32) + rr / 32; o += 12; }
+      leaves.n = o; }
   };
   const inside = (x, z) => x >= ox && x < ox + CH && z >= oz && z < oz + CH;
   if (DEMO >= 0 && TREES[DEMO]) for (let k = Math.ceil(oz / 14); k * 14 < oz + CH; k++) { const z = k * 14, x = roadX(z) + 7.5; if (inside(x, z)) plant(TREES[DEMO], x, z, k * 1.7, 1); }      // ?plant=N lines the road with plant N, for looking at one kind closely
@@ -46,9 +61,9 @@ function buildChunk(cx, cz) {
       boxes.push(x - 0.06 * sn, y + 1.2, zz - 0.06 * c, yaw, 0.07, 2.4, 0.07, 0, 34, 0, 2.4, 0, x, y + 2.4, zz, yaw, 0.75, 0.75, 0.04, 0, 37, 0, e < 0 ? lb : la, 0);
     }
   }
-  // Traffic lights (see tlOf in land.js). For each direction: a stop line across its lane six metres short of the corner, and beyond the corner, on the
+  // Traffic lights (see tlOf in land.js), at a crossroads. For each direction: a stop line across its lane before the zebra crossing, and beyond the corner, on the
   // driver's left, a steel post with an arm reaching out over the lane; one signal head hangs from the arm's end and a second is on the post.
-  for (let g = floor((oz - 16) / 360); g <= floor((oz + CH + 16) / 360); g++) {
+  for (let g = floor((oz - 60) / 360); g <= floor((oz + CH + 30) / 360); g++) {
     const zs = tlOf(g); if (zs === null) continue; const off = ph(g, 521);
     for (const e of [-1, 1]) {          // e = -1: for traffic going up the road (+z); e = 1: for traffic coming down
       const zp = zs - e * 5, a = atan2(roadX(zp + 1) - roadX(zp - 1), 2), ca = cos(a), sa = sin(a), x = roadX(zp) - e * 5.0 * ca, zz = zp + e * 5.0 * sa;
@@ -62,10 +77,10 @@ function buildChunk(cx, cz) {
       const a0 = atan2(roadX(zs + 1) - roadX(zs - 1), 2), jx = roadX(zs);
       if (inside(jx, zs)) {
         const yw = e < 0 ? a0 : a0 + PI, cy = cos(yw), sy = sin(yw), fx = cy, fz = -sy, lx2 = -sy, lz2 = -cy;      // the way traffic out of that side street goes (f) and its left (l)
-        const px = jx + fx * 5.4 + lx2 * 3.2, pz = zs + fz * 5.4 + lz2 * 3.2, py = ground(px, pz);
+        const px = jx + fx * 5.4 + lx2 * 4.9, pz = zs + fz * 5.4 + lz2 * 4.9, py = ground(px, pz);
         far.push(px, py, pz, 0.07, px, py + 3.7, pz, 0.055, -1, 4); boxes.push(px - fx * 0.22, py + 3.1, pz - fz * 0.22, yw - PI / 2, 0.38, 1.1, 0.26, 0, 45, 1 + off, 1.1, 0);
       }
-      const zl = zs + e * 6, a2 = atan2(roadX(zl + 1) - roadX(zl - 1), 2), lx = roadX(zl) - e * 1.8 * cos(a2), lz = zl + e * 1.8 * sin(a2);
+      const zl = zs + e * 8.7, a2 = atan2(roadX(zl + 1) - roadX(zl - 1), 2), lx = roadX(zl) - e * 1.8 * cos(a2), lz = zl + e * 1.8 * sin(a2);
       if (inside(lx, lz)) boxes.push(lx, surf(lx, lz) + 0.012, lz, a2, 3.3, 0.02, 0.45, 0, 19, 0, 0.02, 0);
     }
   }
@@ -94,6 +109,7 @@ function buildChunk(cx, cz) {
     // road: so the units of the next 28 m either way are gone through as well. Without this, buildings went missing at chunk borders.)
     for (let k = Math.ceil((oz - 28) / UW - 0.5); (k + 0.5) * UW < oz + CH + 28; k++) {
       const z = (k + 0.5) * UW, um = ((k % 9) + 9) % 9; if (townW(z) < 0.5 || um === 8 || nearRiv(z, 9)) continue; const tseg = twS;
+      if ((um === 7 && xroad(floor(k / 9))) || (um === 0 && xroad(floor(k / 9) - 1))) continue;      // the corners of a crossroads are left open
       const a = atan2(roadX(z + 1) - roadX(z - 1), 2), blk = floor(k / 9);
       for (const side of [1, -1]) {
         // Every town has its own character (tch: old market town ... newer concrete town), and every block of the street is drawn by lot:
@@ -108,7 +124,7 @@ function buildChunk(cx, cz) {
         const nx = cos(a) * side, nz = -sin(a) * side, cx = roadX(z) + nx * (sb + DEP / 2), cz = z + nz * (sb + DEP / 2); const own = inside(cx, cz); if (!own && !(cx >= ox - 18 && cx < ox + CH + 18 && cz >= oz - 18 && cz < oz + CH + 18)) continue;
         const hb = ph(blk, side + 7 + seg), stB = hb < (tch < 0.4 ? 0.62 : tch > 0.75 ? 0.08 : 0.2) ? 2 : hb < (tch > 0.75 ? 0.6 : 0.85) ? 3 : 4, old = stB === 2 && ph(blk, side + 11) < 0.7, balc = ph(blk, side + 13) < 0.55;
         const uv_ = ph(k * 7 + 60, side + 40), st = old ? 2 : clamp(stB + (uv_ < 0.22 ? 1 : uv_ > 0.86 ? -1 : 0), 2, 5);          // units in a newer row are not all one height
-        const Hh = 5 + (st - 1) * 3 + 0.3, yaw = atan2(-nx, -nz), y = roadY(z) - 0.3, sd = ph(k, side * 3 + 1), bs = ph(blk, side + 21), c = cos(yaw), sn = sin(yaw), F = DEP / 2;
+        const Hh = 5 + (st - 1) * 3 + 0.3, yaw = atan2(-nx, -nz), y = roadYs(z) - 0.3, sd = ph(k, side * 3 + 1), bs = ph(blk, side + 21), c = cos(yaw), sn = sin(yaw), F = DEP / 2;
         const put = (lx, ly, lz, sx, sy, sz, mat, seed = sd, tilt = 0, shape = 0) => boxes.push(cx + lx * c + lz * sn, y + ly, cz - lx * sn + lz * c, yaw, sx, sy, sz, tilt, mat, seed, sy, shape);
         const u = (i) => ph(k * 7 + i, side + 40);          // this unit's own random numbers
         const Wd = (lx, lz) => [cx + lx * c + lz * sn, cz - lx * sn + lz * c], tree = (lx, lz, sc, h) => { const q = Wd(lx, lz); if (inside(q[0], q[1])) plant(TREES[BL[floor(h * 8)]], q[0], q[1], h * 6, sc); };
@@ -256,7 +272,7 @@ function buildChunk(cx, cz) {
         }
         const trk = sk === 0 && sb > 10 && um > 0 && um < 7 && u(142) < 0.45; if (trk) truck(0, F + 1.45, u(143));
         const kz = F + sb - 4.75;                                                                   // just inside the kerb
-        if (u(81) < 0.3) bike(u(82) * 2.8 - 1.4, kz, u(83)); if (u(84) < 0.12) bike(u(85) * 2.8 - 1.4, kz, u(86));      // motorcycles left at the kerb
+        if (udip(z) < 0.1) { if (u(81) < 0.3) bike(u(82) * 2.8 - 1.4, kz, u(83)); if (u(84) < 0.12) bike(u(85) * 2.8 - 1.4, kz, u(86)); }      // motorcycles left at the kerb (but not along an underpass, where the kerb is the top of a wall)
         if (sk && u(87) < 0.2) put(u(88) * 2 - 1, 0.78, F + 2.3, 0.6, 0.95, 0.05, 23, u(89), 0.18);                       // a board standing on the footpath
         if (wood) {
           put(-Wf / 2, Hh / 2, F + 0.05, 0.18, Hh, 0.18, 4); if (endU) put(Wf / 2, Hh / 2, F + 0.05, 0.18, Hh, 0.18, 4);      // posts (one between each pair of units, not two in the same place)
@@ -312,6 +328,7 @@ function buildChunk(cx, cz) {
       const z = (k + 0.5) * 2.5; if (townW(z) < 0.5 || nearRiv(z, 12)) continue;
       const sl = (roadX(z + 1) - roadX(z - 1)) / 2, a = atan2(sl, 1), len = 2.5 * hypot(1, sl) + 0.04;
       for (const side of [1, -1]) { const x = roadX(z) + side * 3.88; if (!inside(x, z)) continue;
+        if (udip(z) > 0.12) continue;                    // (none down the ramps of an underpass: its own walls stand there)
         if (soiD(x, z) > 2.15 + len / 2) boxes.push(x, roadY(z) + 0.05, z, a, 0.25, 0.2, len, 0, 40, 0, 0.2, 0);
         else for (let j = 0; j < 4; j++) { const zq = z + (j - 1.5) * 0.625, xq = roadX(zq) + side * 3.88; if (soiD(xq, zq) > 2.15 + len / 8) boxes.push(xq, roadY(zq) + 0.05, zq, a, 0.25, 0.2, len / 4, 0, 40, 0, 0.2, 0); } }
     }
@@ -322,7 +339,7 @@ function buildChunk(cx, cz) {
       let span = 0; for (let j = 1; j <= 4 && !span; j++) { if (townW(z + 20 * j) < 0.5) break; if (postAt(z + 20 * j)) span = 20 * j; }      // on to the next post that stands, up to 80 m (a river)
       for (const side of [-1]) {                        // (the other side's cables hang on the electricity poles)
         const x = roadX(z) + side * 7.7; if (!inside(x, z)) continue;
-        const y = roadY(z), y1 = roadY(z + span), wx = (t) => roadX(z + span * t) + side * 7.7;
+        const y = roadYs(z), y1 = roadYs(z + span), wx = (t) => roadX(z + span * t) + side * 7.7;
         far.push(x, y - 0.2, z, 0.07, x, y + 6.2, z, 0.06, -1, 0);
         if (span) { reach = max(reach, span - 14); const n = span / 5; for (let w = 0; w < 4; w++) for (let i = 0; i < n; i++) { const t0 = i / n, t1 = (i + 1) / n, sg = (t) => -(0.35 + w * 0.12) * min(span / 20, 2) * 4 * t * (1 - t), hh = 5.5 + w * 0.17, off = (w - 1.5) * 0.06;
           far.push(wx(t0) + off, mix(y, y1, t0) + hh + sg(t0), z + span * t0, 0.022, wx(t1) + off, mix(y, y1, t1) + hh + sg(t1), z + span * t1, 0.022, -1, 1); } }
@@ -374,11 +391,135 @@ function buildChunk(cx, cz) {
     }
     // street lamps every 32 m on the side without the power line
     for (let k = Math.ceil((oz - 16) / 32); k * 32 + 16 < oz + CH; k++) {
-      const z = k * 32 + 16, cst = seaW(z) > 0.4, x = roadX(z) - (cst ? 6.3 : 4.6); if (!inside(x, z) || (townW(z) < 0.4 && !cst) || nearRiv(z, 7)) continue;
-      const y = ground(x, z);
+      const z = k * 32 + 16, cst = seaW(z) > 0.4, dpl = udip(z), x = roadX(z) - (cst ? 6.3 : dpl > 0.2 ? 5.75 : 4.6); if (!inside(x, z) || (townW(z) < 0.4 && !cst) || nearRiv(z, 7)) continue;
+      if (dpl > 0.2 && abs(z - UD.zc) < 17) continue;                                  // (none through the slab of an underpass)
+      const y = dpl > 0.2 ? roadYs(z) : ground(x, z);                                  // (along an underpass they stand on the footpath behind the parapet)
       far.push(x, y - 0.2, z, 0.07, x, y + 7, z, 0.05, -1, 0, x, y + 6.9, z, 0.04, x + 1.5, y + 7.15, z, 0.035, -1, 0);
       if (cst) boxes.push(x, y + 0.45, z, 0, 0.17, 0.9, 0.17, 0, 13, 0, 0.9, 0, x, y + 1.3, z, 0, 0.165, 0.8, 0.165, 0, 13, 0, 0.8, 0);      // red and white bands round the foot of the pole
       boxes.push(x + 1.5, y + 7.08, z, 0, 0.6, 0.1, 0.26, 0, 10, 0, 0, 0);
+    }
+  }
+  // The tunnel: floor (the road), walls, roof and lights in lengths of about 6 m that follow the road, lit inside all the time; and at each mouth a
+  // concrete front - two piers and a deep beam across - standing against the hillside.
+  if (tunOf(oz + CH / 2) && abs(oz + CH / 2 - TN.zc) < TN.hl + CH) {
+    const zc = TN.zc, HL = TN.hl, n = Math.ceil(2 * HL / 6), sl = 2 * HL / n, IN = 5;
+    // the arch in cross-section: half as wide as the road and its margins at the springing 3.4 m up, 2.7 m higher at the crown. Each slab: [how far
+    // to the side its middle is, how high, how long it is across, its tilt]; a slab's box is turned to lie along the tunnel and tilted about that length.
+    const ARCH = []; for (let i = 0; i < 6; i++) { const f0 = i * PI / 6, f1 = f0 + PI / 6, fm = f0 + PI / 12, z0 = 5.2 * cos(f0), y0 = 3.4 + 2.7 * sin(f0), z1 = 5.2 * cos(f1), y1 = 3.4 + 2.7 * sin(f1);
+      ARCH.push([(z0 + z1) / 2 + 0.25 * cos(fm), (y0 + y1) / 2 + 0.25 * sin(fm), hypot(z1 - z0, y1 - y0) + 0.3, -atan2(y1 - y0, z1 - z0), cos(fm), sin(fm)]); }
+    for (let j = 0; j < n; j++) {
+      const z0 = zc - HL + j * sl, z1 = z0 + sl, x0 = roadX(z0), x1 = roadX(z1), y0 = roadY(z0), y1 = roadY(z1), mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
+      if (!inside(mx, mz)) continue;
+      // (each length runs exactly from one end point to the next, measured along its own slope, so that the tops of neighbours meet in one line with
+      // neither a step nor an overlap: a seam shows as soon as two lengths differ in height or lie one over the other)
+      const hl2 = hypot(x1 - x0, sl), len = hypot(hl2, y1 - y0) + 0.004, yw = atan2(x1 - x0, sl), tl = -atan2(y1 - y0, hl2), c = cos(yw), sn = sin(yw);
+      boxes.push(mx, my - 0.47, mz, yw, 10.7, 1.0, len, tl, 30, 0, 1.0, 0);
+      for (const sd of [-1, 1]) {
+        const px = mx + sd * 5.35 * c, pz = mz - sd * 5.35 * sn;
+        boxes.push(px, my + 1.85, pz, yw, 0.6, 3.9, len, tl, 48, 0, 3.9, IN);
+        boxes.push(mx + sd * 4.45 * c, my + 0.1, mz - sd * 4.45 * sn, yw, 1.3, 0.3, len, tl, 48, 0, 0.3, IN);          // a raised walkway of the same old concrete along the foot of each wall
+        boxes.push(mx + sd * 1.7 * c, my + 5.7, mz - sd * 1.7 * sn, yw, 0.45, 0.07, len * 0.45, tl, 10, 0, 0.07, 4);          // a lamp (shape 4: on by day too)
+      }
+    }
+    // the vault: six flat slabs round a low arch, in lengths of 2 m (a slab cannot be pitched to the road's slope, so short lengths keep the steps between them small)
+    const n2 = Math.ceil(HL), s2 = 2 * HL / n2;
+    for (let j = 0; j < n2; j++) {
+      const z0 = zc - HL + j * s2, z1 = z0 + s2, x0 = roadX(z0), x1 = roadX(z1), mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (roadY(z0) + roadY(z1)) / 2; if (!inside(mx, mz)) continue;
+      const len = hypot(x1 - x0, s2) + 0.03, yw = atan2(x1 - x0, s2), c = cos(yw), sn = sin(yw);
+      for (const A of ARCH) boxes.push(mx + A[0] * c, my + A[1], mz - A[0] * sn, yw + PI / 2, len, 0.5, A[2], A[3], 48, 0, 0.5, IN);
+    }
+    for (const e of [-1, 1]) {
+      const zp = zc + e * (HL + 0.4), a = atan2(roadX(zp + 1) - roadX(zp - 1), 2), x = roadX(zp), y = roadY(zp); if (!inside(x, zp)) continue;
+      const c = cos(a), sn = sin(a);
+      boxes.push(x, y + 8.6, zp, a, 21, 3.6, 1.5, 0, 48, 0, 3.6, 0);
+      for (const A of ARCH) boxes.push(x + (A[0] + 1.05 * A[4]) * c, y + A[1] + 1.05 * A[5], zp - (A[0] + 1.05 * A[4]) * sn, a + PI / 2, 1.5, 2.6, A[2] + 0.5, A[3], 48, 0, 2.6, 0);      // the arch's ring in the front, filling up to the beam
+      for (const sd of [-1, 1]) boxes.push(x + sd * 8.0 * c, y + 3.4, zp - sd * 8.0 * sn, a, 5.0, 7.4, 1.5, 0, 48, 0, 7.4, 0);
+    }
+  }
+  // The underpass (in town, at a crossroads): retaining walls down both sides of the cutting, as deep as the road is below the street and a parapet
+  // higher; over the middle a concrete slab 32 m long carrying the cross street, with a rail along each edge and lamps underneath.
+  if ((udOf(oz + CH / 2) || udOf(oz - 40) || udOf(oz + CH + 40)) && abs(oz + CH / 2 - UD.zc) < 100 + CH) {
+    const zc = UD.zc;
+    for (let j = -20; j < 20; j++) {
+      const z0 = zc + j * 5, z1 = z0 + 5, zm = z0 + 2.5, dp = udip(zm); if (dp < 0.2) continue;
+      const x0 = roadX(z0), x1 = roadX(z1), mx = (x0 + x1) / 2, my = (roadY(z0) + roadY(z1)) / 2; if (!inside(mx, zm)) continue;
+      const len = hypot(x1 - x0, 5) + 0.08, yw = atan2(x1 - x0, 5), c = cos(yw), sn = sin(yw), H = dp + 1.5;
+      const tl = -atan2((roadY(z1) - roadY(z0)) * 0.5 + (roadY(z1) + udip(z1) - roadY(z0) - udip(z0)) * 0.5, len);
+      const tr = -atan2(roadY(z1) - roadY(z0), len);
+      const ys = (roadYs(z0) + roadYs(z1)) / 2, ts = -atan2(roadYs(z1) - roadYs(z0), len);
+      for (const sd of [-1, 1]) boxes.push(mx + sd * 6.75 * c, ys - 0.16, zm - sd * 6.75 * sn, yw, 3.3, 0.36, len, ts, 2, 0, 0.36, 0);          // the footpath behind the parapet, level with the street (the ground under it is still on its way up)
+      for (const sd of [-1, 1]) boxes.push(mx + sd * 4.85 * c, my + H / 2 - 0.45, zm - sd * 4.85 * sn, yw, 0.7, H, len, tl, 2, 0, H, 0,
+        mx + sd * 4.2 * c, my + 0.2, zm - sd * 4.2 * sn, yw, 0.9, 0.55, len, tr, 2, 0, 0.55, 0);          // the wall, and a kerb along its foot (the ground's mesh is too coarse to meet the wall cleanly)
+    }
+    const x = roadX(zc), a = atan2(roadX(zc + 1) - roadX(zc - 1), 2), c = cos(a), sn = sin(a), yd = roadY(zc) + udip(zc);
+    if (inside(x, zc)) {
+      boxes.push(x, yd - 0.4, zc, a, 15, 0.9, 32, 0, 47, 0, 0.9, 0);
+      for (const e of [-1, 1]) { boxes.push(x + e * 15.9 * sn, yd + 0.55, zc + e * 15.9 * c, a, 15, 1.0, 0.24, 0, 19, 0, 1.0, 0); boxes.push(x + e * 15.9 * sn, yd + 1.1, zc + e * 15.9 * c, a, 15.1, 0.14, 0.34, 0, 19, 0, 0.14, 0); }
+      for (const lz of [-10, 0, 10]) for (const sd of [-1, 1]) boxes.push(x + sd * 2.6 * c + lz * sn, yd - 0.9, zc - sd * 2.6 * sn + lz * c, a, 0.45, 0.07, 2.4, 0, 10, 0, 0.07, 4);
+    }
+  }
+  // The fishing village on the island, east of the road in the half toward the far bridge: timber houses in two loose rows; beside the bridge's landing a
+  // wooden pier 50 m out into the sea, starting on the beach so that it can be driven onto, with long-tail boats tied up along it, a fishing boat at anchor off its end,
+  // boats drawn up on the shore and coconut palms along the top of the bank.
+  if (isOf(oz + CH / 2) && abs(oz + CH / 2 - IS.zc) < 330) {
+    const zc = IS.zc, hv = (i, j) => ph(IS.s * 16 + i, 720 + j);
+    for (const v of vil) if (inside(v[0], v[1])) { stamp(v[3] ? HOUSE : HOUSE3, v[0], ground(v[0], v[1]) - 0.05, v[1], v[2], v[4], v[5]);
+      if (v[4] < 0.6) { const qx = v[0] - 10, qz = v[1] + 9.5; if (inside(qx, qz)) plant(TREES[3 + (v[5] < 0.5 ? 1 : 0)], qx, qz, v[4] * 6, 0.9 + v[5] * 0.4); } }
+    const pr = pierOf(zc), xP = pr[0], zs = pr[3], yd = PIERY;
+    for (let j = 0; j < 20; j++) {          // the pier: boards on piles, a rail down one side, the head wider
+      const z = pr[1] + 1.5 + j * 3, wd = j > 16 ? 7 : 3.6, hw2 = wd / 2 - 0.2; if (!inside(xP, z)) continue;
+      boxes.push(xP, yd, z, 0, wd, 0.12, 3.04, 0, 0, 0.7, 0.12, 0);
+      const gl = ground(xP, z), yb = min(gl, SEA) - 1.4; if (gl > yd - 0.25) continue;
+      for (const sd of [-1, 1]) far.push(xP + sd * hw2, yb, z, 0.1, xP + sd * hw2, yd + (sd < 0 || j % 2 ? 0 : 0.9), z, 0.09, -1, 3);
+      if (j < 19 && j !== 16) far.push(xP + hw2, yd + 0.85, z, 0.03, xP + (j + 1 > 16 ? 3.3 : 1.6), yd + 0.85, z + 3, 0.03, -1, 3);
+      if (j === 18) boxes.push(xP - 2.7, yd + 0.4, z, 0.3, 0.9, 0.7, 0.7, 0, 0, 0.3, 0.7, 0, xP - 2.5, yd + 0.3, z + 1.1, 0.9, 0.6, 0.5, 0.6, 0, 0, 0.5, 0.5, 0);      // fish boxes
+    }
+    for (let i = 0; i < 4; i++) { const x = xP + (i % 2 ? 3.3 : -3.3), z = zs + 9 + i * 8.5; if (inside(x, z)) stamp(LONGTAIL, x, SEA - 0.14, z, (hv(i, 1) - 0.5) * 0.3 + (i % 2 ? 0 : PI), hv(i, 2), hv(i, 3), 1); }
+    { const x = xP + 19, z = zs + 66; if (inside(x, z)) stamp(FISHER, x, SEA - 0.5, z, 0.5 + hv(5, 1), hv(5, 2), hv(5, 3), 1); }
+    for (let i = 0; i < 5; i++) {          // boats on the shore, palms on the bank
+      const x = xP + (i < 2 ? 10 + i * 7 : -(9 + (i - 2) * 6.5)); let z = zc + 110; while (z < zc + 230 && ism(x, z) < -1.2) z += 0.5;
+      if (i < 3 && inside(x, z)) stamp(LONGTAIL, x, ground(x, z) - 0.1, z, (hv(i, 6) - 0.5) * 0.5, hv(i, 7), hv(i, 8));
+      const zp = z - 30 - hv(i, 9) * 12, xp = x + 2; if (inside(xp, zp)) plant(TREES[3 + (hv(i, 10) < 0.5 ? 1 : 0)], xp, zp, hv(i, 11) * 6, 1 + hv(i, 12) * 0.4);
+    }
+  }
+  // The suspension bridges to the island, two to a crossing: each 370 m from abutment to abutment with towers 70 m in from either end. The deck in
+  // lengths of 6 m with a steel rail each side; two concrete towers of two legs joined by beams, standing in the sea; a main cable down each side
+  // from anchorage to tower top, hanging in a curve to just above the deck at the middle of the span, and up again; hangers from it every 6 m.
+  if (isOf(oz + CH / 2) && abs(oz + CH / 2 - IS.zc) < 520 + CH) {
+    const zc = IS.zc, TOP = 40, yD = (z) => roadY(z);
+    for (const e of [-1, 1]) {
+      const zA = zc + e * 150, dir = e, L = 370, zOf = (t) => zA + dir * t;                       // t: metres along the bridge from the island end
+      const cab = (t) => { const zt = zOf(t), u = t < 70 ? t / 70 : t > 300 ? (370 - t) / 70 : 1 - 4 * ((t - 185) / 230) ** 2;        // the cable's height above the deck: straight up the side spans, a parabola between the towers
+        return t < 70 || t > 300 ? 1.2 + (TOP - 1.2) * u : 2.2 + (TOP - 2.2) * (1 - u); };
+      for (let j = -1; j < 63; j++) {          // (one more length at each end lies on the road's bank as an approach slab, so the deck's square end never hangs beside the land)
+        const ap = j < 0 || j > 61, t0 = j < 0 ? -4.5 : j > 61 ? L : j * L / 62, t1 = j < 0 ? 0 : j > 61 ? L + 4.5 : t0 + L / 62, z0 = zOf(t0), z1 = zOf(t1), x0 = roadX(z0), x1 = roadX(z1), y0 = yD(z0), y1 = yD(z1), mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
+        if (!inside(mx, mz)) continue;
+        const hl2 = hypot(x1 - x0, z1 - z0), len = hypot(hl2, y1 - y0) + 0.004, yw = atan2(x1 - x0, z1 - z0), tl = -atan2(y1 - y0, hl2), c = cos(yw), sn = sin(yw);
+        boxes.push(mx, my - 0.67, mz, yw, 10.4, 1.4, len, tl, 30, 0, 1.4, 0);
+        for (const sd of [-1, 1]) {
+          const px = mx + sd * 4.9 * c, pz = mz - sd * 4.9 * sn;
+          boxes.push(px, my + 0.2, pz, yw, 0.3, 0.34, len, tl, 2, 0, 0.34, 0, px, my + 1.05, pz, yw, 0.1, 0.1, len, tl, 34, 0, 0.1, 0, px, my + 0.66, pz, yw, 0.06, 0.06, len, tl, 34, 0, 0.06, 0);
+          boxes.push(mx + sd * 4.9 * c - (z1 - z0) / 2 * 0, my + 0.6, pz, yw, 0.09, 0.9, 0.09, 0, 34, 0, 0.9, 0);
+          if (ap) continue;
+          const cx0 = x0 + sd * 5.6 * c, cz0 = z0 - sd * 5.6 * sn, cx1 = x1 + sd * 5.6 * c, cz1 = z1 - sd * 5.6 * sn, h0 = cab(t0), h1 = cab(t1);
+          far.push(cx0, y0 + h0, cz0, 0.2, cx1, y1 + h1, cz1, 0.2, -1, 4);                                                    // the main cable
+          if (h0 > 2.6 && j % 1 === 0) far.push(cx0, y0 + 0.2, cz0, 0.045, cx0, y0 + h0, cz0, 0.045, -1, 4);                    // a hanger
+        }
+      }
+      for (const tt of [70, 300]) {
+        const zt = zOf(tt), x = roadX(zt), y = yD(zt), a = atan2(roadX(zt + 1) - roadX(zt - 1), 2), c = cos(a), sn = sin(a); if (!inside(x, zt)) continue;
+        const H = y + TOP - (SEA - 3);
+        for (const sd of [-1, 1]) boxes.push(x + sd * 5.6 * c, SEA - 3 + H / 2, zt - sd * 5.6 * sn, a, 1.5, H, 2.6, 0, 2, 0, H, 0, x + sd * 5.6 * c, SEA + 0.6, zt - sd * 5.6 * sn, a, 4.0, 3.2, 6.0, 0, 2, 0, 3.2, 0);
+        boxes.push(x, y + TOP - 1.4, zt, a, 11.2, 2.2, 2.2, 0, 2, 0, 2.2, 0, x, y + TOP * 0.52, zt, a, 11.2, 1.6, 2.0, 0, 2, 0, 1.6, 0, x, y - 2.4, zt, a, 11.2, 2.0, 2.4, 0, 2, 0, 2.0, 0);
+        reach = max(reach, 20);
+      }
+      for (const tt of [-1.0, 371.0]) {          // anchorages: a block of concrete on the bank at each end of each main cable, which runs down into it
+        const zt = zOf(tt), a = atan2(roadX(zt + 1) - roadX(zt - 1), 2), c = cos(a), sn = sin(a);
+        for (const sd of [-1, 1]) { const x = roadX(zt) + sd * 5.85 * c, z = zt - sd * 5.85 * sn; if (inside(x, z)) boxes.push(x, yD(zt) + 0.1, z, a, 1.3, 3.6, 3.4, 0, 2, 0, 3.6, 0); }
+      }
+      for (const tt of [2.3, 367.7]) {          // abutments: a block of concrete under each end of the deck, its top below the deck, closing the end of the road's bank
+        const zt = zOf(tt), x = roadX(zt), a = atan2(roadX(zt + 1) - roadX(zt - 1), 2); if (inside(x, zt)) boxes.push(x, yD(zt) - 7.4, zt, a, 14, 12, 4.4, 0, 2, 0, 12, 0);
+      }
     }
   }
   // bridges: the deck in short lengths that follow the road, a white concrete balustrade each side, piers standing in a river
@@ -466,7 +607,7 @@ function buildChunk(cx, cz) {
   }
   if (R() < 0.34 && hwc < 0.4 && twc < 0.15 && swc < 0.1 && snc < 0.1 && flwW(oz + CH / 2) < 0.05) {      // (no houses where the flower fields come up to the road)
     const z = oz + 8 + R() * (CH - 16), side = R() < 0.5 ? 1 : -1, x = roadX(z) + side * (17 + R() * 13);
-    if (inside(x, z) && x > ox + 11 && x < ox + CH - 11 && !(rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 48)) {
+    if (inside(x, z) && x > ox + 11 && x < ox + CH - 11 && !(rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 48) && ism(x, z) < -50 && !(vil.length && side > 0 && z > IS.zc + 15)) {      // (and not in the sea, nor on the shore of the island crossing)
       const yaw = side > 0 ? -PI / 2 : PI / 2, c = cos(yaw), sn = sin(yaw), y = hAt(x, z) - 0.05, wall = R(), roof = R();
       const old = R() < 0.25; stamp(old ? HOUSE : HOUSE3, x, y, z, yaw, wall, roof); dbgHouse = [x, y, z, yaw];      // mostly ground-level block houses; the old stilt house is the rarer one
       // the yard: a post-and-rail fence with a gap for the gate, a spirit house in the front corner, flowering shrubs along the fence
@@ -510,14 +651,14 @@ function buildChunk(cx, cz) {
   // and without their finest twigs. Under them, by the road, big shrubs and wild banana.
   for (let t = 0; t < 42 * hwc * (1 - twc); t++) {
     const x = ox + R() * CH, z = oz + R() * CH, d = abs(rdist(x, z));
-    if (d < 8.5 || fbm(x * 0.012 + 40, z * 0.012, 2) < 0.4) continue;
+    if ((d < (tunOf(z) && abs(abs(z - TN.zc) - TN.hl) < 24 ? 13 : 8.5) && !(inTun(z) && abs(z - TN.zc) < TN.hl - 24)) || fbm(x * 0.012 + 40, z * 0.012, 2) < 0.4) continue;      // (over a tunnel the wood closes across the line of the road)
     const T = chyAt(z) === 1 && R() < 0.72 ? TREES[14 + (R() < 0.5 ? 1 : 0)] : TREES[BL[floor(R() * 8)]], turn = R() * TAU, sz = R();      // on a cherry hill most of the wood is cherry
     if (d < 22) plant(T, x, z, turn, 0.75 + sz * 0.7, 2); else if (d < 60) plant(T, x, z, turn, 0.75 + sz * 0.7, 3, false, 7); else plant(T, x, z, turn, 0.9 + sz * 0.6, 4, false, 7);
   }
   // the cherry road: a tree every eight or nine metres down both sides. The trunks are clear to four metres and the heads are big enough to
   // meet over the middle of the road, so the two rows make an arch of blossom that the car drives through, with nothing hanging in its way
   for (let k = Math.ceil(oz / 8.5) - 2; k * 8.5 < oz + CH + 17; k++) for (const sd of [-1, 1]) {
-    const z0 = k * 8.5 + ph(k, 300 + sd) * 4, c = chyAt(z0); if (!c || townW(z0) > 0.05 || nearRiv(z0, 14)) continue;
+    const z0 = k * 8.5 + ph(k, 300 + sd) * 4, c = chyAt(z0); if (!c || townW(z0) > 0.05 || nearRiv(z0, 14) || (tunOf(z0) && abs(z0 - TN.zc) < TN.hl + 6)) continue;      // (none over a tunnel or in its mouth)
     const q = z0 / SEG - floor(z0 / SEG); if (ph(k, 310 + sd) > sm(0, 0.07, q) * sm(1, 0.93, q) * 0.95) continue;      // thinning out toward the ends of the stretch, and a gap here and there
     const offA = 6.3 + ph(k, 320 + sd) * 0.9, [x, z] = rp(z0, sd * offA); if (!inside(x, z) || abs(rdist(x, z)) < 5.6) continue;
     plant(TREES[14 + (ph(k, 330 + sd) < 0.5 ? 1 : 0)], x, z, ph(k, 340 + sd) * TAU, 1.08 + ph(k, 350 + sd) * 0.27, 2);
@@ -572,12 +713,12 @@ function buildChunk(cx, cz) {
   }
   // roadside shelter with a bench, now and then on the plain
   if (hwc < 0.4 && twc < 0.1 && swc < 0.1) for (let k = Math.ceil(oz / 520); k * 520 < oz + CH; k++) {
-    const z = k * 520 + 140, x = roadX(z) - 7.5; if (inside(x, z) && !(rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 30)) stamp(SALA, x, ground(x, z), z, PI / 2, 0.7, ph(k, 3));
+    const z = k * 520 + 140, x = roadX(z) - 7.5; if (inside(x, z) && !(rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 30) && !nearRiv(z, 24)) stamp(SALA, x, ground(x, z), z, PI / 2, 0.7, ph(k, 3));
   }
   if (twc < 0.2) {
     // stretches of barbed-wire fence on concrete posts along the field side, shrubs growing through it
     for (let k = Math.ceil(oz / 3); k * 3 < oz + CH; k++) {
-      const z = k * 3; if (ph(floor(z / 96), 5) < 0.5 || seaW(z) > 0.15 || hpW(z) > 0) continue;
+      const z = k * 3; if (ph(floor(z / 96), 5) < 0.5 || seaW(z) > 0.15 || hpW(z) > 0 || (isOf(z) && nearRiv(z, 20))) continue;
       const x = roadX(z) - 9, x1 = roadX(z + 3) - 9; if (!inside(x, z)) continue;
       const y = ground(x, z); if (gw[0] || (rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 22)) continue; const y1 = ground(x1, z + 3);
       far.push(x, y - 0.2, z, 0.05, x, y + 1.3, z, 0.045, -1, 0);
@@ -587,12 +728,12 @@ function buildChunk(cx, cz) {
     // on bends: white marker posts with red reflectors on both edges
     for (let k = Math.ceil(oz / 8) - 1; k * 8 < oz + CH + 8; k++) {
       const z = k * 8 + 5; if ((k % 3 && hpW(z) <= 0) || abs(roadX(z + 6) - 2 * roadX(z) + roadX(z - 6)) < 0.11) continue;        // every 24 m; every 8 m round the switchbacks
-      for (const sd of [-4.15, 4.15]) { const [x, zp] = rp(z, sd); if (inside(x, zp) && !brSpan(zp)) boxes.push(x, ground(x, zp) + 0.4, zp, 0, 0.1, 0.85, 0.1, 0, 13, 0, 0, 0); }
+      for (const sd of [-4.15, 4.15]) { const [x, zp] = rp(z, sd); if (inside(x, zp) && !brSpan(zp) && !inTun(zp)) boxes.push(x, ground(x, zp) + 0.4, zp, 0, 0.1, 0.85, 0.1, 0, 13, 0, 0, 0); }
     }
   }
   // steel guard rail on the hill road where it runs along a drop
   if (hwc > 0.6 && twc < 0.1) for (let k = Math.ceil(oz / 4) - 2; k * 4 < oz + CH + 8; k++) {
-    const z = k * 4, hp = hpW(z) > 0.05; if (!hp && ph(floor(z / 120), 9) < 0.5) continue;        // all the way round the switchbacks
+    const z = k * 4, hp = hpW(z) > 0.05; if ((!hp && ph(floor(z / 120), 9) < 0.5) || inTun(z)) continue;        // all the way round the switchbacks
     const n = hp ? 3 : 1;
     for (let i = 0; i < n; i++) {
       const [x, za] = rp(z + 4 * i / n, -4.3), [x1, zb] = rp(z + 4 * (i + 1) / n, -4.3); if (!inside(x, za)) continue;
@@ -611,7 +752,7 @@ function buildChunk(cx, cz) {
   // Kilometre stones (หลักกิโลเมตร), one to the kilometre on the left of the road: a square white pillar with a pointed top. Its face to the
   // road carries a mark, the route number and the kilometre; its two sides, which meet the traffic, a name and the distance to that place.
   for (let k = Math.ceil(oz / 1000) - 1; k * 1000 < oz + CH + 1000; k++) {
-    const [x, z] = rp(k * 1000 + 3, 4.5); if (!inside(x, z) || (rivOf(z) && abs(z - RV.zb) < RV.W / 2 + 12)) continue;
+    const [x, z] = rp(k * 1000 + 3, 4.5); if (!inside(x, z) || (rivOf(z) && abs(z - RV.zb) < RV.W / 2 + 12) || isBr(z)) continue;
     const yw = atan2(roadSl(z), 1) - PI / 2, y = ground(x, z);
     boxes.push(x, y + 0.345, z, yw, 0.40, 0.75, 0.26, 0, 11, 2148, ((k + 79) % 1000 + 1000) % 1000, 0, x, y + 0.785, z, yw + PI / 2, 0.26, 0.13, 0.40, 0, 11, 0, -1, 1);
   }
@@ -622,7 +763,7 @@ function buildChunk(cx, cz) {
   const lvAt = (z) => townW(z) > 0.3 || (hillW(z) < 0.3 && pn(z / 260, 7) > 0.52);
   // A pole stands every 40 m, except in a river or canal, on the coast road and on the switchbacks. Wires are strung from each pole to the next
   // pole that stands - so the line crosses a river in one long span beside the bridge, and where it ends it ends at a pole, never in mid-air.
-  const poleAt = (k) => { const z = k * 40; return seaW(z) <= 0.25 && hpW(z) <= 0 && !(rivOf(z) && abs(z - RV.zr - rivM(roadX(z) + 5.6)) < RV.W / 2 + 14); };      // (measured to where the river really runs at the pole)
+  const poleAt = (k) => { const z = k * 40; return seaW(z) <= 0.25 && hpW(z) <= 0 && !(isOf(z) && abs(z - IS.zc) < 545) && !(udOf(z) && abs(z - UD.zc) < 104) && !(rivOf(z) && abs(z - RV.zr - rivM(roadX(z) + 5.6)) < RV.W / 2 + 14); };      // (measured to where the river really runs at the pole)
   for (let k = Math.ceil(oz / 40); k * 40 < oz + CH; k++) {
     const z0 = k * 40, x0 = roadX(z0) + 5.6; if (!inside(x0, z0) || !poleAt(k)) continue;
     let kn = 0; for (let j = 1; j <= 4 && !kn; j++) if (poleAt(k + j)) kn = j;
@@ -642,24 +783,37 @@ function buildChunk(cx, cz) {
   }
   // leaves from different trees are interleaved so that drawing the first third or ninth thins every tree evenly
   const nL = leaves.length / 12, lf = new Float32Array(leaves.length), Rs = rng(cx * 31 + cz * 17 + 5);
-  { const order = new Uint32Array(nL); for (let i = 0; i < nL; i++) order[i] = i; for (let i = nL - 1; i > 0; i--) { const j = floor(Rs() * (i + 1)), t = order[i]; order[i] = order[j]; order[j] = t; } for (let i = 0; i < nL; i++) lf.set(leaves.slice(order[i] * 12, order[i] * 12 + 12), i * 12); }
+  { const order = new Uint32Array(nL); for (let i = 0; i < nL; i++) order[i] = i; for (let i = nL - 1; i > 0; i--) { const j = floor(Rs() * (i + 1)), t = order[i]; order[i] = order[j]; order[j] = t; } for (let i = 0, o = 0; i < nL; i++) { const q = order[i] * 12; for (let k = 0; k < 12; k++) lf[o++] = LBUF[q + k]; } }
   const allSeg = new Float32Array(far.length + segs.length); allSeg.set(far); allSeg.set(segs, far.length); nSegFar = far.length / 10;
   return { cx, cz, x: ox + CH / 2, z: oz + CH / 2, y: hg[(M * M) >> 1], vb: vbuf(v), nSeg: allSeg.length / 10, nSegFar, segB: allSeg.length ? vbuf(allSeg) : null,
+    hgc: hg.slice(), hwc: hwet.slice(),          // the chunk's own heights and water marks, kept for growing its grass later without working the ground out again
     reach, nLeaf: nL, leafB: nL ? vbuf(lf) : null, nGrass: 0, grassB: null, house: dbgHouse, nBox: boxes.length / 12, boxB: boxes.length ? vbuf(new Float32Array(signW(boxes))) : null };
 }
 // grass is only grown for the chunks around the camera (and let go again further away): blades on level ground off the road
 const NG = 42000, gr = new Float32Array(NG * 12);
+// A chunk's grass is grown over three or four frames, a share of it each time (grassJob: the chunk being done; one at a time, since they share
+// the array gr), so that no single frame has to wait for all of it.
+let grassJob = null;
 function growGrass(c) {
-  const ox = c.cx * CH, oz = c.cz * CH, R = rng((c.cx * 83492791) ^ (c.cz * 2654435761) ^ 77); let ng = 0;
-  const po = [0, 0];
-  for (let i = 0; i < NG; i++) {
+  if (grassJob && grassJob !== c) { if (!grassJob.dead) return; grassJob = null; }
+  if (!grassJob) { grassJob = c; c.gI = 0; c.gN = 0; c.gR = rng((c.cx * 83492791) ^ (c.cz * 2654435761) ^ 77); }
+  const ox = c.cx * CH, oz = c.cz * CH, R = c.gR, iEnd = min(NG, c.gI + 12000); let ng = c.gN;
+  const po = [0, 0], HG = c.hgc, HW = c.hwc, M = GN + 3;
+  // the height under a blade is read off the chunk's grid (as the mesh itself is drawn), not worked out afresh: that sum, done for every one of
+  // tens of thousands of blades, used to hold a frame up for 20 ms each time a chunk came into range
+  const hgAt = (x, z) => { const fx = (x - ox) / GS + 1, fz = (z - oz) / GS + 1, ix = floor(fx), iz = floor(fz), u = fx - ix, w = fz - iz, k = iz * M + ix; gw[0] = HW[(iz + (w > 0.5 ? 1 : 0)) * M + ix + (u > 0.5 ? 1 : 0)] > 0 ? 1 : 0; return mix(mix(HG[k], HG[k + 1], u), mix(HG[k + M], HG[k + M + 1], u), w); };
+  // what kind of country it is changes only along the road, and slowly: it is looked up once for every 2 m of the chunk's length, not once a blade
+  const ZT = [], ZS = [], ZN = [], ZH = [], ZV = [], ZP = [], ZB = [];
+  for (let j = 0; j < 32; j++) { const zz = oz + j * 2 + 1; ZT[j] = townW(zz); ZS[j] = seaW(zz); ZN[j] = snowW(zz); ZH[j] = hillW(zz); ZV[j] = vergeAt(zz); ZP[j] = pineAt(zz); ZB[j] = beachW(zz); }
+  for (let i = c.gI; i < iEnd; i++) {
     if (ng >= NG - 2) break;
     const x = ox + R() * CH, z = oz + R() * CH, d = abs(rdist(x, z)); if (d < 4.2) continue;
-    const y = ground(x, z), u = R(), town = d < 160 && townW(z) > 0.45; if (gw[0] || (town && (d < 28.5 || u > 0.5 || turfAt(x, z) < 0.55 || soiD(x, z) < 2.6))) continue;      // in town grass grows only in the yards
-    if (seaW(z) > 0.3 && x - roadX(z) > 19 && u < beachW(z) * 1.2) continue;          // no grass on the sand
-    if (d < 22 && u > 0.12 && pineAt(z)) continue;
-    if (u > 0.12 && snowW(z) > 0.3) continue;                                          // only a few dry stalks stand out of the snow                                      // and little under the casuarinas
-    if (d > vergeAt(z) + 0.5 && hillW(z) < 0.02 && snowW(z) < 0.02 && townW(z) < 0.3 && seaW(z) < 0.02 && plotAt(x, z, po)[1] > 0.75) {        // inside a paddy plot: rice according to its stage
+    const zj = min(31, floor((z - oz) / 2)), tW = ZT[zj], sW = ZS[zj], nW = ZN[zj], hW = ZH[zj];
+    const y = hgAt(x, z), u = R(), town = d < 160 && tW > 0.45; if (gw[0] || (town && (d < 28.5 || u > 0.5 || turfAt(x, z) < 0.55 || soiD(x, z) < 2.6))) continue;      // in town grass grows only in the yards
+    if (sW > 0.3 && x - roadX(z) > 19 && u < ZB[zj] * 1.2) continue;          // no grass on the sand
+    if (d < 22 && u > 0.12 && ZP[zj]) continue;
+    if (u > 0.12 && nW > 0.3) continue;                                          // only a few dry stalks stand out of the snow                                      // and little under the casuarinas
+    if (d > ZV[zj] + 0.5 && hW < 0.02 && nW < 0.02 && tW < 0.3 && sW < 0.02 && plotAt(x, z, po)[1] > 0.75) {        // inside a paddy plot: rice according to its stage
       const st = po[0];
       if (st >= 4) {         // a flower: a green stalk and its head
         if (ng >= NG - 2) break; if (u > 0.6) continue;
@@ -671,7 +825,7 @@ function growGrass(c) {
       else if (st === 1) gr.set([x, y - 0.02, z, 0.42 + 0.2 * R(), R() * TAU, 1.15 + R() * 0.35, 0.011 + R() * 0.006, 0.5 + R() * 0.8, 3, R(), 1, 0.4], ng * 12);
       else if (st === 2) gr.set([x, y - 0.02, z, 0.5 + 0.22 * R(), R() * TAU, 1.0 + R() * 0.4, 0.011 + R() * 0.006, 1.1 + R() * 1.0, 4, R(), 1, 0.5], ng * 12);
       else { if (u > 0.3) continue; gr.set([x, y, z, 0.07 + 0.06 * R(), R() * TAU, 1.3 + R() * 0.25, 0.009, 0.2, 4, R(), 1, 0.05], ng * 12); }
-    } else if (hillW(z) > 0.5 && d < 60 && vnoise(x * 0.06 + 9, z * 0.06) > 0.47 && fbm(x * 0.012 + 40, z * 0.012, 2) < 0.4) {   // tall golden grass along the hill road
+    } else if (hW > 0.5 && d < 60 && vnoise(x * 0.06 + 9, z * 0.06) > 0.47 && fbm(x * 0.012 + 40, z * 0.012, 2) < 0.4) {   // tall golden grass along the hill road
       gr.set([x, y - 0.02, z, 0.8 + 0.9 * R(), R() * TAU, 1.15 + R() * 0.35, 0.012 + R() * 0.008, 0.5 + R() * 0.9, 4, R(), 1, 0.7], ng * 12);
     } else {
       const tall = vnoise(x * 0.11, z * 0.11), L = (0.12 + 0.3 * R()) * (0.55 + 1.5 * tall * tall) * (town ? 0.6 : 1), tf = turfAt(x, z);
@@ -680,9 +834,10 @@ function growGrass(c) {
     }
     ng++;
   }
-  c.nGrass = ng; c.grassB = ng ? vbuf(gr.subarray(0, ng * 12)) : null; c.grassTried = true;
+  c.gI = iEnd; c.gN = ng; if (iEnd < NG && ng < NG - 2) return;          // more to do next frame
+  c.nGrass = ng; c.grassB = ng ? vbuf(gr.subarray(0, ng * 12)) : null; c.grassTried = true; grassJob = null;
 }
-function dropChunk(c) { c.boxB && c.boxB.destroy(); c.vb.destroy(); c.segB && c.segB.destroy(); c.leafB && c.leafB.destroy(); c.grassB && c.grassB.destroy(); }
+function dropChunk(c) { c.dead = true; c.boxB && c.boxB.destroy(); c.vb.destroy(); c.segB && c.segB.destroy(); c.leafB && c.leafB.destroy(); c.grassB && c.grassB.destroy(); }
 const want = [];
 let cxS = 1e9, czS = 1e9;      // the chunk the eye counts as being in: it changes only when the eye is 8 m into the next one
 function updateChunks(px, pz, budget) {

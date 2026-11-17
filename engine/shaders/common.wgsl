@@ -7,7 +7,7 @@ struct G { vp: mat4x4f, sm: mat4x4f, cam: vec4f, sun: vec4f, sunCol: vec4f, fwd:
 @group(0) @binding(0) var<uniform> g: G;
 const SEA = -6.;
 const SEG = 1200.;
-fn zoneRaw(s: i32) -> i32 { if (s == 1) { return 3; } if (s == 2) { return 1; } if (((s % 4) + 4) % 4 == 3) { return 2; } let h = ph(vec2i(s, 913)); if (h < .25) { return 1; } if (h < .44) { return 2; } if (h < .63) { return 3; } if (h < .74) { return 4; } return 0; }
+fn zoneRaw(s: i32) -> i32 { if (s == 1) { return 3; } if (s == 2) { return 1; } if (((s % 4) + 4) % 4 == 3) { return 2; } let h = ph(vec2i(s, 913)); if (h < .25) { return 1; } if (h < .44) { return 2; } if (h < .63) { return 3; } if (h < .74) { return 4; } if (h < .82) { return 5; } return 0; }
 fn zoneOf(s: i32) -> i32 { let r = zoneRaw(s); if (s != 1 && r == zoneRaw(s - 1)) { return 0; } return r; }
 fn zw(z: f32, T: i32, w: f32, f: f32) -> f32 { let p = z / SEG; let s = floor(p); if (zoneOf(i32(s)) != T) { return 0.; } return 1. - ss(w * f, w, abs(p - s - .5)); }
 fn hw(z: f32) -> f32 { return zw(z, 1, .46, .7); }
@@ -19,7 +19,8 @@ fn tw(z: f32) -> f32 { let p = z / SEG; let s0 = i32(floor(p)); var w = 0.;
 fn sw(z: f32) -> f32 { return zw(z, 3, .45, .5); }
 fn nw(z: f32) -> f32 { return zw(z, 4, .46, .6); }
 fn roadX(z: f32) -> f32 { return 60. * sin(z * .004) + 25. * sin(z * .011 + 1.3) + 9. * sin(z * .023 + .7) + sw(z) * 16. * sin(z * .019) + hpx(z); }
-fn hpw(z: f32) -> f32 { let p = z / SEG; let s = floor(p); let si = i32(s); if (zoneOf(si) != 1 || (si != 2 && ph(vec2i(si, 31)) > .6)) { return 0.; } return 1. - ss(.16, .24, abs(p - s - .5)); }
+fn tunS(s: i32) -> bool { return s != 2 && (ph(vec2i(s, 31)) > .45 || ((s % 4) + 4) % 4 == 2); }      // a hill stretch with a tunnel and not switchbacks (tunS in land.js)
+fn hpw(z: f32) -> f32 { let p = z / SEG; let s = floor(p); let si = i32(s); if (zoneOf(si) != 1 || tunS(si)) { return 0.; } return 1. - ss(.16, .24, abs(p - s - .5)); }
 fn hpx(z: f32) -> f32 { let e = hpw(z); if (e <= 0.) { return 0.; } return e * 100. * sin(.0262 * (z - (floor(z / SEG) + .5) * SEG)); }
 // 1 where the plots of a flower stretch come up to the road (flwW in the script)
 // the cherry stretches (chyAt in src/land.js): 1 a hill whose woods are mostly cherry, 2 a flat stretch with an avenue, 0 neither
@@ -57,6 +58,20 @@ fn soi(P: vec2f) -> vec3f {
   let s0 = roadX(P.y + .5) - roadX(P.y - .5); let b0 = round((P.y + s0 * (P.x - roadX(P.y)) - 34.) / 36.); var o = vec3f(99., 0., 0.);
   for (var k = -1; k <= 1; k++) { let b = b0 + f32(k); let zl = b * 36. + 34.; let s = (roadX(zl + 1.) - roadX(zl - 1.)) * .5; let iv = inverseSqrt(1. + s * s); let d = P - vec2f(roadX(zl), zl);
     let ds = (d.x * s + d.y) * iv; if (abs(ds) < abs(o.x)) { o = vec3f(ds, (d.x - d.y * s) * iv, b); } }
+  return o; }
+// the island crossing (zone 5; ism and isBr in land.js). ism: metres into the sea (positive) or inland from the waterline; isb: 1 where the road is on a bridge
+fn ism(P: vec2f) -> f32 { let si = i32(floor(P.y / SEG)); if (zoneOf(si) != 5) { return -99.; } let zc = (f32(si) + .5) * SEG; let dz = P.y - zc; let s = f32(((si % 64) + 64) % 64);
+  let dx = (P.x - roadX(zc)) * .8; let an = atan2(dz, dx);
+  return min(500. + 14. * sin(P.x * .021 + s) + 7. * sin(P.x * .057 + 2.) - abs(dz), length(vec2f(dx, dz)) - (170. + 18. * sin(an * 3. + s) + 9. * sin(an * 7. + 1.))); }
+fn isb(z: f32) -> f32 { let si = i32(floor(z / SEG)); if (zoneOf(si) != 5) { return 0.; } let dz = abs(z - (f32(si) + .5) * SEG); return step(150., dz) * step(dz, 520.); }
+// 1 inside a tunnel (inTun in land.js): the mountain's ground above is then not painted as road
+fn tunk(z: f32) -> f32 { let s = i32(floor(z / SEG)); if (zoneOf(s) != 1 || !tunS(s)) { return 0.; }
+  return step(abs(z - (f32(s) + .5) * SEG), 110. + 50. * ph(vec2i(s, 42))); }
+// lane b of a town (see soi) is a proper cross street, one in every ten (xroad in land.js)
+fn tlb(b: f32) -> f32 { let g = floor(b / 10.); return step(abs(b - (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.))), .5); }
+// 1 along an underpass and its ramps (udOf in land.js, but for the tests of town and river made there): no crossings are painted down in it
+fn udk(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.;
+  for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; if (ph(vec2i(i32(g), 523)) < .5 && abs(z - zc) < 100.) { o = 1.; } }
   return o; }
 // signed distance from the road's centre line, measured square to the road on the switchbacks
 fn rdist(P: vec2f) -> f32 {
