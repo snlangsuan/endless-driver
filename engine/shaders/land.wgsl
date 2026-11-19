@@ -27,8 +27,10 @@ fn flw(z: f32, twz: f32) -> f32 { let p = z / SEG; let s = i32(floor(p)); if (zo
 // the lanes of a town leave the road square to it every 36 m. x: signed metres from the middle of the nearest lane, y: metres along it from the road, z: its number
 fn soi(P: vec2f) -> vec3f {
   let s0 = roadX(P.y + .5) - roadX(P.y - .5); let b0 = round((P.y + s0 * (P.x - roadX(P.y)) - 34.) / 36.); var o = vec3f(99., 0., 0.);
-  for (var k = -1; k <= 1; k++) { let b = b0 + f32(k); let zl = b * 36. + 34.; let s = (roadX(zl + 1.) - roadX(zl - 1.)) * .5; let iv = inverseSqrt(1. + s * s); let d = P - vec2f(roadX(zl), zl);
-    let ds = (d.x * s + d.y) * iv; if (abs(ds) < abs(o.x)) { o = vec3f(ds, (d.x - d.y * s) * iv, b); } }
+  // (the lane reckoned nearest first; the ones either side of it are only asked where it is far enough off - 14 of the 18 m to half way - that one of them might be nearer)
+  for (var j = 0; j < 3; j++) { let b = b0 + f32((j + 1) / 2) * f32(1 - 2 * (j & 1)); let zl = b * 36. + 34.; let s = (roadX(zl + 1.) - roadX(zl - 1.)) * .5; let iv = inverseSqrt(1. + s * s); let d = P - vec2f(roadX(zl), zl);
+    let ds = (d.x * s + d.y) * iv; if (abs(ds) < abs(o.x)) { o = vec3f(ds, (d.x - d.y * s) * iv, b); }
+    if (j == 0 && abs(ds) < 14.) { break; } }
   return o; }
 // the island crossing (zone 5; ism and isBr in land.js). ism: metres into the sea (positive) or inland from the waterline; isb: 1 where the road is on a bridge
 fn ism(P: vec2f) -> f32 { let si = i32(floor(P.y / SEG)); if (zoneOf(si) != 5) { return -99.; } let zc = (f32(si) + .5) * SEG; let dz = P.y - zc; let s = f32(((si % 64) + 64) % 64);

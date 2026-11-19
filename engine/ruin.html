@@ -22,8 +22,12 @@
     <div class="skH"><b>ตั้งค่า</b><span style="flex:1"></span><button value="x" class="skX" title="ปิด (Esc)"><svg viewBox="0 0 24 24"><path d="M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></svg></button></div>
     <div class="skL">ภาพ</div>
     <div class="seg" id="skQ" style="grid-template-columns:1fr 1fr"><button type="button" data-v="0" title="ภาพคมและละเอียดที่สุด ยอมให้เฟรมเรตตก">สวย</button><button type="button" data-v="1" title="ลดความคมและรายละเอียดไกล ๆ เพื่อให้ลื่น เหมาะตอนอัดวิดีโอหน้าจอ">ลื่น (อัดวิดีโอ)</button></div>
+    <div class="skL" title="วาดแผนที่ไกลแค่ไหน ยิ่งใกล้ยิ่งลื่น (ไกลออกไปจะจางเป็นหมอก)">ระยะมองเห็น</div>
+    <div class="seg" id="cfVw" style="grid-template-columns:1fr 1fr 1fr"><button type="button" data-v="1" title="380 ม.">ไกล</button><button type="button" data-v="0.75" title="285 ม.">กลาง</button><button type="button" data-v="0.55" title="210 ม.">ใกล้</button></div>
+    <div class="skL" title="ล็อกจำนวนภาพต่อวินาทีให้คงที่ (สูงสุดไม่เกินที่จอแสดงได้)">ล็อกเฟรมเรต</div>
+    <div class="seg" id="cfCap" style="grid-template-columns:1fr 1fr 1fr"><button type="button" data-v="0" title="เร็วเท่าที่จอแสดงได้">ไม่ล็อก</button><button type="button" data-v="60">60 fps</button><button type="button" data-v="30" title="นิ่งและกินเครื่องน้อย เหมาะกับการอัดวิดีโอ 30 fps">30 fps</button></div>
     <div class="skL">เสียงหลัก <span id="cfVv" class="skV"></span></div>
-    <div class="skWr"><button type="button" id="cfMu">ปิดเสียง</button><input id="cfVo" type="range" min="0" max="100" value="100"></div>
+    <div class="skWr"><button type="button" id="cfMu" class="skI" title="ปิดเสียง (M)" aria-label="ปิดเสียง"><svg viewBox="0 0 24 24"><path id="cfMuP" d=""/></svg></button><input id="cfVo" type="range" min="0" max="100" value="100"></div>
     <div class="skL" title="ฟ้าร้อง นก จิ้งหรีด หมา">เสียง effect <span id="cfFv" class="skV"></span></div>
     <div class="skWr"><input id="cfFx" type="range" min="0" max="100" value="100"></div>
     <p class="skK">M ปิด/เปิดเสียง · เสียงเพลงปรับที่กล่องเพลง · H ซ่อน/แสดงข้อความ · G เต็มจอ</p>
@@ -46,15 +50,15 @@
   <form method="dialog" id="skyF">
     <div class="skH"><b>ท้องฟ้า</b><span id="skNow"></span><button value="x" class="skX" title="ปิด (Esc)"><svg viewBox="0 0 24 24"><path d="M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></svg></button></div>
     <label class="skL" for="skT">เวลา</label>
-    <div class="skWr"><select id="skT"><option value="-1">สุ่ม (เวลาเดินเอง)</option></select><button type="button" id="skTc" title="ให้เวลาเดินต่อจากเวลาที่เลือก (เลือกเวลาใหม่เพื่อหยุดเวลาอีกครั้ง)">นับต่อ</button></div>
+    <div class="skWr"><select id="skT"><option value="-1">สุ่ม (เวลาเดินเอง)</option></select><button type="button" id="skTc" class="skI" title="นับต่อ: ให้เวลาเดินต่อจากเวลาที่เลือก (เลือกเวลาใหม่เพื่อหยุดเวลาอีกครั้ง)" aria-label="นับต่อ"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg></button></div>
     <div class="skL">ฤดูกาล</div>
-    <div class="seg" id="skS"><button type="button" data-v="0" title="ฤดูเปลี่ยนไปตามสถานที่ที่ขับผ่าน">อัตโนมัติ</button><button type="button" data-v="1">หน้าฝน</button><button type="button" data-v="2">หน้าหนาว</button><button type="button" data-v="3">หน้าแล้ง</button></div>
+    <div class="seg" id="skS"><button type="button" data-v="0" title="ฤดูเปลี่ยนไปตามสถานที่ที่ขับผ่าน">อัตโนมัติ</button><button type="button" data-v="1" title="ฤดูฝน: เขียวชุ่ม">ฝน</button><button type="button" data-v="2" title="ฤดูหนาว: หญ้าเริ่มเหลือง">หนาว</button><button type="button" data-v="3" title="ฤดูร้อน: แห้งแล้ง">ร้อน</button></div>
     <div class="skL">สภาพอากาศ</div>
-    <div class="seg" id="skW"><button type="button" data-v="auto">สุ่ม</button><button type="button" data-v="sun">แดดจ้า</button><button type="button" data-v="cloud">มีเมฆ</button><button type="button" data-v="fog">หมอก</button><button type="button" data-v="rain">ฝน</button><button type="button" data-v="storm" class="w2">ฝนฟ้าคะนอง</button><button type="button" data-v="snow">หิมะ</button></div>
+    <div class="seg" id="skW"><button type="button" data-v="auto">อัตโนมัติ</button><button type="button" data-v="sun">แดดจ้า</button><button type="button" data-v="cloud">มีเมฆ</button><button type="button" data-v="fog">หมอก</button><button type="button" data-v="rain">ฝน</button><button type="button" data-v="storm" class="w2">ฝนฟ้าคะนอง</button><button type="button" data-v="snow">หิมะ</button></div>
     <div id="skI"><label class="skL" for="skR">ความรุนแรง <span id="skRv"></span></label><input id="skR" type="range" min="0" max="100" value="50"></div>
     <div class="skL">แรงลม <span id="skWv"></span></div>
     <div class="skWr"><button type="button" id="skWa">อัตโนมัติ</button><input id="skWd" type="range" min="0" max="100" value="30"></div>
-    <p class="skK">ปุ่มลัดยังใช้ได้: T ข้ามเวลา · R เลือกอากาศ · Y สุ่มอากาศ</p>
+    <p class="skK">ปุ่มลัดยังใช้ได้: T ข้ามเวลา · R เลือกอากาศ · Y อากาศอัตโนมัติ</p>
   </form>
 </dialog>
 <button id="fs" title="เต็มจอ (G)"><svg viewBox="0 0 24 24"><path id="fsI" d="M4 4h6v2H6v4H4zM14 4h6v6h-2V6h-4zM4 14h2v4h4v2H4zM18 14h2v6h-6v-2h4z"/></svg></button>
@@ -76,7 +80,7 @@
 <div id="mpY"><div id="mpF"></div></div>
 <div id="bl">
   <div id="clk">--:--</div>
-  <div id="keys">W A S D ขับ · Shift เร่ง · Tab หรือคลิกแผนที่ย่อ เปิด/ปิดแผนที่ใหญ่ · คลิกจอเพื่อจับเมาส์มองรอบ (Esc ปล่อย) · T ข้ามเวลา · R เลือกอากาศ · Y สุ่มอากาศ เปิด/ปิด · L ไฟหน้า · F กล้องบิน (Q/E ลงขึ้น) · M เสียง · G เต็มจอ · H ซ่อน/แสดงข้อความ</div>
+  <div id="keys">W A S D ขับ · Shift เร่ง · Tab หรือคลิกแผนที่ย่อ เปิด/ปิดแผนที่ใหญ่ · คลิกจอเพื่อจับเมาส์มองรอบ (Esc ปล่อย) · T ข้ามเวลา · R เลือกอากาศ · Y อากาศอัตโนมัติ เปิด/ปิด · L ไฟหน้า · F กล้องบิน (Q/E ลงขึ้น) · M เสียง · G เต็มจอ · H ซ่อน/แสดงข้อความ</div>
 </div>
 <canvas id="mini" title="แผนที่ย่อ (คลิกหรือกด Tab เพื่อเปิดแผนที่ใหญ่)"></canvas>
 <div id="bigW"><canvas id="big"></canvas><div id="bigK">แผนที่ 20 × 20 กม. (400 ตร.กม.) · 1 ช่องตาราง = 1 กม. · <b class="k1"></b> ถนนสายหลัก <b class="k2"></b> สะพานใช้ได้ <b class="k3"></b> สะพานขาด <b class="k4"></b> จุดเริ่มต้น · Tab ปิด</div></div>

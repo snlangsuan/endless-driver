@@ -50,19 +50,21 @@ const LB_BRANCH = [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 
   { arrayStride: 40, stepMode: 'instance', attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x4' }, { shaderLocation: 2, offset: 16, format: 'float32x4' }, { shaderLocation: 3, offset: 32, format: 'float32x2' }] }];
 const LB_BOX = [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] },
   { arrayStride: 48, stepMode: 'instance', attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x4' }, { shaderLocation: 3, offset: 16, format: 'float32x4' }, { shaderLocation: 4, offset: 32, format: 'float32x4' }] }];
-const scenePipe = (vs, fs, buffers, topology = 'triangle-list', ws = 1, depthCompare = 'less') => device.createRenderPipeline({ layout: plScene,
-  vertex: Object.assign({ module: mScene, entryPoint: vs, buffers }, vs === 'vsLeaf' ? { constants: { WS: ws } } : {}),
+const scenePipe = (vs, fs, buffers, topology = 'triangle-list', ws = 1, depthCompare = 'less', nv = 4) => device.createRenderPipeline({ layout: plScene,
+  vertex: Object.assign({ module: mScene, entryPoint: vs, buffers }, vs === 'vsLeaf' ? { constants: { WS: ws, NV: nv } } : {}),
   fragment: { module: mScene, entryPoint: fs, targets: [{ format: HDR }] },
   primitive: { topology, cullMode: 'none' }, multisample: { count: AA },
   depthStencil: { format: DEPTH, depthWriteEnabled: depthCompare === 'less', depthCompare } });
 const shadowPipe = (vs, buffers, topology = 'triangle-list', ws = 1) => device.createRenderPipeline({ layout: plShadow,
-  vertex: Object.assign({ module: mShadow, entryPoint: vs, buffers }, vs === 'vsLeaf' ? { constants: { WS: ws } } : {}),
+  vertex: Object.assign({ module: mShadow, entryPoint: vs, buffers }, vs === 'vsLeaf' ? { constants: { WS: ws, NV: 2 } } : {}),
   primitive: { topology, cullMode: 'none' },
   depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less', depthBias: 2, depthBiasSlopeScale: 2.5 } });
 const pTerrain = scenePipe('vsTerrain', 'fsTerrain', LB_TERRAIN), pBranch = scenePipe('vsBranch', 'fsBranch', LB_BRANCH), pBox = scenePipe('vsBox', 'fsBox', LB_BOX);
 // leaves come in four densities: every leaf nearby, then a third, a ninth and (far off) a twenty-seventh of them, made wider to cover the same area
-const LODW = [1, 1.75, 3.1, 5.4], LODN = [1, 3, 9, 27];
-const pLeaf = LODW.map((w) => scenePipe('vsLeaf', 'fsLeaf', LB_LEAF, 'triangle-strip', w));
+// (and the thinned-out ones are strips of 6 vertices, not 10: at their distance the finer bend and outline of a leaf cannot be seen. LODV is the
+// count to draw with each; leaves in the shadow map are always of 6)
+const LODW = [1, 1.75, 3.1, 5.4], LODN = [1, 3, 9, 27], LODV = [10, 6, 6, 6];
+const pLeaf = LODW.map((w, l) => scenePipe('vsLeaf', 'fsLeaf', LB_LEAF, 'triangle-strip', w, 'less', LODV[l] / 2 - 1));
 const pSky = scenePipe('vsSky', 'fsSky', [], 'triangle-list', 1, 'less-equal');
 const pBoxS = shadowPipe('vsBox', LB_BOX);
 const LB_CAR = [{ arrayStride: 40, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'float32x3' }, { shaderLocation: 3, offset: 36, format: 'float32' }] }];
@@ -106,6 +108,10 @@ const vbCube = vbuf(new Float32Array(cubeV)), ibCube = vbuf(new Uint16Array(cube
 // smooth: the 'smooth' picture setting (sky panel) - for recording the screen or a slower machine. The picture is drawn at the screen's own count of
 // points at most (not 1.5 times it), and may be made much smaller and the far leaves and grass much thinner to keep the frame rate up (main.js).
 let smooth = false; try { smooth = localStorage.getItem('endless.smooth') === '1'; } catch (e) {}
+// fpsCap: the frame rate is held to this many pictures a second (settings panel: 60 or 30), or 0 for as many as the display shows (see frame() in main.js).
+// viewK: how far the land is drawn, as a part of the full 380 m (settings panel: 1, 0.75 or 0.55); the haze closes in to match.
+let viewK = 1; try { const v = Number(localStorage.getItem('endless.view')); if (v === 0.75 || v === 0.55) viewK = v; } catch (e) {}
+let fpsCap = 0; try { const c = Number(localStorage.getItem('endless.cap')); if (c === 30 || c === 60) fpsCap = c; } catch (e) {}
 let W = 0, H = 0, scale = smooth ? 0.8 : 1, tMS, tDepth, tScene, vMS, vDepth, vScene, bloomT = [], bloomV = [], bgBloom = [], bgFinal;
 const NB = 5;
 function resize() {

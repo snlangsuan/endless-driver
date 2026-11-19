@@ -642,11 +642,11 @@ struct SO { @builtin(position) cp: vec4f, @location(0) q: vec2f };
   let sd = max(dot(rd, g.sun.xyz), 0.);
   c += g.sunCol.rgb * (pow(sd, 8.) * .04 + pow(sd, 90.) * .12 + pow(sd, 1200.) * 1.2 + ss(.99955, .9998, sd) * 14.);
   let q = (g.cam.xz * .08 + rd.xz * (900. / max(rd.y, .03))) * .00055 + vec2f(g.cam.w * .0018, 0.);
-  let dn = fbm(q) * .65 + fbm(q * 3.1 + 5.) * .35;
+  var dn = 0.; if (rd.y > 0.) { dn = fbm(q) * .65 + fbm(q * 3.1 + 5.) * .35; }      // (no cloud shows below the horizon)
   let lo = mix(.64, .26, g.fog.z); let cov = ss(lo, lo + .2, dn) * ss(0., .14, rd.y);
   let lit = mix(g.amb.rgb * 1.1 + g.hor.rgb * .25, g.sunCol.rgb * .42 + g.hor.rgb * .35, ss(lo, lo + .35, dn + sd * .2)) * mix(1., .6, ss(.6, 1., g.fog.z));
-  let hh = h2(floor(rd.xz / max(rd.y, .05) * 90.));
-  c += vec3f(.9, .95, 1.) * step(.9965, hh) * g.misc.w * .6 * ss(.02, .2, rd.y) * (1. - cov);
+  if (g.misc.w > 0.) { let hh = h2(floor(rd.xz / max(rd.y, .05) * 90.));
+  c += vec3f(.9, .95, 1.) * step(.9965, hh) * g.misc.w * .6 * ss(.02, .2, rd.y) * (1. - cov); }
   c = mix(c, lit, cov * .9);
   // lightning: a forked stroke down the sky, and the cloud round it lit from within
   let fl = g.zen.w;
@@ -659,12 +659,15 @@ struct SO { @builtin(position) cp: vec4f, @location(0) q: vec2f };
   // far ranges of hills on the horizon, paler with distance
   let hd = normalize(vec3f(rd.x, 0., rd.z) + vec3f(1e-5, 0., 0.)).xz;
   let toSea = 1. - sw(g.cam.z) * ss(.02, .45, rd.x);
+  if (rd.y < .2) {      // (the highest of them stands .185 above the horizon: the sky over that is not asked)
   let m0 = (.050 + .120 * fbm(hd * 1.5 + 13.) + .015 * fbm(hd * 8. + 2.)) * toSea;
-  let m1 = (.030 + .075 * fbm(hd * 2.3 + 3.) + .012 * fbm(hd * 11. + 7.)) * toSea;
-  let m2 = (.012 + .040 * fbm(hd * 3.4 + 21.) + .008 * fbm(hd * 17.)) * toSea;
   c = mix(c, mix(hz, g.amb.rgb * .70 + g.hor.rgb * .22, .34), ss(m0 + .004, m0, rd.y));
+  if (rd.y < .125) {      // (the nearer two ranges are lower: .12 and .062 at most)
+  let m1 = (.030 + .075 * fbm(hd * 2.3 + 3.) + .012 * fbm(hd * 11. + 7.)) * toSea;
   c = mix(c, mix(hz, g.amb.rgb * .55 + g.hor.rgb * .16, .55), ss(m1 + .003, m1, rd.y));
-  c = mix(c, mix(hz, g.amb.rgb * vec3f(.30, .46, .30) + g.hor.rgb * .08, .74), ss(m2 + .002, m2, rd.y));
+  if (rd.y < .065) {
+  let m2 = (.012 + .040 * fbm(hd * 3.4 + 21.) + .008 * fbm(hd * 17.)) * toSea;
+  c = mix(c, mix(hz, g.amb.rgb * vec3f(.30, .46, .30) + g.hor.rgb * .08, .74), ss(m2 + .002, m2, rd.y)); } } }
   // out to sea: a few steep limestone islands on the horizon, different on every stretch of coast
   let sk = sw(g.cam.z);
   if (sk > .01 && rd.x > 0.) {

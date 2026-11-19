@@ -20,8 +20,10 @@ fn stk(Pw: vec2f, a: vec2f, off: f32, px: f32) -> f32 {
   // short blades, each lying a little off the others' line: the ground is bent by a slow noise first, and a blade is only three or four
   // times as long as it is wide (long straight strokes in three fixed directions read as woven cord, not grass)
   let q = vec2f(dot(Pw, a), dot(Pw, vec2f(-a.y, a.x)));
-  return .5 + (vn(vec2f(q.x * 75., q.y * 24.) + off) - .5) * (1. - ss(.5, 1.4, px * 75.)) * .8 + (vn(vec2f(q.x * 24., q.y * 9.) + off + 11.) - .5) * (1. - ss(.5, 1.4, px * 24.)) * .55
-    + (vn(vec2f(q.x * 7., q.y * 4.5) + off + 23.) - .5) * (1. - ss(.5, 1.4, px * 7.)) * .26; }
+  var o = .5 + (vn(vec2f(q.x * 7., q.y * 4.5) + off + 23.) - .5) * (1. - ss(.5, 1.4, px * 7.)) * .26;      // (the finer two only where they still show)
+  if (px * 24. < 1.4) { o += (vn(vec2f(q.x * 24., q.y * 9.) + off + 11.) - .5) * (1. - ss(.5, 1.4, px * 24.)) * .55; }
+  if (px * 75. < 1.4) { o += (vn(vec2f(q.x * 75., q.y * 24.) + off) - .5) * (1. - ss(.5, 1.4, px * 75.)) * .8; }
+  return o; }
 // stones lying on bare earth. x: 1 on a stone, y: which stone, z: how near its middle (for the light on its rounded top)
 fn pebble(P: vec2f, dens: f32) -> vec3f {
   let c = floor(P); var o = vec3f(0.);
@@ -38,15 +40,17 @@ fn ph(c: vec2i) -> f32 { var h = bitcast<u32>(c.x) * 374761393u + bitcast<u32>(c
 fn ss(a: f32, b: f32, x: f32) -> f32 { let t = clamp((x - a) / (b - a), 0., 1.); return t * t * (3. - 2. * t); }
 // wind: the whole plant leans with height; nearby parts share a phase so leaves stay on their branches
 fn gust(p: vec2f) -> f32 { let t = g.cam.w; return vn(p * .02 - vec2f(t * .35, t * .22)); }      // gusts travel over the land with the wind
-fn wind(p: vec2f, hgt: f32) -> vec2f {
-  let t = g.cam.w; let W = g.misc.y; let gs = gust(p); let ph = dot(p, vec2f(.021, .017));
+fn wind(p: vec2f, hgt: f32) -> vec2f { return windG(p, hgt, gust(p)); }
+fn windG(p: vec2f, hgt: f32, gs: f32) -> vec2f {      // (gs: the gust there, for a caller that has it already - a leaf asks for it at every one of its corners)
+  let t = g.cam.w; let W = g.misc.y; let ph = dot(p, vec2f(.021, .017));
   let sway = vec2f(sin(t * 2.1 + ph) + .4 * sin(t * 4.3 + ph * 2.1), cos(t * 1.7 + ph * 1.3) + .35 * sin(t * 3.7 + ph));
   return pow(hgt, 1.5) * .008 * W * (vec2f(.8, .55) * (.15 + 1.0 * gs) + sway * (.25 + .5 * gs));
 }
 // The whole movement of a point of a plant: the trunk's sway (wind), and on top of it the bough's own - the further out from the
 // trunk, the more it streams downwind, dips, and tosses.
-fn wind3(p: vec2f, hgt: f32, reach: f32) -> vec3f {
-  let w = wind(p, hgt); let W = g.misc.y; let gs = gust(p); let t = g.cam.w; let ph = dot(p, vec2f(.37, .29));
+fn wind3(p: vec2f, hgt: f32, reach: f32) -> vec3f { return wind3G(p, hgt, reach, gust(p)); }
+fn wind3G(p: vec2f, hgt: f32, reach: f32, gs: f32) -> vec3f {
+  let w = windG(p, hgt, gs); let W = g.misc.y; let t = g.cam.w; let ph = dot(p, vec2f(.37, .29));
   let k = pow(reach, 1.25) * (.02 + .0012 * min(hgt, 12.));
   let hz = vec2f(.8, .55) * (W * (.25 + 1.3 * gs) + (sin(t * 2.6 + ph) * .5 + sin(t * 4.1 + ph * 1.7) * .3) * W * (.3 + .5 * gs)) * k;
   return vec3f(w.x + hz.x, -length(hz) * .35 + sin(t * 3.3 + ph * 2.3) * W * k * .25, w.y + hz.y);
@@ -60,12 +64,13 @@ fn crushed(P: vec2f, hgt: f32) -> vec3f {
 struct LO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) uv: vec2f,
   @location(3) @interpolate(flat) col: vec3f, @location(4) @interpolate(flat) pr: vec2f };
 override WS: f32 = 1.;
+override NV: f32 = 4.;      // how many lengths the strip is cut into: 4 (10 vertices) close by, 2 (6 vertices) for the thinned-out leaves further off and for shadows
 // One leaf or blade: a strip of 10 vertices bent, tapered and moved here from 12 numbers per instance.
 // (kind 10 is a spray of blossom, see scene.wgsl)
 // a: base xyz, length · b: yaw, elevation, half width, droop · c: kind (0 leaf, 1 palm leaflet, 2 grass, 3 green rice, 4 ripe rice, 5 banana leaf), seed, shade, height above the plant's foot
 fn leafV(vi: u32, a0: vec4f, b0: vec4f, c: vec4f) -> LO {
   var o: LO;
-  let u = f32(vi & 1u) * 2. - 1.; let v = f32(vi >> 1u) / 4.;
+  let u = f32(vi & 1u) * 2. - 1.; let v = f32(vi >> 1u) / NV;
   let kind = i32(c.x + .5);
   var a = a0; var b = b0;
   if (kind == 11) {        // a petal in the air: it falls from where it was put (b0.y is how far down the ground is), swinging from side to side, turning over, carried off by the wind; then another starts
@@ -95,9 +100,10 @@ fn leafV(vi: u32, a0: vec4f, b0: vec4f, c: vec4f) -> LO {
   var n = normalize(cross(side, tng));
   let t = g.cam.w;
   let pk = !blade && kind != 9 && kind < 12; var hgt = c.w; var rch = 0.; if (pk) { hgt = floor(c.w) / 32.; rch = fract(c.w) * 32.; }      // leaves of trees carry height and reach packed together
-  let w = wind3(a.xz, hgt + v * a.w * se, rch); let gs = gust(a.xz);
+  let gs = gust(a.xz); let w = wind3G(a.xz, hgt + v * a.w * se, rch, gs);
   p += w;
-  { let cr = crushed(a.xz, hgt); if (cr.z > .003) { let up = hgt + v * a.w * se; p.y -= up * cr.z * .86; p = vec3f(p.x + cr.x * cr.z * (.25 + .35 * hgt), p.y, p.z + cr.y * cr.z * (.25 + .35 * hgt)); } }      // flat under the car, splayed a little outward
+  if (hgt < 3.4) { let cr = crushed(a.xz, hgt); if (cr.z > .003) {      // (nothing that high is pressed down)
+    let up = hgt + v * a.w * se; p.y -= up * cr.z * .86; p = vec3f(p.x + cr.x * cr.z * (.25 + .35 * hgt), p.y, p.z + cr.y * cr.z * (.25 + .35 * hgt)); } }      // flat under the car, splayed a little outward
   if (blade || kind >= 12) { let bend = g.misc.y * (.08 + .5 * gs) * v * v * a.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // waves run through grass and rice
   if (kind == 9) { let bend = g.misc.y * (.08 + .5 * gs) * c.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // rides on the tip of its stalk
   let fl = g.misc.y * (.4 + 1.2 * gs) * sin(t * (6. + c.y * 4.) + c.y * 40. + a.x * 1.7) * .07 * v * a.w;

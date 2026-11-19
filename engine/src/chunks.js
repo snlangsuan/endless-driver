@@ -24,8 +24,9 @@ function buildChunk(cx, cz) {
   // thin: every n-th sprig only, each made wider. twigs false: the finest twigs, hidden in the leaves anyway, are left out. farN: how much of the tree still shows from far off.
   // The fishing village on an island (built further down): where its houses stand, so that no tree is planted through one.
   const vil = [], pr0 = pierOf(oz + CH / 2);
-  if (isOf(oz + CH / 2) && abs(oz + CH / 2 - IS.zc) < 240) { const zc = IS.zc, hv = (i, j) => ph(IS.s * 16 + i, 700 + j);
-    for (let i = 0; i < 9; i++) { const row = i < 5 ? 0 : 1, z = zc + 38 + (row ? (i - 5) * 23 + 11 : i * 19) + hv(i, 1) * 5, x = roadX(z) + (row ? 47 : 19) + hv(i, 2) * 9;
+  if (isOf(oz + CH / 2) && abs(oz + CH / 2 - IS.zc) < 240) { const zc = IS.zc, hv = (i, j) => ph(IS.s * 16 + i, 700 + j); vil.zc = zc;
+    for (let i = 0; i < 9; i++) { const row = i < 5 ? 0 : 1, z = Math.round((zc + 38 + (row ? (i - 5) * 23 + 11 : i * 19) + hv(i, 1) * 5) / GS) * GS, x =      // (on a line of the ground's grid, for its path: see drive, below)
+        roadX(z) + (row ? 47 : 19) + hv(i, 2) * 9;
       if (ism(x, z) < -52) vil.push([x, z, -PI / 2 + (hv(i, 4) - 0.5) * 0.3, hv(i, 3) < 0.7, hv(i, 5), hv(i, 6)]); } }
   // Trees are not grown as they are asked for but at the end, once every building of the chunk stands: a tree whose crown would sink into a building
   // (its trunk inside it, or nearer its wall than most of the crown's reach) is left out. Beside a building, in front of it, over a low wall: all fine.
@@ -634,9 +635,38 @@ function buildChunk(cx, cz) {
       }
     }
   }
-  if (R() < 0.34 && hwc < 0.4 && twc < 0.15 && swc < 0.1 && snc < 0.1 && flwW(oz + CH / 2) < 0.05) {      // (no houses where the flower fields come up to the road)
-    const z = oz + 8 + R() * (CH - 16), side = R() < 0.5 ? 1 : -1, x = roadX(z) + side * (17 + R() * 13);
-    if (inside(x, z) && x > ox + 11 && x < ox + CH - 11 && !(rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 48) && ism(x, z) < -50 && !(vil.length && side > 0 && z > IS.zc + 15)) {      // (and not in the sea, nor on the shore of the island crossing)
+  // A house in the fields, beside the road. Where it stands is drawn by lot from the chunk's own place alone (plainHouse), so that the chunk next to
+  // this one can know it too: the house's drive runs out to the road and may cross into that chunk, which has to paint its part of it.
+  // The drive is beaten earth - two wheel tracks worn bare, thin grass between them: it is marked in the ground's own grid (the number that says
+  // 'water' when positive: negative, it says how far it is to the middle of a drive, -0.45 on it .. -0.05 at 4 m), which the ground's paint reads
+  // (terrain.wgsl) and the grass keeps off (growGrass). The house stands on a line of the grid, so that this distance comes out exact.
+  const plainRow = hwc < 0.4 && twc < 0.15 && swc < 0.1 && snc < 0.1 && flwW(oz + CH / 2) < 0.05;      // (no houses where the flower fields come up to the road)
+  const plainHouse = (qx) => { const H = rng(ph(qx, cz + 7717) * 4294967296), ok = H() < 0.34, z0 = Math.round((oz + 8 + H() * (CH - 16)) / GS) * GS, side = H() < 0.5 ? 1 : -1; let z = z0;
+    // (on the side the power line runs down, the mouth of the drive is kept 4 m clear of the poles - one every 40 m - and of the kilometre stone)
+    if (side > 0) { const p = Math.round(z / 40) * 40; if (abs(z - p) < 4) z = p + (z >= p ? 4 : -4); const s = Math.round((z - 3) / 1000) * 1000 + 3; if (abs(z - s) < 4) z = s + 5; }
+    const x = roadX(z) + side * (17 + H() * 13);
+    return ok && plainRow && x > qx * CH + 11 && x < qx * CH + CH - 11 && !(rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 48) && ism(x, z) < -50 ? [x, z, side] : null; };      // (and not in the sea, nor on the shore of the island crossing)
+  // (a path is a straight run from a to b; what is marked is the distance to it, the least where several meet)
+  const pathSeg = (ax, az, bx, bz) => { const ux = bx - ax, uz = bz - az, L2 = ux * ux + uz * uz || 1;
+    for (let j = 0; j < M; j++) { const pz = oz + (j - 1) * GS; if (pz < min(az, bz) - 4 || pz > max(az, bz) + 4) continue;
+      for (let i = 0; i < M; i++) { const px = ox + (i - 1) * GS, t = clamp(((px - ax) * ux + (pz - az) * uz) / L2, 0, 1), dl = hypot(px - ax - ux * t, pz - az - uz * t), k = j * M + i; if (dl >= 4 || hwet[k] > 0) continue;
+        hwet[k] = min(hwet[k], -(0.05 + 0.4 * (1 - dl / 4))); if (i > 0 && i <= N && j > 0 && j <= N) v[((j - 1) * N + i - 1) * 7 + 6] = hwet[k]; } } };
+  const drive = (h) => pathSeg(roadX(h[1]) + h[2] * 3.9, h[1], h[0] - h[2] * 3, h[1]);
+  const myHouse = plainHouse(cx), drives = [];      // drives: [z, side] of every drive that reaches this chunk; onDrive: is this place at the road's edge in the mouth of one (no post stands there)
+  const onDrive = (z, sd) => { for (const d of drives) if (d[1] * sd > 0 && abs(z - d[0]) < 2.8) return true; return false; };
+  for (const q of [cx - 1, cx + 1]) { const h = plainHouse(q); if (h && !isOf(h[1])) { drive(h); drives.push([h[1], h[2]]); homes.push(h[1], h[2]);      // (and its length is kept clear of trees and of the roadside fence here too)
+    const d0 = abs(h[0] - roadX(h[1])), sn = -h[2]; clear([h[0] + (3 + d0 - 4.6) / 2 * sn, h[1]], -h[2] * PI / 2, 4.4, d0 - 7.6); } }      // (on the island crossing a house may yet be left out, below: there only its own chunk paints the drive)
+  // The fishing village on the island has its paths too: each house of the row by the road its own, straight out to the road; behind that row a
+  // lane the houses of the back row give onto, which comes out to the road before the first house.
+  if (vil.length) { const zc = vil.zc, lx = (z) => roadX(z) + 37.5, z0 = zc + 29; let zb = -1e9;
+    for (const h of vil) { const z = h[1], front = h[0] - roadX(z) < 36, xa = front ? roadX(z) + 3.9 : lx(z), xb = h[0] - 3; pathSeg(xa, z, xb, z); clear([(xa + xb) / 2, z], -PI / 2, 3.2, xb - xa);
+      if (front) drives.push([z, 1]); else zb = max(zb, z); }
+    if (zb > z0) { for (let z = z0; z < zb; z += 6) { const z1 = min(z + 6, zb); pathSeg(lx(z), z, lx(z1), z1); clear([lx((z + z1) / 2), (z + z1) / 2], 0, 3.2, z1 - z); }
+      pathSeg(roadX(z0) + 3.9, z0, lx(z0), z0); clear([roadX(z0) + 20.7, z0], -PI / 2, 3.2, 33.6); drives.push([z0, 1]); } }
+  if (R() < 0.34 && plainRow) { R(); R(); R(); }      // (the lots that used to place the house: still drawn, so that everything after them falls as it did)
+  if (myHouse) {
+    const z = myHouse[1], side = myHouse[2], x = myHouse[0];
+    if (!(vil.length && side > 0 && z > IS.zc + 15)) { drive(myHouse); drives.push([z, side]);
       const yaw = side > 0 ? -PI / 2 : PI / 2, c = cos(yaw), sn = sin(yaw), y = hAt(x, z) - 0.05, wall = R(), roof = R();
       const old = R() < 0.25; stamp(old ? HOUSE : HOUSE3, x, y, z, yaw, wall, roof); dbgHouse = [x, y, z, yaw];      // mostly ground-level block houses; the old stilt house is the rarer one
       { const d0 = abs(x - roadX(z)), l0 = 3, l1 = d0 - 4.6; clear([x + (l0 + l1) / 2 * sn, z + (l0 + l1) / 2 * c], yaw, 4.4, l1 - l0); homes.push(z, side); }      // the drive: from the front of the house out through the gate to the road's edge
@@ -759,7 +789,7 @@ function buildChunk(cx, cz) {
     // on bends: white marker posts with red reflectors on both edges
     for (let k = Math.ceil(oz / 8) - 1; k * 8 < oz + CH + 8; k++) {
       const z = k * 8 + 5; if ((k % 3 && hpW(z) <= 0) || abs(roadX(z + 6) - 2 * roadX(z) + roadX(z - 6)) < 0.11) continue;        // every 24 m; every 8 m round the switchbacks
-      for (const sd of [-4.15, 4.15]) { const [x, zp] = rp(z, sd); if (inside(x, zp) && !brSpan(zp) && !inTun(zp)) boxes.push(x, ground(x, zp) + 0.4, zp, 0, 0.1, 0.85, 0.1, 0, 13, 0, 0, 0); }
+      for (const sd of [-4.15, 4.15]) { const [x, zp] = rp(z, sd); if (inside(x, zp) && !brSpan(zp) && !inTun(zp) && !onDrive(zp, sd)) boxes.push(x, ground(x, zp) + 0.4, zp, 0, 0.1, 0.85, 0.1, 0, 13, 0, 0, 0); }
     }
   }
   // steel guard rail on the hill road where it runs along a drop
@@ -880,6 +910,9 @@ function growGrass(c) {
     const x = ox + R() * CH, z = oz + R() * CH, d = abs(rdist(x, z)); if (d < 4.2) continue;
     const zj = min(31, floor((z - oz) / 2)), tW = ZT[zj], sW = ZS[zj], nW = ZN[zj], hW = ZH[zj];
     const y = hgAt(x, z), u = R(), town = d < 160 && tW > 0.45; if (gw[0] || (town && (d < 28.5 || u > 0.5 || turfAt(x, z) < 0.55 || soiD(x, z) < 2.6))) continue;      // in town grass grows only in the yards
+    { const fx = (x - ox) / GS + 1, fz = (z - oz) / GS + 1, ix = floor(fx), iz = floor(fz), k = iz * M + ix, a = fx - ix, b = fz - iz;      // a house's drive (see buildChunk): none in the wheel tracks, a little between them, thin at the edges
+      const pv = -mix(mix(min(HW[k], 0), min(HW[k + 1], 0), a), mix(min(HW[k + M], 0), min(HW[k + M + 1], 0), a), b);
+      if (pv > 0.05) { const dl = (1 - (pv - 0.05) / 0.4) * 4; if (dl < 0.4 ? u > 0.3 : dl < 1.5 || (dl < 2.1 && u > 0.45)) continue; } }
     if (sW > 0.3 && x - roadX(z) > 19 && u < ZB[zj] * 1.2) continue;          // no grass on the sand
     if (d < 22 && u > 0.12 && ZP[zj]) continue;
     if (u > 0.12 && nW > 0.3) continue;                                          // only a few dry stalks stand out of the snow                                      // and little under the casuarinas
@@ -920,9 +953,10 @@ function updateChunks(px, pz, budget) {
   if (abs(px - (cxS + 0.5) * CH) > CH / 2 + 8) cxS = floor(px / CH); if (abs(pz - (czS + 0.5) * CH) > CH / 2 + 8) czS = floor(pz / CH);
   const cz0 = czS; want.length = 0;
   const keep = new Set();
-  for (let dz = -5; dz <= 5; dz++) {
+  const rz = min(5, Math.ceil(380 * viewK / CH)), rx = min(4, rz);      // (a shorter view - viewK, the settings panel - keeps fewer chunks)
+  for (let dz = -rz; dz <= rz; dz++) {
     const cz = cz0 + dz, cxr = floor(roadX((cz + 0.5) * CH) / CH), cxp = cxS;
-    for (let cx = min(cxr, cxp) - 4; cx <= max(cxr, cxp) + 4; cx++) { const k = cx + ',' + cz; keep.add(k); if (!chunks.has(k)) want.push([hypot((cx + 0.5) * CH - px, (cz + 0.5) * CH - pz), cx, cz, k]); }
+    for (let cx = min(cxr, cxp) - rx; cx <= max(cxr, cxp) + rx; cx++) { const k = cx + ',' + cz; keep.add(k); if (!chunks.has(k)) want.push([hypot((cx + 0.5) * CH - px, (cz + 0.5) * CH - pz), cx, cz, k]); }
   }
   for (const [k, c] of chunks) if (!keep.has(k)) { dropChunk(c); chunks.delete(k); }
   want.sort((a, b) => a[0] - b[0]);

@@ -4,6 +4,7 @@
   "description": "Endless: a scenic driving world drawn entirely in code (WebGPU)",
   "type": "module",
   "scripts": {
-    "serve": "bun scripts/serve.mjs"
+    "serve": "bun scripts/serve.mjs",
+    "dev": "bun scripts/serve.mjs --dev"
   }
 }

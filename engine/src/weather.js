@@ -20,7 +20,7 @@ let tHold = false, seaMode = 0, wxS = 0.5, windSet = -1;      // windSet: -1 the
 const AT = { dir: [0, 1, 0], sun: [0, 0, 0], amb: [0, 0, 0], zen: [0, 0, 0], hor: [0, 0, 0], ex: 1, night: 0, fog: 0, cover: 0, dry: 0, mist: 0, rain: 0, storm: 0, wet: 0, flash: 0, wind: 1, snow: 0, snowM: 0, snowG: 0 };      // snowM: snow chosen by hand, anywhere; snowG: how white the ground has gone under it
 let wxAuto = true, wxCur = 1, wxNext = 0; const WXP = [[0, 0, 0, 0], [0, 0, 0, 0], [0.62, 0, 0, 0], [0.9, 0.12, 0.35, 0], [1, 0.3, 0.9, 0], [1, 0.3, 1, 1], [0.3, 0.45, 0, 0], [0.5, 1, 0, 0]];      // cover, mist, rain, storm
 const LT = { t0: -9, next: 0, az: 0, seed: 0, dist: 1 };
-const wxName = () => (AT.storm > 0.5 ? 'ฝนฟ้าคะนอง' : AT.rain > 0.6 ? 'ฝนตกหนัก' : AT.rain > 0.08 ? 'ฝนตกเบา' : AT.snow > 0.3 ? 'หิมะตก' : AT.mist > 0.7 ? 'หมอกหนา' : AT.mist > 0.25 ? 'หมอกบาง' : AT.cover > 0.75 ? 'ฟ้าครึ้ม' : AT.cover > 0.4 ? 'เมฆมาก' : AT.cover < 0.15 && AT.night < 0.5 ? 'แดดจ้า' : 'ฟ้าใส') + (wxAuto ? ' (สุ่ม)' : ' (เลือกเอง)');
+const wxName = () => (AT.storm > 0.5 ? 'ฝนฟ้าคะนอง' : AT.rain > 0.6 ? 'ฝนตกหนัก' : AT.rain > 0.08 ? 'ฝนตกเบา' : AT.snow > 0.3 ? 'หิมะตก' : AT.mist > 0.7 ? 'หมอกหนา' : AT.mist > 0.25 ? 'หมอกบาง' : AT.cover > 0.75 ? 'ฟ้าครึ้ม' : AT.cover > 0.4 ? 'เมฆมาก' : AT.cover < 0.15 && AT.night < 0.5 ? 'แดดจ้า' : 'ฟ้าใส') + (wxAuto ? ' (อัตโนมัติ)' : ' (เลือกเอง)');
 function atmos(z) {
   let i = 0; while (i < KEYS.length - 2 && tday >= KEYS[i + 1].t) i++;
   const a = KEYS[i], b = KEYS[i + 1], f = clamp((tday - a.t) / (b.t - a.t), 0, 1);
@@ -45,6 +45,9 @@ function atmos(z) {
   AT.dry = sm(0.35, 0.7, vnoise(z / 5200 + 9, 1.7));
   if (chyAt(z)) { const q = z / SEG - floor(z / SEG); AT.dry = mix(AT.dry, 0.22, sm(0, 0.06, q) * sm(1, 0.94, q)); }      // the cherries flower in the cool season: the grass still green, only just beginning to yellow
   if (seaMode) AT.dry = [0, 0, 0.25, 0.95][seaMode];                        // a season chosen by hand: green after the rains, just yellowing in the cool, burnt in the hot
+  // The mist of early morning (the dawn keys' fog, four times the day's) belongs to damp ground: thick after the rains and in the cool season,
+  // all but gone in the hot dry one, when the air is clear from first light (what haze there is then is the day's own).
+  if (AT.fog > 0.003) AT.fog = 0.003 + (AT.fog - 0.003) * (1 - 0.85 * sm(0.3, 0.9, AT.dry));
   const over = sm(0.6, 1, AT.cover), grey = (AT.zen[0] + AT.zen[1] + AT.zen[2]) / 3 + (AT.hor[0] + AT.hor[1] + AT.hor[2]) / 6;
   for (let j = 0; j < 3; j++) { AT.sun[j] *= 1 - 0.8 * over; AT.zen[j] = mix(AT.zen[j], grey * 0.9, over * 0.85); AT.hor[j] = mix(AT.hor[j], grey * 1.05, over * 0.7); AT.amb[j] = mix(AT.amb[j], (AT.amb[0] + AT.amb[1] + AT.amb[2]) / 3 * 1.15, over * 0.7); }
   const glare = (1 - sm(0, 0.25, AT.cover)) * (1 - AT.night), dim = 1 - 0.35 * AT.rain - 0.25 * AT.storm;
@@ -59,6 +62,6 @@ function atmos(z) {
   if (windSet >= 0) AT.wind += (windSet * 5.5 * (0.85 + 0.3 * vnoise(time * 0.05, 3.3)) - AT.wind) * 1;      // set by hand: steady at that strength, but for a slow breathing of a sixth either way (a wind never blows quite evenly)
   return AT;
 }
-const seasonName = (z) => (seaMode ? ['', 'หน้าฝน', 'หน้าหนาว', 'หน้าแล้ง'][seaMode] + ' (เลือกเอง)' : chyAt(z) ? 'หน้าหนาว' : AT.dry > 0.5 ? 'หน้าแล้ง' : 'หน้าฝน');
+const seasonName = (z) => (seaMode ? ['', 'ฤดูฝน', 'ฤดูหนาว', 'ฤดูร้อน'][seaMode] + ' (เลือกเอง)' : chyAt(z) ? 'ฤดูหนาว' : AT.dry > 0.5 ? 'ฤดูร้อน' : 'ฤดูฝน');
 const todName = () => (tday < 0.22 || tday >= 0.79 ? 'กลางคืน' : tday < 0.36 ? 'เช้า' : tday < 0.66 ? 'กลางวัน' : 'เย็น');
 

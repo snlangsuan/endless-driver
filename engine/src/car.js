@@ -120,7 +120,7 @@ const CAR = (() => {
   normals();
   return { sw: [SWC, SWA], v: new Float32Array(V), g: G, idx: new Uint16Array(I.length + (I.length & 1)).fill(0).map((_, k) => I[k] || 0), wc: WC, n: nv };
 })();
-const carOut = new Float32Array(CAR.v.length), carVB = vbuf(carOut), carIB = vbuf(CAR.idx, GPUBufferUsage.INDEX); let view3 = false;
+const carOut = new Float32Array(CAR.v.length), carVB = vbuf(carOut), carIB = vbuf(CAR.idx, GPUBufferUsage.INDEX); let view3 = !!(LIVE && LIVE.view3);
 const SHOW_CAR = false;        // the car is drawn: from the driver's seat its bonnet, pillars, dashboard and mirrors; V looks at it from behind
 // put the car where it stands: wheels turned by their rolling and the front pair by the steering, then the whole by the slope and heading
 function placeCar(dt) {

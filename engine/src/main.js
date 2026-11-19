@@ -8,14 +8,18 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 
 // --------------------------------------------------------------------------------------------------------- frame
 const hud = $('hud');
-let last = performance.now(), time = 0, fN = 0, fT = 0, fWorst = 0, fps = 60, onRoad = true, tris = 0;
+let capT = 0, last = performance.now(), time = 0, fN = 0, fT = 0, fWorst = 0, fps = 60, onRoad = true, tris = 0;
 let glassF = 0;      // how misted the inside of the windscreen is
 let glassP = 0;      // how much snow has piled on the windscreen of the standing car
 let glassR = 0, glassS = 0; const glassSl = [0, 0, 0], glassV = [1, 1, 1], glassUp = [0, 0, 0];      // how wet the windscreen is, how much snow lies on it; for its big, middling and small drops: how far the running ones have slid, which way they go, how far the standing ones have crept up
-const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0, coverK = 0, lodK = 1; const ordC = [];      // lodK: 1 = full drawing distances for leaves, twigs and grass; lowered (to 0.9 at least) when the frame rate cannot be held otherwise
+const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0, coverK = 0, lodK = 1; const ordC = [], seenC = [];      // lodK: 1 = full drawing distances for leaves, twigs and grass; lowered (to 0.9 at least) when the frame rate cannot be held otherwise
 updateChunks(car.x, car.z, 30);
 function frame(now) {
   requestAnimationFrame(frame);
+  // A locked frame rate (fpsCap): the browser calls this once for each picture the display shows, and the calls that come before the next picture
+  // is due are let go by. What is due is kept on its own clock (capT), so the rate averages what was asked even on a display whose own rate is not
+  // a multiple of it; 2 ms early counts as on time, for the calls do not come quite evenly.
+  if (fpsCap) { if (now < capT - 2) return; capT += 1000 / fpsCap; if (capT < now) capT = now + 1000 / fpsCap * 0.5; }
   const dtr = now - last; last = now; let dt = min(dtr / 1000, 0.1); time += dt;
   fN++; fT += dtr; if (dtr > fWorst) fWorst = dtr;
   if (fT > 500) {
@@ -30,12 +34,13 @@ function frame(now) {
       if (fps > rBest) rBest = fps;
       if (rPrev) { rFlat = fps < rPrev * 1.04 ? rFlat + 1 : 0; rPrev = 0; if (rFlat >= 2) { rBest = fps; rFlat = 0; rKnown = 1; } }
       const sF = smooth ? 0.5 : 0.85, lF = smooth ? 0.6 : 0.9;      // the floors: how small the picture may be drawn, how far the drawing distances may be cut ('smooth' gives up far more)
-      const dn = smooth ? 56 : rKnown || rBest > 50 ? min(60, rBest * 0.8) : 34, up = smooth ? 70 : min(100, rBest * 0.95);      // (smooth: hold 60 - a steady rate is what a recording needs - and give quality back only when well clear of it)      // looks before speed: nothing is given up until the rate is a fifth below the display's (or under 60)      // (until a step down has been seen not to help, 34 is the mark: a slow machine must not be taken for a capped display)
+      const lock = fpsCap ? (rKnown ? min(fpsCap, rBest) : fpsCap) : 0, dn = lock ? lock * 0.95 : smooth ? 56 : rKnown || rBest > 50 ? min(60, rBest * 0.8) : 34, up = lock ? lock * 0.985 : smooth ? 70 : min(100, rBest * 0.95);      // (locked: the rate asked for is the one to hold - what is given up to hold it has the same floors - and since a locked rate cannot show what is to spare, quality is given back while the lock is held, and kept down for a while where that proved too much: rLid. A display slower than the lock is not taken for a slow machine: rKnown)
+           // (smooth: hold 60 - a steady rate is what a recording needs - and give quality back only when well clear of it)      // looks before speed: nothing is given up until the rate is a fifth below the display's (or under 60)      // (until a step down has been seen not to help, 34 is the mark: a slow machine must not be taken for a capped display)
       if (rLidN > 0 && --rLidN === 0) rLid = 1;
       rSince++;
       // Quality has a floor: the picture is never drawn below 85% size nor the drawing distances cut below 90%. Past that the frame rate is let fall.
       if (fps < dn && (scale > sF || lodK > lF)) {
-        if (smooth) { const k = fps < dn * 0.75 ? 0.88 : 0.95; if (lodK > lF && (lodK > scale || scale <= sF)) lodK = max(lF, lodK * k); else scale = max(sF, scale * k); }      // (smooth: both together, in bigger steps while far short)
+        if (smooth) { const k = fps < dn * 0.75 ? 0.88 : 0.95; if (lodK > lF && (lodK > scale || scale <= sF)) lodK = max(lF, lodK * k); else scale = max(sF, scale * k); if (fpsCap && rSince <= 2) { rLid = scale; rLidN = 120; } }      // (smooth: both together, in bigger steps while far short)
         else if (scale > 0.92 || lodK <= 0.9) { scale = max(0.85, scale * 0.95); if (rSince <= 2) { rLid = scale; rLidN = 120; } } else lodK = max(0.9, lodK * 0.95);
         upOK = 0; rPrev = fps;
       }
@@ -77,7 +82,7 @@ function frame(now) {
   mul(UBS, mO, mL); UB.set(UBS.subarray(0, 16), 16);
   const hl = (headOn === -1 ? (T.night > 0.5 ? 1 : 0) : headOn) * 1.6;
   UB.set([ex, ey, ez, time, L[0], L[1], L[2], T.rain, T.sun[0], T.sun[1], T.sun[2], abs(car.v) * 3.6, f[0], f[1], f[2], LT.seed, r[0], r[1], r[2], TANH * asp, u[0], u[1], u[2], TANH,
-    T.fog, 360, T.cover, T.dry, W, H, car.yaw, fly.on || view3 ? 0 : 1, T.amb[0], T.amb[1], T.amb[2], T.wet, hl, T.wind, T.ex, T.night, T.zen[0], T.zen[1], T.zen[2], T.flash, T.hor[0], T.hor[1], T.hor[2], LT.az], 32);
+    T.fog, 360 * viewK, T.cover, T.dry, W, H, car.yaw, fly.on || view3 ? 0 : 1, T.amb[0], T.amb[1], T.amb[2], T.wet, hl, T.wind, T.ex, T.night, T.zen[0], T.zen[1], T.zen[2], T.flash, T.hor[0], T.hor[1], T.hor[2], LT.az], 32);
   UB[80] = ((ex % 256) + 256) % 256; UB[81] = ((ez % 256) + 256) % 256;      // where the eye stands in its 256 m tile (camM)
   UB[82] = T.snowG; UB[83] = deadWorld;      // (camM.z: snow lying everywhere, from snow chosen by hand)
   for (let i = 0; i < 8; i++) { const q = CRUSH[i], s = q[2]; UB[84 + i * 4] = q[0]; UB[85 + i * 4] = q[1]; UB[86 + i * 4] = s * s * (3 - 2 * s); UB[87 + i * 4] = q[3]; }      // (crush: plants pressed down by the car)
@@ -117,7 +122,7 @@ function frame(now) {
     p.setPipeline(pTerrainS); p.setVertexBuffer(0, c.vb); p.setIndexBuffer(ibGrid, 'uint16'); p.drawIndexed(gridI.length);
     if (c.nSegFar) { p.setPipeline(pBranchS); p.setVertexBuffer(0, vbTube4); p.setVertexBuffer(1, c.segB); p.setIndexBuffer(ibTube4, 'uint16'); p.drawIndexed(tubeI4.length, c.nSegFar); }
     if (c.nBox) { p.setPipeline(pBoxS); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, c.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, c.nBox); }
-    if (c.nLeaf) { if (dc > 230 * lodK) continue; const l = dc > 52 * lodK ? 2 : 1; p.setPipeline(l === 2 ? pLeafS2 : pLeafS); p.setVertexBuffer(0, c.leafB); p.draw(10, floor(c.nLeaf / LODN[l])); }
+    if (c.nLeaf) { if (dc > 230 * lodK) continue; const l = dc > 52 * lodK ? 2 : 1; p.setPipeline(l === 2 ? pLeafS2 : pLeafS); p.setVertexBuffer(0, c.leafB); p.draw(6, floor(c.nLeaf / LODN[l])); }
   }
   if (EXTRA.nBox) { p.setPipeline(pBoxS); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, EXTRA.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, EXTRA.nBox); }
   if (SHOW_CAR) { p.setPipeline(pCarS); p.setVertexBuffer(0, carVB); p.setIndexBuffer(carIB, 'uint16'); p.drawIndexed(CAR.idx.length); }
@@ -137,7 +142,7 @@ function frame(now) {
       p.setPipeline(pTerrain); p.setVertexBuffer(0, c.vb); p.setIndexBuffer(ibGrid, 'uint16'); p.drawIndexed(gridI.length);
       if (c.nSegFar) { p.setPipeline(pBranch); p.setVertexBuffer(0, vbTube); p.setVertexBuffer(1, c.segB); p.setIndexBuffer(ibTube, 'uint16'); p.drawIndexed(tubeI.length, c.nSegFar); }
       if (c.nBox) { p.setPipeline(pBox); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, c.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, c.nBox); }
-      if (c.nLeaf && d < 170) { p.setPipeline(pLeaf[2]); p.setVertexBuffer(0, c.leafB); p.draw(10, floor(c.nLeaf / LODN[2])); }
+      if (c.nLeaf && d < 170) { p.setPipeline(pLeaf[2]); p.setVertexBuffer(0, c.leafB); p.draw(LODV[2], floor(c.nLeaf / LODN[2])); }
     }
     p.setPipeline(pSky); p.draw(3); p.end();
   }
@@ -147,8 +152,9 @@ function frame(now) {
   p.setBindGroup(0, bgScene); tris = 0; let grassBudget = 1;
   if (SHOW_CAR) { p.setPipeline(pCar); p.setVertexBuffer(0, carVB); p.setIndexBuffer(carIB, 'uint16'); p.drawIndexed(CAR.idx.length); }
   // nearest first: what is drawn early hides what comes after, and a hidden pixel costs nothing - in a forest most of what lies beyond the first trees is hidden
-  ordC.length = 0; for (const c of chunks.values()) { c.dd = hypot(c.x - ex, c.z - ez); if (c.dd <= 380) ordC.push(c); } ordC.sort((a, b) => a.dd - b.dd);
+  ordC.length = 0; for (const c of chunks.values()) { c.dd = hypot(c.x - ex, c.z - ez); if (c.dd <= 380 * viewK) ordC.push(c); } ordC.sort((a, b) => a.dd - b.dd);
   if (grassJob) { if (grassJob.dead) grassJob = null; else { growGrass(grassJob); grassBudget = 0; } }      // first go on with the chunk whose grass is half grown
+  seenC.length = 0;
   for (const c of ordC) {
     const dx = c.x - ex, dz = c.z - ez, d = c.dd;
     if (d < 150 && !c.grassTried && grassBudget > 0) { grassBudget--; growGrass(c); }      // (before the test below: grass must be there already when a chunk comes into view)
@@ -159,7 +165,7 @@ function frame(now) {
       const fh = hypot(f[0], f[2]) || 1, fw = (dx * f[0] + dz * f[2]) / fh, k = TANH * (W / H) / max(cp - TANH * abs(f[1]), 0.05), Rc = 66 + (c.reach || 0);
       if (abs(f[1]) < 0.3 ? (fw < -Rc || Math.sqrt(max(d * d - fw * fw, 0)) > k * max(fw, 0) + Rc * hypot(1, k)) : (dx * f[0] + dz * f[2]) / d < -0.35) continue;
     }
-    p.setPipeline(pTerrain); p.setVertexBuffer(0, c.vb); p.setIndexBuffer(ibGrid, 'uint16'); p.drawIndexed(gridI.length); tris += GN * GN * 2;
+    seenC.push(c);
     if (c.nSeg) {          // trunks and boughs nearby are round (8 sides); twigs, and everything from 85 m on, have 4
       const nR = d < 85 * lodK ? c.nSegFar : 0, n4 = d < 85 * lodK ? c.nSeg - c.nSegFar : c.nSegFar; p.setPipeline(pBranch); p.setVertexBuffer(1, c.segB);
       if (nR) { p.setVertexBuffer(0, vbTube); p.setIndexBuffer(ibTube, 'uint16'); p.drawIndexed(tubeI.length, nR); }
@@ -167,10 +173,12 @@ function frame(now) {
       tris += nR * SIDES * 2 + n4 * 8;
     }
     if (c.nBox) { p.setPipeline(pBox); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, c.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, c.nBox); tris += c.nBox * 12; }
-    if (c.nLeaf) { const l = d < 62 * lodK ? 0 : d < 150 * lodK ? 1 : d < 250 * lodK ? 2 : 3, n = floor(c.nLeaf / LODN[l]); p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.leafB); p.draw(10, n); tris += n * 8; }
-    if (c.nGrass && d < 130 * lodK) { const l = d < 48 * lodK ? 0 : d < 85 * lodK ? 1 : 2, n = floor(c.nGrass / LODN[l]); p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.grassB); p.draw(10, n); tris += n * 8; }
+    if (c.nLeaf) { const l = d < 62 * lodK ? 0 : d < 150 * lodK ? 1 : d < 250 * lodK ? 2 : 3, n = floor(c.nLeaf / LODN[l]); p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.leafB); p.draw(LODV[l], n); tris += n * (LODV[l] - 2); }
+    if (c.nGrass && d < 130 * lodK) { const l = d < 48 * lodK ? 0 : d < 85 * lodK ? 1 : 2, n = floor(c.nGrass / LODN[l]); p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.grassB); p.draw(LODV[l], n); tris += n * (LODV[l] - 2); }
   }
   if (EXTRA.nBox) { p.setPipeline(pBox); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, EXTRA.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, EXTRA.nBox); tris += EXTRA.nBox * 12; }
+  // the ground last (but for the sky): its paint is the dearest there is, and this way none is spent where a tree or a house stands in front of it
+  p.setPipeline(pTerrain); p.setIndexBuffer(ibGrid, 'uint16'); for (const c of seenC) { p.setVertexBuffer(0, c.vb); p.drawIndexed(gridI.length); tris += GN * GN * 2; }
   p.setPipeline(pSky); p.draw(3);
   p.end();
   // 3. bloom: bright parts spread down a chain of smaller images and added back up
