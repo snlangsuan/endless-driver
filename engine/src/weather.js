@@ -14,8 +14,11 @@ const KEYS = [
   { t: 0.81, ...NIGHT }, { t: 1.00, ...NIGHT },
 ];
 let tday = 0.44, dayN = 0, headOn = -1;       // headOn: -1 automatic, 0 off, 1 on
-const AT = { dir: [0, 1, 0], sun: [0, 0, 0], amb: [0, 0, 0], zen: [0, 0, 0], hor: [0, 0, 0], ex: 1, night: 0, fog: 0, cover: 0, dry: 0, mist: 0, rain: 0, storm: 0, wet: 0, flash: 0, wind: 1, snow: 0 };
-let wxAuto = true, wxCur = 1, wxNext = 0; const WXP = [0, [0, 0, 0, 0], [0.62, 0, 0, 0], [0.9, 0.12, 0.35, 0], [1, 0.3, 0.9, 0], [1, 0.3, 1, 1], [0.3, 0.45, 0, 0], [0.5, 1, 0, 0]];      // cover, mist, rain, storm
+// Set by hand in the sky panel (input.js): tHold keeps the hour where it was put; seaMode 0 lets the season follow the place, 1 rainy, 2 cool, 3 hot
+// and dry; wxS is how strong the weather picked by hand (wxCur 0, its make-up in WXP[0]) is, 0..1.
+let tHold = false, seaMode = 0, wxS = 0.5, windSet = -1;      // windSet: -1 the wind as the place and the weather make it, or 0..1 set by hand (0 dead calm .. 1 a gale)
+const AT = { dir: [0, 1, 0], sun: [0, 0, 0], amb: [0, 0, 0], zen: [0, 0, 0], hor: [0, 0, 0], ex: 1, night: 0, fog: 0, cover: 0, dry: 0, mist: 0, rain: 0, storm: 0, wet: 0, flash: 0, wind: 1, snow: 0, snowM: 0, snowG: 0 };      // snowM: snow chosen by hand, anywhere; snowG: how white the ground has gone under it
+let wxAuto = true, wxCur = 1, wxNext = 0; const WXP = [[0, 0, 0, 0], [0, 0, 0, 0], [0.62, 0, 0, 0], [0.9, 0.12, 0.35, 0], [1, 0.3, 0.9, 0], [1, 0.3, 1, 1], [0.3, 0.45, 0, 0], [0.5, 1, 0, 0]];      // cover, mist, rain, storm
 const LT = { t0: -9, next: 0, az: 0, seed: 0, dist: 1 };
 const wxName = () => (AT.storm > 0.5 ? 'ฝนฟ้าคะนอง' : AT.rain > 0.6 ? 'ฝนตกหนัก' : AT.rain > 0.08 ? 'ฝนตกเบา' : AT.snow > 0.3 ? 'หิมะตก' : AT.mist > 0.7 ? 'หมอกหนา' : AT.mist > 0.25 ? 'หมอกบาง' : AT.cover > 0.75 ? 'ฟ้าครึ้ม' : AT.cover > 0.4 ? 'เมฆมาก' : AT.cover < 0.15 && AT.night < 0.5 ? 'แดดจ้า' : 'ฟ้าใส') + (wxAuto ? ' (สุ่ม)' : ' (เลือกเอง)');
 function atmos(z) {
@@ -35,9 +38,13 @@ function atmos(z) {
   const P = WXP[wxCur], cv = P[0], ms = P[1], rn = P[2], st = P[3], rate = wxAuto && time > 3 ? 0.002 : 0.03;      // a change of its own comes on slowly
   AT.cover += (max(cv, rn) - AT.cover) * rate; AT.mist += (ms - AT.mist) * rate; AT.rain += (rn - AT.rain) * rate; AT.storm += (st - AT.storm) * rate;
   { const sn = snowW(z); AT.rain *= 1 - sn; AT.storm *= 1 - sn; AT.snow = sn * sm(0.15, 0.6, AT.cover + 0.25); }       // over the snowfield it snows instead
+  // snow picked in the sky panel falls wherever you are, and settles: the ground whitens while it falls (faster the harder it falls) and goes back slowly after
+  AT.snowM += ((P[4] || 0) - AT.snowM) * rate; AT.snow = max(AT.snow, AT.snowM);
+  AT.snowG = clamp(AT.snowG + (AT.snowM > 0.05 ? AT.snowM * 0.0015 : -0.0006), 0, 1);
   AT.wet = clamp(AT.wet + (AT.rain > 0.05 ? AT.rain * 0.006 : -0.0005), 0, 1);                 // the road stays wet a while after the rain
   AT.dry = sm(0.35, 0.7, vnoise(z / 5200 + 9, 1.7));
   if (chyAt(z)) { const q = z / SEG - floor(z / SEG); AT.dry = mix(AT.dry, 0.22, sm(0, 0.06, q) * sm(1, 0.94, q)); }      // the cherries flower in the cool season: the grass still green, only just beginning to yellow
+  if (seaMode) AT.dry = [0, 0, 0.25, 0.95][seaMode];                        // a season chosen by hand: green after the rains, just yellowing in the cool, burnt in the hot
   const over = sm(0.6, 1, AT.cover), grey = (AT.zen[0] + AT.zen[1] + AT.zen[2]) / 3 + (AT.hor[0] + AT.hor[1] + AT.hor[2]) / 6;
   for (let j = 0; j < 3; j++) { AT.sun[j] *= 1 - 0.8 * over; AT.zen[j] = mix(AT.zen[j], grey * 0.9, over * 0.85); AT.hor[j] = mix(AT.hor[j], grey * 1.05, over * 0.7); AT.amb[j] = mix(AT.amb[j], (AT.amb[0] + AT.amb[1] + AT.amb[2]) / 3 * 1.15, over * 0.7); }
   const glare = (1 - sm(0, 0.25, AT.cover)) * (1 - AT.night), dim = 1 - 0.35 * AT.rain - 0.25 * AT.storm;
@@ -45,11 +52,13 @@ function atmos(z) {
   AT.ex *= 1 + 0.07 * glare;
   AT.fog += (AT.mist * AT.mist * 0.03 + AT.rain * 0.005) * (1 - AT.night * 0.5);
   // lightning: a flash that flickers twice and dies, somewhere round the sky; thunder follows after a moment
-  if (AT.storm > 0.5 && time > LT.next) { LT.t0 = time; LT.next = time + 2 + Math.random() * 10; LT.az = Math.random() * TAU; LT.seed = Math.random(); LT.dist = 0.2 + Math.random() * 0.8; if (SND && AC.state === 'running') thunder(AC.currentTime + LT.dist * 2.6, 0.55 * (1.25 - LT.dist)); }
+  if (AT.storm > 0.5 && time > LT.next) { LT.t0 = time; LT.next = time + (2 + Math.random() * 10) * (!wxAuto && wxCur === 0 ? 1.7 - 1.2 * wxS : 1); LT.az = Math.random() * TAU; LT.seed = Math.random(); LT.dist = 0.2 + Math.random() * 0.8; if (SND && AC.state === 'running') thunder(AC.currentTime + LT.dist * 2.6, 0.55 * (1.25 - LT.dist)); }
   const le = time - LT.t0; AT.flash = AT.storm > 0.3 && le < 0.7 ? (le < 0.07 ? 1 : le < 0.14 ? 0.2 : le < 0.24 ? 0.85 : max(0, 1 - (le - 0.24) / 0.4) * 0.5) * (1.3 - LT.dist) : 0;
   if (AT.flash > 0) for (let j = 0; j < 3; j++) { const cl = [0.6, 0.66, 0.9][j] * AT.flash; AT.amb[j] += cl * 1.3; AT.zen[j] += cl * 0.3; AT.hor[j] += cl * 0.4; }
   AT.wind = (0.6 + 1.4 * vnoise(z / 700 + 20, 4.4) + 0.5 * over + 1.3 * seaW(z) + 0.6 * AT.rain + 1.2 * AT.storm) * (0.45 + 1.1 * vnoise(time * 0.035, 9.1));   // and it rises and drops as time passes          // the wind changes from place to place; stronger under heavy cloud and by the sea
+  if (windSet >= 0) AT.wind += (windSet * 5.5 * (0.85 + 0.3 * vnoise(time * 0.05, 3.3)) - AT.wind) * 1;      // set by hand: steady at that strength, but for a slow breathing of a sixth either way (a wind never blows quite evenly)
   return AT;
 }
+const seasonName = (z) => (seaMode ? ['', 'หน้าฝน', 'หน้าหนาว', 'หน้าแล้ง'][seaMode] + ' (เลือกเอง)' : chyAt(z) ? 'หน้าหนาว' : AT.dry > 0.5 ? 'หน้าแล้ง' : 'หน้าฝน');
 const todName = () => (tday < 0.22 || tday >= 0.79 ? 'กลางคืน' : tday < 0.36 ? 'เช้า' : tday < 0.66 ? 'กลางวัน' : 'เย็น');
 

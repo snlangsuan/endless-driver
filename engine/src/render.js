@@ -1,5 +1,5 @@
 // --------------------------------------------------------------------------------------------------------- pipelines
-const UBN = 84, UB = new Float32Array(UBN), UBS = new Float32Array(UBN);
+const UBN = 116, UB = new Float32Array(UBN), UBS = new Float32Array(UBN);
 const ubo = device.createBuffer({ size: UBN * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 const uboS = device.createBuffer({ size: UBN * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 const tShadow = device.createTexture({ size: [SHADOW, SHADOW], format: 'depth32float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
@@ -74,7 +74,7 @@ const postPipe = (fs, blend) => device.createRenderPipeline({ layout: 'auto', ve
 const ADD = { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } };
 const pBright = postPipe('fsBright'), pDown = postPipe('fsDown'), pUp = postPipe('fsUp', ADD);
 const pFinal = device.createRenderPipeline({ layout: 'auto', vertex: { module: mFinal, entryPoint: 'vs' }, fragment: { module: mFinal, entryPoint: 'fs', targets: [{ format: FMT }] } });
-const uFinal = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+const uFinal = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
 // tube mesh shared by every trunk and branch piece: 8 sides
 const SIDES = 8;
@@ -100,10 +100,13 @@ for (const [nx, ny, nz, ux, uy, uz, vx, vy, vz] of [[1, 0, 0, 0, 0, 1, 0, 1, 0],
 const vbCube = vbuf(new Float32Array(cubeV)), ibCube = vbuf(new Uint16Array(cubeI), GPUBufferUsage.INDEX);
 
 // --------------------------------------------------------------------------------------------------------- render targets
-let W = 0, H = 0, scale = 1, tMS, tDepth, tScene, vMS, vDepth, vScene, bloomT = [], bloomV = [], bgBloom = [], bgFinal;
+// smooth: the 'smooth' picture setting (sky panel) - for recording the screen or a slower machine. The picture is drawn at the screen's own count of
+// points at most (not 1.5 times it), and may be made much smaller and the far leaves and grass much thinner to keep the frame rate up (main.js).
+let smooth = false; try { smooth = localStorage.getItem('endless.smooth') === '1'; } catch (e) {}
+let W = 0, H = 0, scale = smooth ? 0.8 : 1, tMS, tDepth, tScene, vMS, vDepth, vScene, bloomT = [], bloomV = [], bgBloom = [], bgFinal;
 const NB = 5;
 function resize() {
-  const dpr = min(devicePixelRatio || 1, 1.5) * scale;
+  const dpr = min(devicePixelRatio || 1, smooth ? 1 : 1.5) * scale;
   const w = max(64, floor(canvas.clientWidth * dpr)), h = max(64, floor(canvas.clientHeight * dpr));
   if (w === W && h === H) return;
   W = w; H = h; canvas.width = W; canvas.height = H;

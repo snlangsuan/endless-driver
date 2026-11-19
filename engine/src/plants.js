@@ -73,10 +73,18 @@ function makePalm(seed) {
   const tp = (t) => [cos(ba) * sin(t * 1.4) * Hh * bend, t * Hh - 0.3, sin(ba) * sin(t * 1.4) * Hh * bend];
   for (let i = 0; i < 10; i++) { const a = tp(i / 10), b = tp((i + 1) / 10); segs.push(a[0], a[1], a[2], 0.26 - 0.09 * i / 10 + (i === 0 ? 0.1 : 0), b[0], b[1], b[2], 0.26 - 0.09 * (i + 1) / 10, max(a[1], 0), b[1]); }
   const top = tp(1);
-  for (let k = 0; k < 7; k++) { const a = k * 0.9 + R(), r = 0.2 + R() * 0.12, y = top[1] - 0.35 - R() * 0.3; segs.push(top[0] + cos(a) * r, y, top[2] + sin(a) * r, 0.13, top[0] + cos(a) * r, y - 0.24, top[2] + sin(a) * r, 0.11, y, y); }
+  // Coconuts: two or three bunches hanging close under the crown, each on a short stalk out of the top of the trunk, five to eight nuts to a
+  // bunch. A nut is 30 cm long, egg-shaped, blunt at the stalk end and a little pointed below: three lengths of tube, swelling and closing.
+  // Each bunch is of one age - young green, or ripening to yellow and orange (the seed, carried in the fraction of the material's number).
+  for (let bn = 0, nb = 2 + (R() < 0.6 ? 1 : 0); bn < nb; bn++) {
+    const a = bn * TAU / nb + R() * 0.8, age = R(), M = 11 + min(age, 0.99) * 0.9, bx = top[0] + cos(a) * 0.55, bz = top[2] + sin(a) * 0.55, by = top[1] - 0.6, SW = -2 - top[1];      // (SW: a made thing that still rides the tree's sway - see plant() in chunks.js and branchV)
+    segs.push(top[0], top[1] - 0.05, top[2], 0.035, bx, by, bz, 0.03, SW, 2);
+    for (let k = 0, nk = 5 + floor(R() * 4); k < nk; k++) { const an = a + (R() - 0.5) * 2.6, rr = 0.12 + R() * 0.22, x = bx + cos(an) * rr, z = bz + sin(an) * rr, y = by - 0.02 - R() * 0.35, s = 1.1 + R() * 0.35, lx = cos(an) * 0.05, lz = sin(an) * 0.05;
+      const q = (t) => [x + lx * t, y - 0.3 * s * t, z + lz * t], p0 = q(0), p1 = q(0.3), p2 = q(0.72), p3 = q(1);
+      segs.push(p0[0], p0[1], p0[2], 0.06 * s, p1[0], p1[1], p1[2], 0.118 * s, SW, M, p1[0], p1[1], p1[2], 0.118 * s, p2[0], p2[1], p2[2], 0.108 * s, SW, M, p2[0], p2[1], p2[2], 0.108 * s, p3[0], p3[1], p3[2], 0.03 * s, SW, M); } }
   const nTrunk = segs.length / 10;
   for (let k = 0; k < 19; k++) {
-    const dead = k >= 16, a = k * 2.39996 + R() * 0.4, el = dead ? -0.9 - R() * 0.3 : -0.15 + R() * 1.0, L = 3.4 + R() * 1.3, dx = cos(a) * cos(el), dy = sin(el), dz = cos(el) * sin(a), sag = 0.4 + R() * 0.25;
+    const dead = k >= 17, a = k * 2.39996 + R() * 0.4, el = dead ? -0.5 - R() * 0.25 : -0.15 + R() * 1.0, L = 3.4 + R() * 1.3, dx = cos(a) * cos(el), dy = sin(el), dz = cos(el) * sin(a), sag = 0.4 + R() * 0.25;      // (two dead fronds, hanging out and down - not straight down round the trunk, where they hid the coconuts)
     const rib = (t) => [top[0] + dx * L * t, top[1] + dy * L * t - t * t * L * sag, top[2] + dz * L * t];
     for (let i = 0; i < 6; i++) { const p = rib(i / 6), q = rib((i + 1) / 6); segs.push(p[0], p[1], p[2], 0.045 - 0.006 * i, q[0], q[1], q[2], 0.039 - 0.006 * i, p[1], q[1]); }
     for (let j = 0; j < 24; j++) for (const s of [1, -1]) {
@@ -109,7 +117,7 @@ function makeSugarPalm(seed) {
 // and hanging, torn along the veins. The tallest stem carries the bunch (เครือ): a thick stalk bends over out of the crown and hangs
 // straight down, with hands of fruit in tiers round it, a bare length below them, and the purple bud (ปลี) at the end.
 function makeBanana(seed) {
-  const R = rng(seed), segs = [], fine = [], leaves = [], tube = (a, ra, b, rb, mat, o = segs) => o.push(a[0], a[1], a[2], ra, b[0], b[1], b[2], rb, -1, mat);
+  const R = rng(seed), segs = [], fine = [], leaves = [], tube = (a, ra, b, rb, mat, o = segs) => o.push(a[0], a[1], a[2], ra, b[0], b[1], b[2], rb, -2 - max(0, (a[1] + b[1]) / 2), mat);      // (-2 - height: a made piece that goes with the plant's sway, as its leaves do - stems, bunch and bud; at -1 they stood still while the leaves moved)
   const HS = [3.4, 2.7, 3.0, 2.1, 1.0];
   for (let s = 0; s < 5; s++) {
     const a0 = s * 2.4 + R() * 0.7, rr = s ? 0.42 + R() * 0.25 : 0.08, bx = cos(a0) * rr, bz = sin(a0) * rr, Hs = HS[s] * (0.92 + R() * 0.16), k = Hs / 3.4, lean = s ? 0.3 + R() * 0.35 : 0.12;

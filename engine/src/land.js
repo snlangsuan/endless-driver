@@ -89,12 +89,25 @@ const udG = (g) => { let v = UDC.get(g);
   if (v === undefined) { UDC.set(g, 0);          // (so that asking about the road's height while this is being worked out finds 'none' and does not ask again)
     const zc = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36 + 34; v = ph(g, 523) < 0.5 && townW(zc) > 0.6 && townW(zc - 104) > 0.6 && townW(zc + 104) > 0.6 && !nearRiv(zc, 112) ? zc : 0; UDC.set(g, v); }
   return v; };
-const udOf = (z) => { const g0 = floor((z - 34) / 360); for (let g = g0 - 1; g <= g0 + 1; g++) { const v = udG(g); if (v && abs(z - v) < 110) { UD.zc = v; return 1; } } return 0; };
+const udOf = (z) => { const g0 = floor((z - 34) / 360); for (let g = g0 - 1; g <= g0 + 1; g++) { const v = udG(g); if (v && abs(z - v) < 140) { UD.zc = v; return 1; } } return 0; };
 const udip = (z) => udOf(z) ? 6.2 * (1 - sm(18, 96, abs(z - UD.zc))) : 0;
 const roadYs = (z) => roadY(z) + udip(z);
+// A frontage road (ถนนคู่ขนาน) runs at street level down each side of an underpass, one way with the traffic on that side, so that the shops and lanes
+// along the cutting can still be reached and the cross street still be turned into. It leaves the main road 136 m out, is a full lane wide (5.4 m more
+// asphalt each side: 3.6 m of lane beside the parapet, the rest the parapet itself and the gap) by the top of the ramp, and runs on past the slab.
+// svW(z): how much wider than the main road's own asphalt the street is at z, each side; the shophouses, kerbs, posts and lamps stand back by it.
+const SVW = 5.4;
+const svW = (z) => udOf(z) ? SVW * (1 - sm(96, 136, abs(z - UD.zc))) : 0;
+// Along a street, things are set out from the road's middle measured along x - the kerb, the paint on the ground, the lamps. The walls of an
+// underpass and the frontage roads beside them are built square to the road instead, and where the road runs at a slant (up to 36 degrees) the two
+// measures differ by a metre or two: kerbs and lamp posts then stood out in the frontage road's lane. So beside the cutting itself the
+// street's things are set out square to the road as well: svSide(z, side, off) is the place off metres out on that side - by x as everywhere
+// else, turning over the last 10 m before the walls begin into the place measured square to the road.
+const svSide = (z, side, off) => { const w = udOf(z) ? 1 - sm(86, 96, abs(z - UD.zc)) : 0; if (w <= 0) return [roadX(z) + side * off, z];
+  const sl = roadSl(z), ca = 1 / Math.sqrt(1 + sl * sl); return [roadX(z) + side * off * mix(1, ca, w), z - side * off * sl * ca * w]; };
 // At an underpass there are two levels one above the other, and which of them a car is on depends on how high it already is (y): udTop is true for a car
 // up at street level over the slab that carries the cross street (16 m either way from the middle, 8.2 m from the road's centre line), or on the
-// footpath behind the parapet (5.3 to 8.2 m out) beside the cutting.
+// frontage road beyond the parapet (5.3 to 9.6 m out) beside the cutting.
 // The pier of the island's fishing village: 60 m of timber deck 3.6 m wide (7 m at the head), beside the far bridge's landing, starting on the beach
 // where the sand is as high as the deck and running straight out along z. pierOf(z): [x, where it starts, where it ends, the waterline]; pierAt: on its deck.
 const PIER = new Map(), PIERY = SEA + 1.3;
@@ -102,7 +115,12 @@ const pierOf = (z) => { if (!isOf(z)) return null; let p = PIER.get(IS.s);
   if (!p) { const zc = IS.zc, x = roadX(zc + 165) + 40; let zs = zc + 110; while (zs < zc + 230 && ism(x, zs) < 0) zs += 0.5; p = [x, zs - 10.5, zs + 49.5, zs]; PIER.set(IS.s, p); }
   return p; };
 const pierAt = (x, z) => { const p = pierOf(z); return !!p && z > p[1] && z < p[2] && abs(x - p[0]) < (z > p[2] - 10.5 ? 3.2 : 1.55); };
-const udTop = (x, z, y) => { const dp = udip(z); if (dp < 0.2 || y < roadY(z) + dp * 0.5) return false; const d = abs(x - roadX(z)); return d < 8.2 && (abs(z - UD.zc) < 16 || d > 5.3); };
+// (The frontage roads are at street level whatever height the car comes at: nothing else is there to be on. Only over the cutting itself does the
+// car's own height say whether it is on the slab or under it. Distances are square to the road, as the walls and the frontage roads are built -
+// measured along x, on a slanting road the ground's slope down into the cutting lay under the lane, the car followed it down, was taken to be
+// in the cutting, and could not go on.)
+const udTop = (x, z, y) => { const dp = udip(z); if (dp < 0.02) return false; const sl = roadSl(z), d = abs(x - roadX(z)) / Math.sqrt(1 + sl * sl);
+  if (d > 5.2) return d < 10.6; return dp >= 0.2 && y >= roadY(z) + dp * 0.5 && abs(z - UD.zc) < 16; };
 const surf = (x, z, y = -1e9) => udTop(x, z, y) ? roadYs(z) + 0.03 : brAt(x, z) || tunAt(x, z) ? roadY(z) + 0.03 : pierAt(x, z) ? max(ground(x, z), PIERY + 0.06) : ground(x, z);          // what the car stands on: the land, a bridge deck, or a tunnel's floor
 const beachW = (z) => sm(0.2, 0.75, 0.5 + 0.5 * sin(z * 0.0058 + 2.2));
 const shore0 = (z) => 31 + 46 * beachW(z) + 4 * sin(z * 0.031) + 2.5 * sin(z * 0.083 + 2);
@@ -139,17 +157,25 @@ const turfAt = (x, z) => pn(x * 0.09, z * 0.09) * 0.5 + pn(x * 0.37, z * 0.37) *
 const soiD = (x, z) => { const s0 = roadX(z + 0.5) - roadX(z - 0.5), b0 = Math.round((z + s0 * (x - roadX(z)) - 34) / 36); let o = 99;
   for (let b = b0 - 1; b <= b0 + 1; b++) { const zl = b * 36 + 34, s = (roadX(zl + 1) - roadX(zl - 1)) / 2; o = min(o, abs(((x - roadX(zl)) * s + z - zl) / sqrt(1 + s * s)) - (xroad(b) ? 1.65 : 0)); }      // (a cross street is 3.3 m wider than a lane: measured from where a lane's edge would be)
   return o; };
-// plot under a point: [stage 0 flooded / 1 green / 2 ripe / 3 cut, metres to the nearest bund]
+// plot under a point: [stage 0 flooded / 1 green / 2 ripe / 3 cut, metres to the nearest bund]. A third of the plots lie under water with
+// nothing or only seedlings in them, two fifths stand in ripe golden rice, the rest are green or cut (the same shares in the shaders).
 function plotAt(x, z, o) {
   const px = x / PLX, pz = z / PLZ, ix = floor(px), iz = floor(pz), fx = px - ix, fz = pz - iz, h = ph(ix, iz);
-  o[0] = h < 0.24 ? 0 : h < 0.62 ? 1 : h < 0.86 ? 2 : 3; o[1] = min(min(fx, 1 - fx) * PLX, min(fz, 1 - fz) * PLZ); if (flwAt(z) && ph(ix + 50, iz) < 0.75) o[0] = ph(ix, iz + 50) < 0.8 ? 4 : 5;      // 4: marigolds, 5: cosmos
+  o[0] = h < 0.34 ? 0 : h < 0.48 ? 1 : h < 0.90 ? 2 : 3; o[1] = min(min(fx, 1 - fx) * PLX, min(fz, 1 - fz) * PLZ); if (flwAt(z) && ph(ix + 50, iz) < 0.75) o[0] = ph(ix, iz + 50) < 0.8 ? 4 : 5;      // 4: marigolds, 5: cosmos
   return o;
 }
 // ground height; gw[0] is set to 1 where the point is under the reservoir's water
 const gw = [0];
 function ground(x, z) {
   const rx = roadX(z), d = abs(rdist(x, z)), zr = rzs, hpz = hpW(z), tw = townW(z), hw = hillW(z) * (1 - tw), sea = seaW(z), fv = flwW(z), pad = sm(mix(VERGE - 8, 8, fv), mix(VERGE + 4, 14, fv), d) * (1 - sm(0, 0.15, hillW(z))) * (1 - tw) * (1 - sm(0, 0.15, sea)) * (1 - sm(0, 0.15, snowW(z)));
-  let h = (hpz > 0 ? mix(roadY(zr), roadY(z), sm(8, 40, d)) : roadY(z)) + sm(5, 30, d) * (1 - pad) * (1 - tw) * (fbm(x * 0.03 + 7, z * 0.03, 3) - 0.5) * 1.3 - pad * 0.45;
+  let h = (hpz > 0 ? mix(roadY(zr), roadY(z), sm(8, 40, d)) : roadY(z)) + sm(5, 30, d) * (1 - pad) * (1 - tw) * (fbm(x * 0.03 + 7, z * 0.03, 3) - 0.5) * 1.3;
+  // The paddies: each plot is a level floor sunk 0.7 m below the land beside the road, for water to stand in - level, so each takes the height
+  // of the road abreast of its own middle and the plots step down the plain like shallow terraces - and between the plots run the bunds,
+  // banks of earth 0.45 m higher than the floors they part (and as high as the upper floor where two levels meet). The ground's mesh has a
+  // point every 2 m and the plots are 28 by 22, so the lines of points fall exactly along the bunds: a bund is a ridge one point high.
+  if (pad > 0) { const pz = z / PLZ, iz = floor(pz), fz = pz - iz, px = x / PLX, fx = px - floor(px), lv = roadY((iz + 0.5) * PLZ), ln = roadY((iz + (fz < 0.5 ? -0.5 : 1.5)) * PLZ);
+    const kz = 1 - sm(0.2, 1.9, min(fz, 1 - fz) * PLZ), kx = 1 - sm(0.2, 1.9, min(fx, 1 - fx) * PLX);
+    h = mix(h, lv - 0.7 + max(kz * (max(ln - lv, 0) + 0.45), kx * 0.45), pad); }
   gw[0] = 0; const tt = tunT(z);
   if (hw > 0.001) {
     h += hw * (1 - pad) * sm(7, 70, d) * ((fbm(x * 0.005, z * 0.005) - 0.44) * 58 + (fbm(x * 0.021 + 3, z * 0.021, 3) - 0.5) * 7);
@@ -188,7 +214,14 @@ function ground(x, z) {
       if (h < RV.wl) { h = RV.wl; gw[0] = 1; }
     }
   }
-  { const dp = udip(z); if (dp > 0) h += dp * sm(6.7, 7.9, d); }          // beside an underpass the land stays where it was; only the road goes down
+  // Beside an underpass the land stays where it was; only the road goes down. The step up from the cutting's floor to the street is taken
+  // 7.0 to 8.2 m out measured SQUARE to the road, as the walls are built (4.5 to 5.2 m out) - not along x, as it first was: on a road running
+  // at a slant, 6.7 m along x is as little as 5.4 m from the road, and with the ground's points 2 m apart the slope then began in front of the
+  // wall and came up through the cutting's floor in a row of white spikes. So placed, the lowest point of any slope is at least 5 m out: inside
+  // the wall or behind it. Out past that the ground is made dead level a hand below the street, under the frontage road (left to its own
+  // gentle rise and fall it came up through that road's surface in places).
+  { const dp = udip(z); if (dp > 0) { const sl = roadSl(z), k = sm(7.0, 8.2, d / Math.sqrt(1 + sl * sl)); h += dp * k;
+      if (dp > 0.02) h = mix(h, roadY(z) + dp - 0.07, sm(0.02, 0.3, dp) * k * (1 - sm(12, 15, d))); } }
   { const w = ism(x, z); if (w > -46) { const k = isBr(z) ? 1 : sm(9.5, 22, d);          // (the road runs out to the bridge's end on a bank of its own, whatever the shore does beside it)
       if (w > 0) { h = mix(h, SEA, k); if (k > 0.97) gw[0] = 1; } else h = mix(h, SEA + 0.3, k * sm(-mix(16, 46, sm(9, 34, d)), 0, w)); } }      // (a long easy slope, but for the embankment that carries the road to the bridge)
   //      // the sea round the island, and the shore going down to it

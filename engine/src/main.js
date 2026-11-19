@@ -9,6 +9,9 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 // --------------------------------------------------------------------------------------------------------- frame
 const hud = $('hud');
 let last = performance.now(), time = 0, fN = 0, fT = 0, fWorst = 0, fps = 60, onRoad = true, tris = 0;
+let glassF = 0;      // how misted the inside of the windscreen is
+let glassP = 0;      // how much snow has piled on the windscreen of the standing car
+let glassR = 0, glassS = 0; const glassSl = [0, 0, 0], glassV = [1, 1, 1], glassUp = [0, 0, 0];      // how wet the windscreen is, how much snow lies on it; for its big, middling and small drops: how far the running ones have slid, which way they go, how far the standing ones have crept up
 const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0, coverK = 0, lodK = 1; const ordC = [];      // lodK: 1 = full drawing distances for leaves, twigs and grass; lowered (to 0.9 at least) when the frame rate cannot be held otherwise
 updateChunks(car.x, car.z, 30);
 function frame(now) {
@@ -26,22 +29,24 @@ function frame(now) {
     if (fWorst < 400) {
       if (fps > rBest) rBest = fps;
       if (rPrev) { rFlat = fps < rPrev * 1.04 ? rFlat + 1 : 0; rPrev = 0; if (rFlat >= 2) { rBest = fps; rFlat = 0; rKnown = 1; } }
-      const dn = rKnown || rBest > 50 ? min(60, rBest * 0.8) : 34, up = min(100, rBest * 0.95);      // looks before speed: nothing is given up until the rate is a fifth below the display's (or under 60)      // (until a step down has been seen not to help, 34 is the mark: a slow machine must not be taken for a capped display)
+      const sF = smooth ? 0.5 : 0.85, lF = smooth ? 0.6 : 0.9;      // the floors: how small the picture may be drawn, how far the drawing distances may be cut ('smooth' gives up far more)
+      const dn = smooth ? 56 : rKnown || rBest > 50 ? min(60, rBest * 0.8) : 34, up = smooth ? 70 : min(100, rBest * 0.95);      // (smooth: hold 60 - a steady rate is what a recording needs - and give quality back only when well clear of it)      // looks before speed: nothing is given up until the rate is a fifth below the display's (or under 60)      // (until a step down has been seen not to help, 34 is the mark: a slow machine must not be taken for a capped display)
       if (rLidN > 0 && --rLidN === 0) rLid = 1;
       rSince++;
       // Quality has a floor: the picture is never drawn below 85% size nor the drawing distances cut below 90%. Past that the frame rate is let fall.
-      if (fps < dn && (scale > 0.85 || lodK > 0.9)) {
-        if (scale > 0.92 || lodK <= 0.9) { scale = max(0.85, scale * 0.95); if (rSince <= 2) { rLid = scale; rLidN = 120; } } else lodK = max(0.9, lodK * 0.95);
+      if (fps < dn && (scale > sF || lodK > lF)) {
+        if (smooth) { const k = fps < dn * 0.75 ? 0.88 : 0.95; if (lodK > lF && (lodK > scale || scale <= sF)) lodK = max(lF, lodK * k); else scale = max(sF, scale * k); }      // (smooth: both together, in bigger steps while far short)
+        else if (scale > 0.92 || lodK <= 0.9) { scale = max(0.85, scale * 0.95); if (rSince <= 2) { rLid = scale; rLidN = 120; } } else lodK = max(0.9, lodK * 0.95);
         upOK = 0; rPrev = fps;
       }
       else if (fps > up && (scale < rLid || lodK < 1)) { if (++upOK >= 6) { if (scale < 0.92 || lodK >= 1) scale = min(rLid, scale * 1.05); else lodK = min(1, lodK * 1.08); upOK = 0; rSince = 0; } }
       else upOK = 0;
     }
-    hud.textContent = `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${isOf(car.z) && abs(car.z - IS.zc) < 525 ? (isBr(car.z) ? 'สะพานแขวนข้ามทะเล' : 'เกาะ') : inTun(car.z) ? 'อุโมงค์ลอดเขา' : udip(car.z) > 1 ? 'ทางลอด' : chyAt(car.z) ? 'ถนนพญาเสือโคร่ง' : hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? 'ทุ่งหิมะ' : flwAt(car.z) ? 'ทุ่งดอกไม้และนาข้าว' : 'ทุ่งนา'} · ${todName()} ${wxName()} ${chyAt(car.z) ? 'หน้าหนาว' : AT.dry > 0.5 ? 'หน้าแล้ง' : 'หน้าฝน'} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'} (จำกัด ${auto.limit} km/h) · ป้าย ${zlim(car.z)}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
+    hud.textContent = `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${isOf(car.z) && abs(car.z - IS.zc) < 525 ? (isBr(car.z) ? 'สะพานแขวนข้ามทะเล' : 'เกาะ') : inTun(car.z) ? 'อุโมงค์ลอดเขา' : udip(car.z) > 1 ? 'ทางลอด' : chyAt(car.z) ? 'ถนนพญาเสือโคร่ง' : hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? 'ทุ่งหิมะ' : flwAt(car.z) ? 'ทุ่งดอกไม้และนาข้าว' : 'ทุ่งนา'} · ${todName()} ${wxName()} ${seasonName(car.z)} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'} (จำกัด ${auto.limit} km/h) · ป้าย ${zlim(car.z)}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
     fN = 0; fT = 0; fWorst = 0;
   }
   resize();
-  if (fly.on) flyMove(dt); else onRoad = drive(dt);
+  crushRecover(dt); if (fly.on) flyMove(dt); else onRoad = drive(dt);
   updateSound(dt); if (SHOW_CAR) placeCar(dt);
   // camera
   let ex, ey, ez, yaw, pit;
@@ -55,7 +60,7 @@ function frame(now) {
   const asp = W / H; mP.fill(0); mP[0] = 1 / (TANH * asp); mP[5] = 1 / TANH; mP[10] = FAR / (NEAR - FAR); mP[11] = -1; mP[14] = NEAR * FAR / (NEAR - FAR);
   mul(UB, mP, mV);
   // the shadow map: a box of light around the area in front of the camera
-  tday += dt / 720; if (tday >= 1) { tday -= 1; dayN++; }
+  if (!tHold) { tday += dt / 720; if (tday >= 1) { tday -= 1; dayN++; } }      // (unless an hour was chosen in the sky panel)
   const T = atmos(ez), L = nrm3(T.dir.slice());
   // The shadow map must not shimmer. So: the light it is drawn from moves in small steps, not every frame; the box of
   // light lies ahead along the view, but is turned only when the view has swung 17 degrees away from it; and its middle
@@ -73,11 +78,34 @@ function frame(now) {
   UB.set([ex, ey, ez, time, L[0], L[1], L[2], T.rain, T.sun[0], T.sun[1], T.sun[2], abs(car.v) * 3.6, f[0], f[1], f[2], LT.seed, r[0], r[1], r[2], TANH * asp, u[0], u[1], u[2], TANH,
     T.fog, 360, T.cover, T.dry, W, H, car.yaw, fly.on || view3 ? 0 : 1, T.amb[0], T.amb[1], T.amb[2], T.wet, hl, T.wind, T.ex, T.night, T.zen[0], T.zen[1], T.zen[2], T.flash, T.hor[0], T.hor[1], T.hor[2], LT.az], 32);
   UB[80] = ((ex % 256) + 256) % 256; UB[81] = ((ez % 256) + 256) % 256;      // where the eye stands in its 256 m tile (camM)
+  UB[82] = T.snowG;      // (camM.z: snow lying everywhere, from snow chosen by hand)
+  for (let i = 0; i < 8; i++) { const q = CRUSH[i], s = q[2]; UB[84 + i * 4] = q[0]; UB[85 + i * 4] = q[1]; UB[86 + i * 4] = s * s * (3 - 2 * s); UB[87 + i * 4] = q[3]; }      // (crush: plants pressed down by the car)
   UBS.set(UB.subarray(16, UBN), 16);
   Q.writeBuffer(ubo, 0, UB); Q.writeBuffer(uboS, 0, UBS);
   { const cz2 = fly.on ? fly.z : car.z, cx2 = fly.on ? fly.x : car.x, cy2 = fly.on ? fly.y : car.y + 1.2;      // under cover (a tunnel, the slab of an underpass) no rain or snow crosses the view, and the sounds of outdoors fall away
     const und = (inTun(cz2) && abs(cx2 - roadX(cz2)) < 5 && cy2 < roadY(cz2) + 6.5) || (udOf(cz2) && abs(cz2 - UD.zc) < 15 && cy2 < roadY(cz2) + 5.2) ? 1 : 0; coverK += (und - coverK) * min(1, dt * 4); }
-  Q.writeBuffer(uFinal, 0, new Float32Array([T.ex, (T.snow > T.rain ? -T.snow : T.rain) * (1 - coverK), time, 0.25 + 0.12 * T.wind]));
+  // the windscreen gets wet as fast as the rain comes and dries slowly; snow on it melts away more slowly still. Out of the rain (a tunnel, an
+  // underpass) no more falls on it, but what is there stays a while. Only from the driver's seat.
+  // Snow that lands on the warm glass turns to water after a little while: so snowing wets the screen too, more slowly than rain and not so much.
+  { const sn = T.snow * (1 - coverK), rr = T.rain * (1 - coverK) * (T.snow > T.rain ? 0 : 1), rn = max(rr, glassS * 0.3), k = min(1, dt);
+    glassR += (rn - glassR) * k * (rn > glassR ? (rr >= rn ? 0.6 : 0.12) : 0.07); glassS += (sn - glassS) * k * (sn > glassS ? 0.4 : 0.05); }
+  // The wind over the glass against a drop's weight (see final.wgsl): wf is the wind's push, 1 at 80 km/h and growing as the square of the speed.
+  // A running drop goes down at its own pace until the wind matches its weight - the small ones hang from about 25 km/h and climb from 36,
+  // the middling hang from 37 and climb from 47, the big hang from 53 and climb from 62 (they were first left running down until 85: at 80 the
+  // big drops were still going down while everything else went up, which is not what a windscreen does) - then hangs (the glass holds it: nothing moves while the two forces are within a little of each other), then climbs, faster the
+  // faster the car. The standing drops creep up likewise, the middling first; the finest never move.
+  { const wf = (car.v / 22) ** 2, G = [1, 0.7, 0.35], A = [1.9, 2.4, 2.4], C = [[0.8, 0.6, 0.02], [1.2, 0.3, 0.02], [0.5, 0.8, 0]];      // (the standing drops hardly move: the glass holds them)
+    for (let k = 0; k < 3; k++) { const net = G[k] - A[k] * wf, v0 = Math.sign(net) * max(abs(net) - 0.15, 0), vel = v0 < 0 ? max(-30, v0 * 6) : v0;      // (blown up the glass a drop goes many times faster than it trickles down)
+      glassSl[k] += vel * dt; glassV[k] += (clamp(vel * 3, -1, 1) - glassV[k]) * min(1, dt * 4); glassUp[k] += max(0, C[k][0] * wf - C[k][1]) * C[k][2] * dt; } }
+  // The inside of the glass mists when it is cold out: in falling snow and on the snowfield most, in the cool season, and a little in rain and
+  // fog (damp, and cooler than the cabin). It comes on over half a minute and clears quicker.
+  { const cold = clamp(T.snow + 0.6 * snowW(car.z) + (seaMode === 2 ? 0.35 : 0) + 0.35 * T.rain + 0.3 * T.mist, 0, 1); glassF += (cold - glassF) * min(1, dt * (cold > glassF ? 0.07 : 0.15)); }
+  // Standing in a snowfall the screen is buried: in heavy snow, in about three quarters of a minute. Moving off, the wind and the shaking clear it
+  // in a few seconds, quicker the faster the car goes; when the snow stops it melts away slowly.
+  { const sn = T.snow * (1 - coverK), sp = abs(car.v);
+    glassP = clamp(glassP + dt * (sp > 1.5 ? -(0.05 + sp * 0.02) : sn > 0.05 ? sn / 45 : -1 / 40), 0, 1); }
+  const onGlass = !fly.on && !view3 ? 1 : 0;
+  Q.writeBuffer(uFinal, 0, new Float32Array([T.ex, (T.snow > T.rain ? -T.snow : T.rain) * (1 - coverK), time, 0.25 + 0.12 * T.wind, glassR * onGlass, glassS * onGlass, abs(car.v), W / H, ...glassSl, glassF * onGlass, ...glassV, glassP * onGlass, ...glassUp, 0]));
 
   const enc = device.createCommandEncoder();
   // 1. shadows

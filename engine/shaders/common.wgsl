@@ -1,9 +1,9 @@
 // Shared by every stage: the uniform block, the land (road, zones, heights - these must match src/land.js), noise, wind.
 // SHADOW_RES (the shadow map's size) is declared by src/shaders.js, in front of this text.
 struct G { vp: mat4x4f, sm: mat4x4f, cam: vec4f, sun: vec4f, sunCol: vec4f, fwd: vec4f, right: vec4f, up: vec4f,
-  fog: vec4f, res: vec4f, amb: vec4f, misc: vec4f, zen: vec4f, hor: vec4f, camM: vec4f };
+  fog: vec4f, res: vec4f, amb: vec4f, misc: vec4f, zen: vec4f, hor: vec4f, camM: vec4f, crush: array<vec4f, 8> };
 // cam.w time · fwd/right/up: camera basis (right.w, up.w = tan half fov x, y) · fog: x density, y far edge, z cloud cover, w dry season
-// misc: x headlights, y wind, z exposure, w night
+// crush: plants the car has pressed down - x, z where, z how far (0..1), w how far round · misc: x headlights, y wind, z exposure, w night · camM: xy the eye's place in its 256 m tile, z snow lying everywhere (snow chosen by hand)
 @group(0) @binding(0) var<uniform> g: G;
 const SEA = -6.;
 const SEG = 1200.;
@@ -73,6 +73,14 @@ fn tlb(b: f32) -> f32 { let g = floor(b / 10.); return step(abs(b - (g * 10. + 2
 fn udk(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.;
   for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; if (ph(vec2i(i32(g), 523)) < .5 && abs(z - zc) < 100.) { o = 1.; } }
   return o; }
+// how much wider than the main road's asphalt the street is at z, each side: the frontage roads beside an underpass (svW in land.js, and its underpass
+// found with every test udG makes there: the town all round it, no river or sea crossing near)
+fn svw(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.;
+  for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; let dz = abs(z - zc);
+    if (dz < 136. && ph(vec2i(i32(g), 523)) < .5 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
+      let r = rivOf(zc); let si = i32(floor(zc / SEG)); let di = abs(zc - (f32(si) + .5) * SEG);
+      if (!(r.y > 0. && abs(zc - r.x) < r.y * .5 + 112.) && !(zoneOf(si) == 5 && di > 38. && di < 632.)) { o = 5.4 * (1. - ss(96., 136., dz)); } } }
+  return o; }
 // signed distance from the road's centre line, measured square to the road on the switchbacks
 fn rdist(P: vec2f) -> f32 {
   let dx = P.x - roadX(P.y); let e = hpw(P.y); if (e <= 0.) { return dx; }
@@ -112,6 +120,12 @@ fn wind3(p: vec2f, hgt: f32, reach: f32) -> vec3f {
   let hz = vec2f(.8, .55) * (W * (.25 + 1.3 * gs) + (sin(t * 2.6 + ph) * .5 + sin(t * 4.1 + ph * 1.7) * .3) * W * (.3 + .5 * gs)) * k;
   return vec3f(w.x + hz.x, -length(hz) * .35 + sin(t * 3.3 + ph * 2.3) * W * k * .25, w.y + hz.y);
 }
+// How far a point of a plant is pressed down by the car (0..1) and which way it is pushed out: only what stands lower than a car is bent.
+fn crushed(P: vec2f, hgt: f32) -> vec3f {
+  var f = 0.; var dirv = vec2f(0.);
+  for (var i = 0; i < 8; i++) { let q = g.crush[i]; if (q.z < .003) { continue; } let dv = P - q.xy; let k = q.z * (1. - ss(q.w * .75, q.w, length(dv))); if (k > f) { f = k; dirv = dv / max(length(dv), .05); } }
+  return vec3f(dirv, f * (1. - ss(2.2, 3.4, hgt)));
+}
 struct LO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) uv: vec2f,
   @location(3) @interpolate(flat) col: vec3f, @location(4) @interpolate(flat) pr: vec2f };
 override WS: f32 = 1.;
@@ -138,6 +152,7 @@ fn leafV(vi: u32, a0: vec4f, b0: vec4f, c: vec4f) -> LO {
   if (kind == 5) { shp = 1.; }      // a whole banana leaf: narrow at the stalk, then a long even paddle, rounded at the end
   if (kind == 7) { shp = 1. - v * .6; }
   if (kind == 8) { shp = 1. - v * .35; }
+  if (kind >= 12) { shp = 1.; }                                        // a hill of rice: a card the fragment stage cuts the leaves and ears from (12 green, 13 ripe)
   if (kind == 9) { shp = 1.; }                                         // a flower head: a square the fragment stage cuts petals from                                // a spray of needles: the fragment stage draws the needles
   var vv = v;
   if (kind == 9) {                                                     // a flower head turns its face to the eye (leaning back a little, each its own way), and is hung by its middle
@@ -148,10 +163,11 @@ fn leafV(vi: u32, a0: vec4f, b0: vec4f, c: vec4f) -> LO {
   let tng = normalize(dir + vec3f(0., -b.w * v, 0.));
   var n = normalize(cross(side, tng));
   let t = g.cam.w;
-  let pk = !blade && kind != 9; var hgt = c.w; var rch = 0.; if (pk) { hgt = floor(c.w) / 32.; rch = fract(c.w) * 32.; }      // leaves of trees carry height and reach packed together
+  let pk = !blade && kind != 9 && kind < 12; var hgt = c.w; var rch = 0.; if (pk) { hgt = floor(c.w) / 32.; rch = fract(c.w) * 32.; }      // leaves of trees carry height and reach packed together
   let w = wind3(a.xz, hgt + v * a.w * se, rch); let gs = gust(a.xz);
   p += w;
-  if (blade) { let bend = g.misc.y * (.08 + .5 * gs) * v * v * a.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // waves run through grass and rice
+  { let cr = crushed(a.xz, hgt); if (cr.z > .003) { let up = hgt + v * a.w * se; p.y -= up * cr.z * .86; p = vec3f(p.x + cr.x * cr.z * (.25 + .35 * hgt), p.y, p.z + cr.y * cr.z * (.25 + .35 * hgt)); } }      // flat under the car, splayed a little outward
+  if (blade || kind >= 12) { let bend = g.misc.y * (.08 + .5 * gs) * v * v * a.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // waves run through grass and rice
   if (kind == 9) { let bend = g.misc.y * (.08 + .5 * gs) * c.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // rides on the tip of its stalk
   let fl = g.misc.y * (.4 + 1.2 * gs) * sin(t * (6. + c.y * 4.) + c.y * 40. + a.x * 1.7) * .07 * v * a.w;
   p += mix(n, side, f32(blade)) * fl + side * (fl * .4 * (1. - f32(blade)));
@@ -173,9 +189,9 @@ fn leafV(vi: u32, a0: vec4f, b0: vec4f, c: vec4f) -> LO {
   if (kind == 0) { col = mix(col, vec3f(.13, .13, .03), g.fog.w * .4); }
   if (kind == 8) { col = mix(vec3f(.060, .105, .050), vec3f(.105, .150, .065), c.y); }
   if (kind == 9) { col = mix(vec3f(.90, .48, .03), vec3f(.95, .72, .06), c.y); if (c.z < .8) { col = mix(vec3f(.80, .25, .50), vec3f(.88, .84, .86), step(.6, c.y)); } tr = .7; }      // a flower head
-  let snl = nw(a.z); if (snl > .01) { col = mix(col, vec3f(.74, .77, .82), snl * (.3 + .5 * c.z)); }                                      // snow lying on the leaves
+  let snl = max(nw(a.z), g.camM.z); if (snl > .01) { col = mix(col, vec3f(.74, .77, .82), snl * (.3 + .5 * c.z)); }                                      // snow lying on the leaves
   if (kind == 10 || kind == 11) { col = mix(vec3f(.62, .09, .26), vec3f(.80, .24, .42), c.y); if (c.y > .85) { col = vec3f(.88, .46, .60); } }      // cherry blossom: deep pink to nearly white
-  o.col = col; o.pr = vec2f(c.z, tr + (40. + 4. * c.y) * f32(kind == 10) + 2. * f32(kind == 0) + 4. * c.y * f32(kind == 0) + 10. * f32(kind == 8) + 20. * f32(kind == 9) + (30. + 4. * c.y) * f32(kind == 5));
+  o.col = col; o.pr = vec2f(c.z, tr + (40. + 4. * c.y) * f32(kind == 10) + 2. * f32(kind == 0) + 4. * c.y * f32(kind == 0) + 10. * f32(kind == 8) + 20. * f32(kind == 9) + (30. + 4. * c.y) * f32(kind == 5) + (50. + 4. * c.y) * f32(kind == 12) + (60. + 4. * c.y) * f32(kind == 13));
   return o;
 }
 struct BO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) uv: vec2f, @location(3) @interpolate(flat) m: f32 };
@@ -192,6 +208,8 @@ fn branchV(v: vec3f, p0: vec4f, p1: vec4f, h: vec2f) -> BO {
   let plant = step(-.5, h.x);                                  // h.x = -1 marks a made thing: h.y 0 concrete pole, 1 wire, 2 green stem
   let hd = max(h, vec2f(0.)); let w = wind3(mix(p0.xz, p1.xz, v.z), mix(floor(hd.x), floor(hd.y), v.z) / 32., mix(fract(hd.x), fract(hd.y), v.z) * 32.) * plant;
   p += w;
+  if (h.x < -1.5) { p += wind3(p0.xz, -h.x - 2., .5); }      // a made thing fixed to a plant (a coconut): it goes with the tree, all of a piece - moved as the tree's top is, by its height (-h.x - 2)
+  { let hh = mix(floor(hd.x), floor(hd.y), v.z) / 32.; let pw = mix(p0.xz, p1.xz, v.z); let cr = crushed(pw, hh) * plant; if (cr.z > .003) { p.y -= hh * cr.z * .86; p = vec3f(p.x + cr.x * cr.z * (.25 + .35 * hh), p.y, p.z + cr.y * cr.z * (.25 + .35 * hh)); } }
   o.m = (1. - plant) * (h.y + 1.);
   o.wp = p + g.cam.xyz; o.n = nn; o.uv = vec2f(atan2(v.y, v.x) / 6.2832, p.y + g.cam.y); o.cp = g.vp * vec4f(p, 1.);
   return o;
