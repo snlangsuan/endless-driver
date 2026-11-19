@@ -86,7 +86,7 @@ function drive(dt) {
     const kv = (zq) => abs(roadX(zq + 4) - 2 * roadX(zq) + roadX(zq - 4)) / 16 / Math.pow(1 + roadSl(zq) ** 2, 1.5);
     const curv = max(kv(car.z + dirz * (12 + abs(car.v) * 1.2) / nn), kv(car.z + dirz * 5 / nn));
     const ahead = zlim(car.z + dirz * (6 + car.v * car.v / 9) / nn);                              // the sign coming up, seen in time to be down to its speed on reaching it
-    let vt = min(min(auto.limit, zlim(car.z), ahead) / 3.6, Math.sqrt(4.5 / max(curv, 1e-4)));
+    let vt = min((auto.signs ? min(auto.limit, zlim(car.z), ahead) : auto.limit) / 3.6, Math.sqrt(4.5 / max(curv, 1e-4)));
     // traffic lights: stop at the line (short of the zebra crossing) for red, and for amber if there is room to; wait; go on green
     const tl = tlNext(car.z, dirz); hold = false;
     if (tl) { const dist = (tl[0] - car.z) * dirz * nn - 10.9, sg = tlState(tl[1], time);            // from the car's nose to the line

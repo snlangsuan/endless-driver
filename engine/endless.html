@@ -7,6 +7,12 @@
 <link rel="stylesheet" href="endless.css">
 </head>
 <body>
+<div id="load">
+  <div id="loadT">Endless</div>
+  <div id="loadB" role="progressbar" aria-label="กำลังโหลดเกม" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="loadF"></div></div>
+  <div id="loadS" role="status">กำลังเริ่มเกม ...</div>
+  <div id="loadH">ครั้งแรกอาจใช้เวลาสักครู่</div>
+</div>
 <canvas id="c"></canvas>
 <div id="hud"></div>
 <button id="cfgB" title="ตั้งค่าภาพและเสียง"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.3 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.2a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4z"/></svg></button>
@@ -22,12 +28,24 @@
     <p class="skK">M ปิด/เปิดเสียง · เสียงเพลงปรับที่กล่องเพลง · H ซ่อน/แสดงข้อความ · G เต็มจอ</p>
   </form>
 </dialog>
+<button id="drvB" title="การขับขี่: ขับอัตโนมัติและความเร็ว"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M4 11.2 9.6 12M20 11.2 14.4 12M12 14.5V20.3"/></g><circle cx="12" cy="12" r="2.4"/></svg></button>
+<dialog id="drv" class="pan">
+  <form method="dialog">
+    <div class="skH"><b>การขับขี่</b><span style="flex:1"></span><button value="x" class="skX" title="ปิด (Esc)"><svg viewBox="0 0 24 24"><path d="M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></svg></button></div>
+    <div class="skL">ระบบขับอัตโนมัติ <span id="dvOv" class="skV"></span></div>
+    <div class="skWr"><button type="button" id="dvOn" style="flex:1" title="รถเกาะเลนซ้าย รักษาความเร็ว ชะลอเข้าโค้ง และหยุดรอไฟแดงเอง (P)">เปิดขับอัตโนมัติ</button></div>
+    <label class="skL" for="dvSp">ความเร็วขับอัตโนมัติ <span id="dvSv" class="skV"></span></label>
+    <div class="skWr"><button type="button" id="dvM" title="ลดความเร็ว (กดค้างเพื่อลดทีละ 5)">−</button><input id="dvSp" type="range" min="0" max="200" step="1" value="90"><button type="button" id="dvP" title="เพิ่มความเร็ว (กดค้างเพื่อเพิ่มทีละ 5)">+</button></div>
+    <div class="skWr" style="margin-top:8px"><button type="button" id="dvSg" style="flex:1" title="ปิดแล้วรถจะวิ่งตามความเร็วที่ตั้งไว้ ไม่สนป้ายริมทาง (ยังชะลอเข้าโค้งและหยุดไฟแดง)">ขับไม่เกินป้ายจำกัดความเร็ว</button></div>
+    <p class="skK">P เปิด/ปิดขับอัตโนมัติ · − / + ปรับความเร็วทีละ 1 กดค้างปรับทีละ 5 · หักพวงมาลัยหรือเบรก (A D S) เพื่อกลับมาขับเอง</p>
+  </form>
+</dialog>
 <button id="skyB" title="เวลา ฤดูกาล และสภาพอากาศ"><svg viewBox="0 0 24 24"><path d="M7 2h2v3H7zM1 9h3v2H1zM2.3 4.7l1.4-1.4 2.1 2.1-1.4 1.4zM12.2 3.3l1.4 1.4-2.1 2.1-1.4-1.4zM8 7a3 3 0 0 0-2.9 3.7A5 5 0 0 1 10.4 7.5 3 3 0 0 0 8 7zM17.5 21H8a5 5 0 1 1 1.6-9.7A6 6 0 0 1 21 13.5 3.8 3.8 0 0 1 17.5 21z"/></svg></button>
 <dialog id="sky" class="pan">
   <form method="dialog" id="skyF">
     <div class="skH"><b>ท้องฟ้า</b><span id="skNow"></span><button value="x" class="skX" title="ปิด (Esc)"><svg viewBox="0 0 24 24"><path d="M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></svg></button></div>
     <label class="skL" for="skT">เวลา</label>
-    <select id="skT"><option value="-1">สุ่ม (เวลาเดินเอง)</option></select>
+    <div class="skWr"><select id="skT"><option value="-1">สุ่ม (เวลาเดินเอง)</option></select><button type="button" id="skTc" title="ให้เวลาเดินต่อจากเวลาที่เลือก (เลือกเวลาใหม่เพื่อหยุดเวลาอีกครั้ง)">นับต่อ</button></div>
     <div class="skL">ฤดูกาล</div>
     <div class="seg" id="skS"><button type="button" data-v="0" title="ฤดูเปลี่ยนไปตามสถานที่ที่ขับผ่าน">อัตโนมัติ</button><button type="button" data-v="1">หน้าฝน</button><button type="button" data-v="2">หน้าหนาว</button><button type="button" data-v="3">หน้าแล้ง</button></div>
     <div class="skL">สภาพอากาศ</div>
@@ -57,7 +75,7 @@
 <div id="mpY"><div id="mpF"></div></div>
 <div id="bl">
   <div id="clk">--:--</div>
-  <div id="keys">W A S D ขับ · Shift เร่ง · P ขับอัตโนมัติ · - / + จำกัดความเร็ว · คลิกจอเพื่อจับเมาส์มองรอบ (Esc ปล่อย) · T ข้ามเวลา · R เลือกอากาศ · Y สุ่มอากาศ เปิด/ปิด · L ไฟหน้า · F กล้องบิน (Q/E ลงขึ้น) · M เสียง · G หรือปุ่มมุมขวาบน เต็มจอ · H ซ่อน/แสดงข้อความ</div>
+  <div id="keys">W A S D ขับ · Shift เร่ง · P ขับอัตโนมัติ · - / + ความเร็วขับอัตโนมัติ (กดค้าง ทีละ 5) · คลิกจอเพื่อจับเมาส์มองรอบ (Esc ปล่อย) · T ข้ามเวลา · R เลือกอากาศ · Y สุ่มอากาศ เปิด/ปิด · L ไฟหน้า · F กล้องบิน (Q/E ลงขึ้น) · M เสียง · G หรือปุ่มมุมขวาบน เต็มจอ · H ซ่อน/แสดงข้อความ</div>
 </div>
 <div id="err"></div>
 <script src="src/boot.js"></script>

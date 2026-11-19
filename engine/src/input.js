@@ -1,6 +1,7 @@
 // --------------------------------------------------------------------------------------------------------- input, car, camera
 const keys = new Set();
-const auto = { on: false, limit: 90 };   // self-driving: keeps the left lane and holds the speed limit (km/h)
+const auto = { on: false, limit: 90, signs: true };   // self-driving: keeps the left lane and holds the speed set for it (limit, km/h, 0-200), and no more than the signs beside the road say unless signs is off
+try { const v = localStorage.getItem('endless.limit'); if (v !== null && v !== '') auto.limit = clamp(Math.round(Number(v)) || 0, 0, 200); auto.signs = localStorage.getItem('endless.signs') !== '0'; } catch (e) {}
 // The drive starts somewhere different each time: any stretch within about 14 km of the origin (further out the ground's fine grain, which is worked out from world position, begins to lose precision), in the left lane, facing along the road.
 const SPAWN = (floor(Math.random() * 24) - 12 + 0.15 + Math.random() * 0.7) * SEG, SP = rp(SPAWN, 1.7);
 const car = { x: SP[0], z: SP[1], y: 0, yaw: atan2(roadSl(SPAWN), 1), v: 0, pit: 0, ly: 0, lp: 0, bump: 0 };
@@ -25,6 +26,10 @@ $('fs').addEventListener('click', (e) => { e.currentTarget.blur(); toggleFS(); }
 {
   const D = $('sky'), T = $('skT'), S = $('skS'), Wb = $('skW'), I = $('skI'), Rg = $('skR'), Rv = $('skRv');
   for (let h = 0; h < 24; h++) T.add(new Option(String(h).padStart(2, '0') + ':00', h));
+  // The hour chosen holds the time there; นับต่อ (Tc) lets it run on from that hour. While it runs the box shows "from hh:00" (RUN, a choice
+  // not in the list), so that picking that same hour again is a change too, and holds the time once more. cont: running on from a chosen hour.
+  const Tc = $('skTc'), RUN = new Option('', 'run'); RUN.hidden = true; T.add(RUN); let cont = false;
+  const hh = (h) => String(h).padStart(2, '0') + ':00';
   // what each weather is made of at strength s (0..1): [cloud cover, mist, rain, storm], as in WXP
   const MAKE = { cloud: (s) => [0.25 + 0.7 * s, 0, 0, 0], rain: (s) => [0.85 + 0.15 * s, 0.05 + 0.25 * s, 0.15 + 0.85 * s, 0], storm: (s) => [1, 0.3, 0.85 + 0.15 * s, 0.6 + 0.4 * s], fog: (s) => [0.25 + 0.25 * s, 0.3 + 0.7 * s, 0, 0], snow: (s) => [0.6 + 0.35 * s, 0.1 + 0.3 * s, 0, 0, 0.2 + 0.8 * s] };      // (snow: a fifth part, how hard it falls)
   const KIND = [null, ['sun', 0], ['cloud', 0.5], ['rain', 0.2], ['rain', 0.9], ['storm', 0.8], ['fog', 0.15], ['fog', 1]];      // the keyed kinds 1..7 (R) as kind and strength
@@ -37,17 +42,20 @@ $('fs').addEventListener('click', (e) => { e.currentTarget.blur(); toggleFS(); }
     strength();
   };
   const read = () => {
-    T.value = tHold ? String(floor(tday * 24 + 0.001) % 24) : '-1'; press(S, seaMode);
+    T.value = tHold ? String(floor(tday * 24 + 0.001) % 24) : cont ? 'run' : '-1'; press(S, seaMode); contShow();
     if (wxAuto) kind = 'auto'; else if (wxCur === 0) Rg.value = Math.round(wxS * 100); else { kind = KIND[wxCur][0]; Rg.value = Math.round(KIND[wxCur][1] * 100); }
     press(Wb, kind); strength();
     if (windSet >= 0) Wd.value = Math.round(windSet * 100); else Wd.value = Math.round(clamp(AT.wind / 5.5, 0, 1) * 100); windShow();      // (left alone, the slider shows the wind there is)
   };
   const clock = () => { const m = floor(tday * 1440); $('skNow').textContent = 'ตอนนี้ ' + String(floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0') + (tHold ? ' (ล็อก)' : ''); };
+  const contShow = () => { Tc.setAttribute('aria-pressed', cont); Tc.disabled = !tHold && !cont; };
   T.addEventListener('change', () => {
-    const h = Number(T.value);
+    if (T.value === 'run') return;
+    const h = Number(T.value); cont = false;
     if (h < 0) { tHold = false; tday = Math.random(); } else { tHold = true; if (h / 24 < tday - 0.5) dayN++; tday = h / 24 + 0.0001; }      // (สุ่ม: a random hour, and the day runs on from it)
-    headOn = -1; clock();
+    headOn = -1; clock(); contShow();
   });
+  Tc.addEventListener('click', () => { if (!tHold) return; RUN.text = 'เดินต่อจาก ' + hh(floor(tday * 24 + 0.001) % 24); tHold = false; cont = true; T.value = 'run'; clock(); contShow(); });
   S.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; seaMode = Number(b.dataset.v); press(S, seaMode); });
   Wb.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; kind = b.dataset.v; if (MAKE[kind] && kind !== 'auto') Rg.value = kind === 'fog' ? 60 : 50; press(Wb, kind); apply(); });
   Rg.addEventListener('input', apply);
@@ -65,7 +73,7 @@ $('fs').addEventListener('click', (e) => { e.currentTarget.blur(); toggleFS(); }
   let tick = 0;
   D.addEventListener('close', () => clearInterval(tick));
   document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement && D.open) D.close(); });      // (taking hold of the mouse to drive puts it away)
-  $('skyB').addEventListener('click', (e) => { e.currentTarget.blur(); if (D.open) { D.close(); return; } if ($('cfg').open) $('cfg').close(); read(); clock(); D.show(); if (D.contains(document.activeElement)) document.activeElement.blur(); tick = setInterval(() => { clock(); if (!D.matches(':focus-within')) read(); }, 500); });
+  $('skyB').addEventListener('click', (e) => { e.currentTarget.blur(); if (D.open) { D.close(); return; } if ($('cfg').open) $('cfg').close(); if ($('drv').open) $('drv').close(); read(); clock(); D.show(); if (D.contains(document.activeElement)) document.activeElement.blur(); tick = setInterval(() => { clock(); if (!D.matches(':focus-within')) read(); }, 500); });
 }
 // The settings panel (the cog, top right): the picture - best looking, or smooth for recording the screen (see render.js) - and the sound: how loud
 // everything is (the main volume; off altogether, as M does) and, apart from that, how loud the one-off effects are - thunder, birds, crickets,
@@ -88,11 +96,42 @@ const cfgRead = () => { for (const b of $('skQ').children) b.setAttribute('aria-
   D.addEventListener('change', (e) => { if (e.target.blur) e.target.blur(); });
   D.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) b.blur(); });
   document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement && D.open) D.close(); });
-  $('cfgB').addEventListener('click', (e) => { e.currentTarget.blur(); if (D.open) { D.close(); return; } if ($('sky').open) $('sky').close(); cfgRead(); D.show(); if (D.contains(document.activeElement)) document.activeElement.blur(); });
+  $('cfgB').addEventListener('click', (e) => { e.currentTarget.blur(); if (D.open) { D.close(); return; } if ($('sky').open) $('sky').close(); if ($('drv').open) $('drv').close(); cfgRead(); D.show(); if (D.contains(document.activeElement)) document.activeElement.blur(); });
 }
+// The driving panel (the steering wheel, top right): self-driving on or off (as P does), the speed it holds - 0 to 200 km/h - and whether it
+// keeps to the signs. The speed is set three ways that all go through setLimit: the slider, the panel's - and + buttons, and the - and + keys.
+// A press of a button or a key changes it by 1; held down, after a moment it changes by 5 once, pauses briefly so that a single step of 5 is easy
+// to stop on, and only then goes on changing by 5 at a time until let go (stepStart, stepStop).
+const drvRead = () => { $('drvB').classList.toggle('on', auto.on); if (!$('drv').open) return;
+  $('dvOn').setAttribute('aria-pressed', auto.on); $('dvOn').textContent = auto.on ? 'ปิดขับอัตโนมัติ' : 'เปิดขับอัตโนมัติ'; $('dvOv').textContent = auto.on ? 'เปิดอยู่' : 'ปิดอยู่';
+  $('dvSp').value = auto.limit; $('dvSv').textContent = auto.limit + ' km/h'; $('dvSg').setAttribute('aria-pressed', auto.signs); };
+const setLimit = (v) => { auto.limit = clamp(Math.round(v), 0, 200); try { localStorage.setItem('endless.limit', String(auto.limit)); } catch (e) {} drvRead(); };
+let stepT = 0, stepI = 0;
+const stepStop = () => { clearTimeout(stepT); clearInterval(stepI); stepT = stepI = 0; };
+const stepStart = (dir) => { stepStop(); setLimit(auto.limit + dir); stepT = setTimeout(() => { setLimit(auto.limit + 5 * dir); stepT = setTimeout(() => { stepI = setInterval(() => setLimit(auto.limit + 5 * dir), 140); }, 400); }, 420); };
+{
+  const D = $('drv');
+  $('dvOn').addEventListener('click', () => { auto.on = !auto.on; drvRead(); });
+  $('dvSp').addEventListener('input', () => setLimit(Number($('dvSp').value)));
+  $('dvSg').addEventListener('click', () => { auto.signs = !auto.signs; try { localStorage.setItem('endless.signs', auto.signs ? '1' : '0'); } catch (e) {} drvRead(); });
+  for (const [id, dir] of [['dvM', -1], ['dvP', 1]]) { const b = $(id);
+    b.addEventListener('pointerdown', (e) => { if (e.button) return; try { b.setPointerCapture(e.pointerId); } catch (err) {} stepStart(dir); });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, stepStop);
+    b.addEventListener('click', (e) => { if (e.detail === 0) setLimit(auto.limit + dir); });      // (worked from the keyboard: Enter or Space on the button)
+    b.addEventListener('contextmenu', (e) => e.preventDefault()); }
+  // (as with the other panels: the keys stay the car's, but for those a focused control needs)
+  D.addEventListener('keydown', (e) => { if (/^(Tab|Arrow|Space|Enter|Home|End|Page)/.test(e.code)) e.stopPropagation(); else if (e.code !== 'Escape') { e.preventDefault(); if (e.target.blur) e.target.blur(); } }, true);
+  D.addEventListener('keyup', (e) => { if (/^(Tab|Arrow|Space|Enter|Home|End|Page)/.test(e.code)) e.stopPropagation(); });
+  D.addEventListener('change', (e) => { if (e.target.blur) e.target.blur(); });
+  D.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) b.blur(); });
+  document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement && D.open) D.close(); });
+  $('drvB').addEventListener('click', (e) => { e.currentTarget.blur(); if (D.open) { D.close(); return; } if ($('sky').open) $('sky').close(); if ($('cfg').open) $('cfg').close(); D.show(); drvRead(); if (D.contains(document.activeElement)) document.activeElement.blur(); });
+  setInterval(drvRead, 250);      // (self-driving is also switched by P, and off by taking the wheel: the button and the panel follow)
+}
+const STEP_KEY = { Equal: 1, NumpadAdd: 1, BracketRight: 1, Minus: -1, NumpadSubtract: -1, BracketLeft: -1 };
 addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && document.pointerLockElement) { document.exitPointerLock(); return; }      // (with Esc held for the page, letting go of the mouse is the page's to do)
-  if (e.code === 'Escape' && ($('sky').open || $('cfg').open)) { if ($('sky').open) $('sky').close(); if ($('cfg').open) $('cfg').close(); return; }      // (then it closes whichever panel is open)
+  if (e.code === 'Escape' && ($('sky').open || $('cfg').open || $('drv').open)) { for (const id of ['sky', 'cfg', 'drv']) if ($(id).open) $(id).close(); return; }      // (then it closes whichever panel is open)
   if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;       // typing in the music box is not driving
   initSound(); if (e.code === 'KeyM' && !e.repeat) { mute = !mute; setVol(); }
   if (e.repeat) return; keys.add(e.code);
@@ -102,9 +141,8 @@ addEventListener('keydown', (e) => {
   else if (e.code === 'KeyV') view3 = !view3;
   else if ((e.code === 'KeyB' || e.code === 'KeyN') && SND && AC.state === 'running') dogVoice(AC.currentTime + 0.05, 1, e.code === 'KeyB' ? 'howl' : 'bark');      // B: a dog howls now, N: it barks - close and plain (for listening to the sounds)
   else if (e.code === 'KeyL') headOn = (headOn === -1 ? (AT.night > 0.5 ? 0 : 1) : headOn ? 0 : 1);
-  else if (e.code === 'KeyP') auto.on = !auto.on;
-  else if (e.code === 'Equal' || e.code === 'NumpadAdd' || e.code === 'BracketRight') auto.limit = min(160, auto.limit + 10);
-  else if (e.code === 'Minus' || e.code === 'NumpadSubtract' || e.code === 'BracketLeft') auto.limit = max(30, auto.limit - 10);
+  else if (e.code === 'KeyP') { auto.on = !auto.on; drvRead(); }
+  else if (STEP_KEY[e.code]) stepStart(STEP_KEY[e.code]);      // - and +: by 1, and by 5 at a time while held
   else if ((e.code === 'KeyA' || e.code === 'KeyD' || e.code === 'KeyS') && !fly.on) auto.on = false;      // taking the wheel or braking hands control back
   else if (e.code === 'KeyG' && !e.repeat) toggleFS();      // G (or the button at the top right): full screen and back
   else if (e.code === 'KeyH' && !e.repeat) { const off = document.body.classList.toggle('noui'); try { localStorage.setItem('endless.noui', off ? '1' : ''); } catch (err) {} }      // H hides or shows the text over the picture (not the music player)
@@ -116,8 +154,8 @@ addEventListener('keydown', (e) => {
       if (wet || solidAt(x, z, y0) > 0 || (inTun(z) && !tunAt(x, z))) { const dir = cos(fly.yaw) >= 0 ? 1 : -1, q = rp(z, 1.7 * dir); x = q[0]; z = q[1]; car.yaw = atan2(roadSl(z) * dir, dir); } else car.yaw = fly.yaw;
       car.x = x; car.z = z; car.y = surf(x, z, fly.y); car.v = 0; car.sm = 0; car.ly = 0; car.lp = 0; auto.on = false; } }
 });
-addEventListener('keyup', (e) => keys.delete(e.code));
-addEventListener('blur', () => keys.clear());
+addEventListener('keyup', (e) => { keys.delete(e.code); if (STEP_KEY[e.code]) stepStop(); });
+addEventListener('blur', () => { keys.clear(); stepStop(); });
 let drag = false;
 // A click on the picture takes hold of the mouse: the pointer disappears and cannot leave, and moving the mouse looks around.
 // Esc lets it go again (the browser does that). A finger on a touch screen still drags to look.

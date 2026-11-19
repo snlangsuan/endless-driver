@@ -23,17 +23,18 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none}
 #mpU{display:none;width:100%;box-sizing:border-box;margin-top:6px;padding:5px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(0,0,0,.35);color:#eef2f8;font:12px system-ui,sans-serif;outline:none}
 #mpU:focus{border-color:#6ee7b7} #mp.url #mpU{display:block}
 body.noui #hud,body.noui #keys{display:none}
-#skyB{right:56px}
-#cfgB{right:100px}
+#skyB{right:100px}
+#cfgB{right:56px}
+#drvB{right:144px} #drvB.on{color:#6ee7b7;border-color:rgba(110,231,183,.55)}
 #fs{right:12px}
-#fs,#skyB,#cfgB{position:fixed;top:12px;display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(14,16,22,.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#e8edf5;cursor:pointer;opacity:.85;transition:opacity .15s}
-#fs:hover,#fs:focus-visible,#skyB:hover,#skyB:focus-visible,#cfgB:hover,#cfgB:focus-visible{opacity:1;background:rgba(40,44,54,.7)} #fs svg,#skyB svg,#cfgB svg{width:20px;height:20px;fill:currentColor} body.held #fs,body.held #skyB,body.held #cfgB{opacity:0;pointer-events:none}
+#fs,#skyB,#cfgB,#drvB{position:fixed;top:12px;display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(14,16,22,.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#e8edf5;cursor:pointer;opacity:.85;transition:opacity .15s}
+#fs:hover,#fs:focus-visible,#skyB:hover,#skyB:focus-visible,#cfgB:hover,#cfgB:focus-visible,#drvB:hover,#drvB:focus-visible{opacity:1;background:rgba(40,44,54,.7)} #fs svg,#skyB svg,#cfgB svg,#drvB svg{width:20px;height:20px;fill:currentColor} body.held #fs,body.held #skyB,body.held #cfgB,body.held #drvB{opacity:0;pointer-events:none}
 .pan{position:fixed;top:56px;right:12px;left:auto;margin:0;width:min(340px,calc(100vw - 24px));box-sizing:border-box;padding:12px 14px 10px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:rgba(14,16,22,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);color:#e8edf5;font:13px/1.4 system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.35)}
 .pan::backdrop{background:transparent}
 .skH{display:flex;align-items:center;gap:8px;margin-bottom:4px} .skH b{font-size:14px} #skNow{flex:1;color:#93a0b4;font:12px ui-monospace,Menlo,monospace}
 .skX{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:50%;background:transparent;color:#dfe6f0;cursor:pointer} .skX:hover{background:rgba(255,255,255,.12)} .skX svg{width:16px;height:16px;fill:currentColor}
 .skL{display:block;margin:10px 0 5px;color:#aab5c6;font-size:12px} #skRv{color:#6ee7b7}
-#skT{width:100%;padding:6px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(0,0,0,.35);color:#eef2f8;font:13px system-ui,sans-serif;outline:none} #skT:focus{border-color:#6ee7b7}
+#skT{width:100%;padding:6px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(0,0,0,.35);color:#eef2f8;font:13px system-ui,sans-serif;outline:none} #skT:focus{border-color:#6ee7b7} .skWr #skT{flex:1;width:auto;min-width:0} .skWr button:disabled{opacity:.4;cursor:default}
 .seg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px} .seg .w2{grid-column:span 2} .seg button{min-width:0;white-space:nowrap;padding:5px 8px;border:1px solid rgba(255,255,255,.14);border-radius:8px;background:rgba(255,255,255,.04);color:#dfe6f0;font:12.5px system-ui,sans-serif;cursor:pointer}
 .seg button:hover{background:rgba(255,255,255,.1)} .seg button[aria-pressed=true]{background:rgba(110,231,183,.18);border-color:#6ee7b7;color:#fff}
 .skWr{display:flex;align-items:center;gap:8px} .skWr input{flex:1;accent-color:#6ee7b7} .skWr button{padding:5px 10px;border:1px solid rgba(255,255,255,.14);border-radius:8px;background:rgba(255,255,255,.04);color:#dfe6f0;font:12.5px system-ui,sans-serif;cursor:pointer;white-space:nowrap} .skWr button[aria-pressed=true]{background:rgba(110,231,183,.18);border-color:#6ee7b7;color:#fff} #skWv,.skV{color:#6ee7b7}
@@ -41,3 +42,13 @@ body.noui #hud,body.noui #keys{display:none}
 .skK{margin:10px 0 0;color:#7f8ba0;font-size:11px}
 #mpY{position:fixed;right:12px;bottom:12px;width:320px;height:200px;z-index:-1;opacity:.01;pointer-events:none}
 #err{position:fixed;inset:0;display:none;padding:24px;background:#200;color:#fbb;font:13px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow:auto;z-index:9}
+/* The loading screen. The bar pulses by opacity alone, so that it can keep going while the game is busy building the world. */
+#load{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px;box-sizing:border-box;background:linear-gradient(#0b0e16 0,#111723 58%,#1b2230 100%);color:#e8edf5;text-align:center;transition:opacity .5s ease}
+#load.done{opacity:0;pointer-events:none}
+#loadT{font-size:34px;font-weight:600;letter-spacing:.04em}
+#loadB{position:relative;width:min(260px,72vw);height:4px;overflow:hidden;border-radius:2px;background:rgba(255,255,255,.14)}
+#loadF{position:absolute;inset:0;background:#6ee7b7;transform:scaleX(0);transform-origin:left;transition:transform .3s ease;will-change:opacity;animation:loadP 1.2s ease-in-out infinite}
+@keyframes loadP{50%{opacity:.55}}
+#loadS{min-height:1.4em;font-size:14px;line-height:1.4}
+#loadH{font-size:12px;color:rgba(232,237,245,.55)}
+@media (prefers-reduced-motion:reduce){#loadF{animation:none;transition:none}}
