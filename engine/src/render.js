@@ -76,6 +76,9 @@ const pBright = postPipe('fsBright'), pDown = postPipe('fsDown'), pUp = postPipe
 const pFinal = device.createRenderPipeline({ layout: 'auto', vertex: { module: mFinal, entryPoint: 'vs' }, fragment: { module: mFinal, entryPoint: 'fs', targets: [{ format: FMT }] } });
 const uFinal = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
+// For a game on this engine with things of its own (see main.js): EXTRA is a buffer of boxes drawn every frame besides the chunks' (things that move -
+// the game refills it); gameTick(dt), if set, is called once a frame; deadWorld = 1 puts every lamp and lit window out (a place without power).
+const EXTRA = { boxB: null, nBox: 0 }; let gameTick = null, deadWorld = 0, hudText = null;      // hudText: if set, the whole of the text at the top left is what it returns
 // tube mesh shared by every trunk and branch piece: 8 sides
 const SIDES = 8;
 const tubeV = new Float32Array((SIDES + 1) * 6), tubeI = new Uint16Array(SIDES * 6);

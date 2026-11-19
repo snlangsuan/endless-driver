@@ -11,13 +11,19 @@ const $ = (id) => document.getElementById(id);
 const fail = (m) => { const e = $('err'), l = $('load'); if (l) l.remove(); e.style.display = 'block'; e.textContent += m + '\n\n'; };
 addEventListener('error', (e) => fail('JS: ' + e.message + ' @' + e.lineno));
 addEventListener('unhandledrejection', (e) => fail('JS: ' + (e.reason && (e.reason.stack || e.reason))));
-const PARTS = ['core', 'land', 'shaders', 'render', 'plants', 'buildings', 'chunks', 'weather', 'input', 'sound', 'car', 'music', 'main'];
+// A page may set window.GAME before this script to be another game on the same engine: parts (its own list of scripts, in order), shaders (its own
+// files for some of the shader texts), say (what the loading screen says at which part). A name with a slash in it is a path from the page (ruin/land);
+// a bare name is a file of the engine (src/core.js, shaders/common.wgsl).
+const GAME = window.GAME || {};
+const PARTS = GAME.parts || ['core', 'land', 'shaders', 'render', 'plants', 'buildings', 'chunks', 'weather', 'input', 'sound', 'car', 'music', 'collide', 'drive', 'main'];
+const SHADERS = Object.assign({ common: 'common', land: 'land', vertex: 'vertex', terrain: 'terrain', scene: 'scene', post: 'post', final: 'final' }, GAME.shaders);
+const srcOf = (p) => (p.includes('/') ? p : 'src/' + p) + '.js', wgslOf = (p) => (p.includes('/') ? p : 'shaders/' + p) + '.wgsl';
 const WGSL = {};
 let adapter, device;
 // The loading screen (#load in the page) stays up until the first picture has been drawn. The scripts do their work in long unbroken stretches
 // - main.js builds the nearest of the world as it loads - so after each step the browser is given a moment to show the new progress. (The timer
 // is for a tab in the background, where animation frames do not come.)
-const PART_SAY = { core: 'กำลังเตรียมโลก ...', render: 'กำลังเตรียมการแสดงผล ...', plants: 'กำลังเตรียมต้นไม้และอาคาร ...', weather: 'กำลังเตรียมท้องฟ้าและอากาศ ...', input: 'กำลังเตรียมการควบคุมและเสียง ...', main: 'กำลังสร้างถนนและทิวทัศน์ ...' };
+const PART_SAY = Object.assign({ core: 'กำลังเตรียมโลก ...', render: 'กำลังเตรียมการแสดงผล ...', plants: 'กำลังเตรียมต้นไม้และอาคาร ...', weather: 'กำลังเตรียมท้องฟ้าและอากาศ ...', input: 'กำลังเตรียมการควบคุมและเสียง ...', main: 'กำลังสร้างถนนและทิวทัศน์ ...' }, GAME.say);
 // Waiting for a frame costs up to 1/60 s, so the screen is brought up to date only when the last update is 50 ms old, or when asked to (force).
 let shownAt = 0;
 const shown = () => new Promise((ok) => { const t = setTimeout(ok, 120); requestAnimationFrame(() => { clearTimeout(t); setTimeout(ok, 0); }); }).then(() => { shownAt = performance.now(); });
@@ -27,9 +33,9 @@ const progress = (k, say, force) => { $('loadF').style.transform = `scaleX(${k})
   if (!navigator.gpu) { fail('เบราว์เซอร์นี้ไม่รองรับ WebGPU'); return; }
   // Everything is downloaded at once, while the graphics device is still being got ready: the shaders by fetch, the scripts as preloads that
   // the script elements below then take from the browser's memory instead of asking the server for each in turn. (Run, they still are in order.)
-  for (const p of PARTS) { const l = document.createElement('link'); l.rel = 'preload'; l.as = 'script'; l.href = 'src/' + p + '.js'; document.head.appendChild(l); }
-  const shaders = Promise.all(['common', 'vertex', 'scene', 'post', 'final'].map(async (n) => {
-    const r = await fetch('shaders/' + n + '.wgsl'); if (!r.ok) throw new Error('โหลด shaders/' + n + '.wgsl ไม่ได้ (' + r.status + ')');
+  for (const p of PARTS) { const l = document.createElement('link'); l.rel = 'preload'; l.as = 'script'; l.href = srcOf(p); document.head.appendChild(l); }
+  const shaders = Promise.all(Object.keys(SHADERS).map(async (n) => {
+    const r = await fetch(wgslOf(SHADERS[n])); if (!r.ok) throw new Error('โหลด ' + wgslOf(SHADERS[n]) + ' ไม่ได้ (' + r.status + ')');
     WGSL[n] = await r.text();
   }));
   shaders.catch(() => {});      // (a failure is reported where it is awaited, below, and only there)
@@ -42,8 +48,8 @@ const progress = (k, say, force) => { $('loadF').style.transform = `scaleX(${k})
   for (let i = 0; i < PARTS.length; i++) { const p = PARTS[i];
     await progress(0.16 + 0.64 * i / (PARTS.length - 1), PART_SAY[p], p === 'main');
     await new Promise((ok, no) => {
-      const s = document.createElement('script'); s.src = 'src/' + p + '.js';
-      s.onload = ok; s.onerror = () => no(new Error('โหลด src/' + p + '.js ไม่ได้')); document.body.appendChild(s);
+      const s = document.createElement('script'); s.src = srcOf(p);
+      s.onload = ok; s.onerror = () => no(new Error('โหลด ' + srcOf(p) + ' ไม่ได้')); document.body.appendChild(s);
     });
   }
   await progress(0.92, 'กำลังวาดภาพแรก ...');

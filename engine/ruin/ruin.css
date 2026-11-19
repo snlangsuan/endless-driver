@@ -1,0 +1,12 @@
+/* Ruin: what its page adds to endless.css - the big map and the line of messages. */
+/* The screen is kept bare: only the frame rate (top left) and the full-screen button. The other controls of the engine's page stay in the page,
+   hidden, because its scripts look for them; the keys still work (T R Y L F M G H, Tab for the map). */
+#drvB,#skyB,#cfgB,#mp,#mpY,#bl,#spd,#mini{display:none!important}
+#bigW{position:fixed;inset:0;z-index:5;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(6,8,12,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#bigW.on{display:flex}
+#big{width:min(82vh,92vw);height:min(82vh,92vw);border:1px solid rgba(255,255,255,.18);border-radius:10px;background:#11151c}
+#bigK{max-width:92vw;color:#cfd6e2;font:12px/1.6 system-ui,sans-serif;text-align:center}
+#bigK b{display:inline-block;width:14px;height:4px;margin:0 3px 2px 8px;border-radius:2px;vertical-align:middle}
+#bigK .k1{background:#d9cfae} #bigK .k2{background:#f4f4f0;height:8px;width:4px} #bigK .k3{background:#e2493b;height:8px;width:4px} #bigK .k4{background:#6ee7b7;width:8px;height:8px;border-radius:50%}
+#msg{position:fixed;left:50%;top:18%;transform:translateX(-50%);max-width:80vw;padding:8px 16px;border-radius:10px;background:rgba(14,16,22,.72);color:#f1f4f9;font:600 15px/1.5 system-ui,sans-serif;text-align:center;pointer-events:none;opacity:0;transition:opacity .5s}
+#msg.on{opacity:1}

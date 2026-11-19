@@ -137,9 +137,6 @@ const roadY = (z) => {
     return mix(base, SEA + 9 + (t > 0 && t < 1 ? 6 * sin(PI * t) : 0), 1 - sm(520, 592, dz)); }
   return (sea <= 0 ? base : mix(base, SEA + 3.2 + (1 - beachW(z)) * (8 + 6 * ph(floor(z / SEG), 5)), sea)) - udip(z);
 };
-const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
-const vnoise = (x, y) => { const ix = floor(x), iy = floor(y), fx = x - ix, fy = y - iy, ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy); return mix(mix(hash(ix, iy), hash(ix + 1, iy), ux), mix(hash(ix, iy + 1), hash(ix + 1, iy + 1), ux), uy); };
-const fbm = (x, y, o = 4) => { let s = 0, a = 0.5; for (let i = 0; i < o; i++) { s += a * vnoise(x, y); x = x * 2.03 + 17.1; y = y * 2.03 + 9.7; a *= 0.5; } return s / (1 - a * 2 + 1e-9) * (1 - 0) ; };
 // Thai countryside: a dry verge with trees and houses beside the road, then a wide flat plain of rice paddies.
 // The paddies are a grid of plots, each with its own stage (flooded, green, ripe, cut), divided by low earth bunds.
 const PLX = 28, PLZ = 22, VERGE = 48;
@@ -149,10 +146,6 @@ const PLX = 28, PLZ = 22, VERGE = 48;
 const flwW = (z) => { if (!flwAt(z)) return 0; const p = z / SEG, s = floor(p), q = p - s, r0 = (s + 0.3 + (ph(s, 71) - 0.5) * 0.12) * SEG, w0 = 10 + 5 * ph(s, 75), r1 = (s + 0.72 + (ph(s, 72) - 0.5) * 0.12) * SEG;
   return sm(0, 0.1, q) * (1 - sm(0.9, 1, q)) * (1 - sm(0, 0.3, townW(z))) * sm(w0 + 30, w0 + 70, abs(z - r0)) * sm(34, 74, abs(z - r1)); };
 const vergeAt = (z) => mix(VERGE, 14, flwW(z));
-const ph = (i, j) => { let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
-// the same value noise and the same rule as pn() and turf() in the shaders: where the ground is turf and where bare earth
-const pn = (x, y) => { const ix = floor(x), iy = floor(y), fx = x - ix, fy = y - iy, ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy); return mix(mix(ph(ix, iy), ph(ix + 1, iy), ux), mix(ph(ix, iy + 1), ph(ix + 1, iy + 1), ux), uy); };
-const turfAt = (x, z) => pn(x * 0.09, z * 0.09) * 0.5 + pn(x * 0.37, z * 0.37) * 0.32 + pn(x * 1.3, z * 1.3) * 0.18;
 // metres from the middle of the nearest town lane (soi() in the shaders)
 const soiD = (x, z) => { const s0 = roadX(z + 0.5) - roadX(z - 0.5), b0 = Math.round((z + s0 * (x - roadX(z)) - 34) / 36); let o = 99;
   for (let b = b0 - 1; b <= b0 + 1; b++) { const zl = b * 36 + 34, s = (roadX(zl + 1) - roadX(zl - 1)) / 2; o = min(o, abs(((x - roadX(zl)) * s + z - zl) / sqrt(1 + s * s)) - (xroad(b) ? 1.65 : 0)); }      // (a cross street is 3.3 m wider than a lane: measured from where a lane's edge would be)
@@ -227,7 +220,6 @@ function ground(x, z) {
   //      // the sea round the island, and the shore going down to it
   return h;
 }
-const rng = (seed) => { let s = (seed >>> 0) || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); };
 // The speed limit in force at z (km/h): 50 in town, 40 on the switchbacks, 60 on hill roads and in snow, 80 along the coast, 90 in open country.
 // A sign stands wherever this changes (see the chunks), and the self-driving keeps to it.
 const zlim = (z) => isOf(z) && abs(z - IS.zc) < 540 ? 70 : townW(z) > 0.02 ? 50 : hpW(z) > 0.5 ? 40 : hillW(z) > 0.5 || snowW(z) > 0.5 ? 60 : seaW(z) > 0.5 ? 80 : 90;

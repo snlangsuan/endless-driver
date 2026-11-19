@@ -42,12 +42,13 @@ function frame(now) {
       else if (fps > up && (scale < rLid || lodK < 1)) { if (++upOK >= 6) { if (scale < 0.92 || lodK >= 1) scale = min(rLid, scale * 1.05); else lodK = min(1, lodK * 1.08); upOK = 0; rSince = 0; } }
       else upOK = 0;
     }
-    hud.textContent = `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${isOf(car.z) && abs(car.z - IS.zc) < 525 ? (isBr(car.z) ? 'สะพานแขวนข้ามทะเล' : 'เกาะ') : inTun(car.z) ? 'อุโมงค์ลอดเขา' : udip(car.z) > 1 ? 'ทางลอด' : chyAt(car.z) ? 'ถนนพญาเสือโคร่ง' : hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? 'ทุ่งหิมะ' : flwAt(car.z) ? 'ทุ่งดอกไม้และนาข้าว' : 'ทุ่งนา'} · ${todName()} ${wxName()} ${seasonName(car.z)} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'} (จำกัด ${auto.limit} km/h) · ป้าย ${zlim(car.z)}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
+    hud.textContent = hudText ? hudText() : `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${hudInfo()}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
     fN = 0; fT = 0; fWorst = 0;
   }
   resize();
   crushRecover(dt); if (fly.on) flyMove(dt); else onRoad = drive(dt);
   updateSound(dt); if (SHOW_CAR) placeCar(dt);
+  if (gameTick) gameTick(dt);      // a game's own doings each frame (it may fill EXTRA with boxes that move: see render.js)
   // camera
   let ex, ey, ez, yaw, pit;
   if (fly.on) { ex = fly.x; ey = fly.y; ez = fly.z; yaw = fly.yaw; pit = fly.pit; }
@@ -78,12 +79,12 @@ function frame(now) {
   UB.set([ex, ey, ez, time, L[0], L[1], L[2], T.rain, T.sun[0], T.sun[1], T.sun[2], abs(car.v) * 3.6, f[0], f[1], f[2], LT.seed, r[0], r[1], r[2], TANH * asp, u[0], u[1], u[2], TANH,
     T.fog, 360, T.cover, T.dry, W, H, car.yaw, fly.on || view3 ? 0 : 1, T.amb[0], T.amb[1], T.amb[2], T.wet, hl, T.wind, T.ex, T.night, T.zen[0], T.zen[1], T.zen[2], T.flash, T.hor[0], T.hor[1], T.hor[2], LT.az], 32);
   UB[80] = ((ex % 256) + 256) % 256; UB[81] = ((ez % 256) + 256) % 256;      // where the eye stands in its 256 m tile (camM)
-  UB[82] = T.snowG;      // (camM.z: snow lying everywhere, from snow chosen by hand)
+  UB[82] = T.snowG; UB[83] = deadWorld;      // (camM.z: snow lying everywhere, from snow chosen by hand)
   for (let i = 0; i < 8; i++) { const q = CRUSH[i], s = q[2]; UB[84 + i * 4] = q[0]; UB[85 + i * 4] = q[1]; UB[86 + i * 4] = s * s * (3 - 2 * s); UB[87 + i * 4] = q[3]; }      // (crush: plants pressed down by the car)
   UBS.set(UB.subarray(16, UBN), 16);
   Q.writeBuffer(ubo, 0, UB); Q.writeBuffer(uboS, 0, UBS);
   { const cz2 = fly.on ? fly.z : car.z, cx2 = fly.on ? fly.x : car.x, cy2 = fly.on ? fly.y : car.y + 1.2;      // under cover (a tunnel, the slab of an underpass) no rain or snow crosses the view, and the sounds of outdoors fall away
-    const und = (inTun(cz2) && abs(cx2 - roadX(cz2)) < 5 && cy2 < roadY(cz2) + 6.5) || (udOf(cz2) && abs(cz2 - UD.zc) < 15 && cy2 < roadY(cz2) + 5.2) ? 1 : 0; coverK += (und - coverK) * min(1, dt * 4); }
+    const und = underCover(cx2, cy2, cz2) ? 1 : 0; coverK += (und - coverK) * min(1, dt * 4); }
   // the windscreen gets wet as fast as the rain comes and dries slowly; snow on it melts away more slowly still. Out of the rain (a tunnel, an
   // underpass) no more falls on it, but what is there stays a while. Only from the driver's seat.
   // Snow that lands on the warm glass turns to water after a little while: so snowing wets the screen too, more slowly than rain and not so much.
@@ -118,6 +119,7 @@ function frame(now) {
     if (c.nBox) { p.setPipeline(pBoxS); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, c.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, c.nBox); }
     if (c.nLeaf) { if (dc > 230 * lodK) continue; const l = dc > 52 * lodK ? 2 : 1; p.setPipeline(l === 2 ? pLeafS2 : pLeafS); p.setVertexBuffer(0, c.leafB); p.draw(10, floor(c.nLeaf / LODN[l])); }
   }
+  if (EXTRA.nBox) { p.setPipeline(pBoxS); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, EXTRA.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, EXTRA.nBox); }
   if (SHOW_CAR) { p.setPipeline(pCarS); p.setVertexBuffer(0, carVB); p.setIndexBuffer(carIB, 'uint16'); p.drawIndexed(CAR.idx.length); }
   p.end();
   // 1b. what the mirrors see: the land behind the car, drawn small and without the finest detail (only from the driver's seat)
@@ -168,6 +170,7 @@ function frame(now) {
     if (c.nLeaf) { const l = d < 62 * lodK ? 0 : d < 150 * lodK ? 1 : d < 250 * lodK ? 2 : 3, n = floor(c.nLeaf / LODN[l]); p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.leafB); p.draw(10, n); tris += n * 8; }
     if (c.nGrass && d < 130 * lodK) { const l = d < 48 * lodK ? 0 : d < 85 * lodK ? 1 : 2, n = floor(c.nGrass / LODN[l]); p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.grassB); p.draw(10, n); tris += n * 8; }
   }
+  if (EXTRA.nBox) { p.setPipeline(pBox); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, EXTRA.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, EXTRA.nBox); tris += EXTRA.nBox * 12; }
   p.setPipeline(pSky); p.draw(3);
   p.end();
   // 3. bloom: bright parts spread down a chain of smaller images and added back up
@@ -182,4 +185,4 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 try { if (localStorage.getItem('endless.noui')) document.body.classList.add('noui'); } catch (err) {}
-window.__dbg = { snd: () => ({ state: AC && AC.state, now: AC && AC.currentTime, S: SND }), auto, car, fly, chunks, AT, setT: (t) => { tday = t; }, setWx: (k) => { wxAuto = false; wxCur = k; }, HUTS, get fps() { return fps; }, get tris() { return tris; } };
+window.__dbg = { snd: () => ({ state: AC && AC.state, now: AC && AC.currentTime, S: SND }), auto, car, fly, chunks, AT, setT: (t) => { tday = t; }, setWx: (k) => { wxAuto = false; wxCur = k; }, HUTS: typeof HUTS !== 'undefined' ? HUTS : null, get fps() { return fps; }, get tris() { return tris; } };
