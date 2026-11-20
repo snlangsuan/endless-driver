@@ -14,6 +14,13 @@ const liveKeep = () => { try { sessionStorage.setItem('endless.live', JSON.strin
 let LIVE = null; try { const s = sessionStorage.getItem('endless.live'); if (s) { sessionStorage.removeItem('endless.live'); LIVE = JSON.parse(s); } } catch (e) {}
 if (LIVE) { const c = LIVE.car; car.x = c[0]; car.z = c[2]; car.yaw = c[3]; car.y = surf(car.x, car.z, c[1]); Object.assign(fly, LIVE.fly); auto.on = !!LIVE.auto;
   tday = LIVE.tday; dayN = LIVE.dayN; tHold = LIVE.tHold; seaMode = LIVE.seaMode; wxS = LIVE.wxS; windSet = LIVE.windSet; wxAuto = LIVE.wxAuto; wxCur = LIVE.wxCur; WXP[0] = LIVE.wx0; if (wxAuto) wxNext = 60; }
+// The drive is taken up where it was left (Endless only; the settings panel can turn this off, for a new place each time as before): where the
+// car is is put aside every few seconds and when the page is left, and read back here. (Not after a reload made by the server while the game
+// is being worked on: that has its own, fuller note - LIVE, above.)
+let resume = true; try { resume = localStorage.getItem('endless.resume') !== '0'; } catch (e) {}
+const lastKeep = () => { if (window.GAME) return; try { localStorage.setItem('endless.last', JSON.stringify([car.x, car.y, car.z, car.yaw])); } catch (e) {} };
+if (!LIVE && !window.GAME && resume) { try { const c = JSON.parse(localStorage.getItem('endless.last')); if (Array.isArray(c) && c.length === 4 && c.every(Number.isFinite) && abs(c[2]) < 14400) { car.x = c[0]; car.z = c[2]; car.yaw = c[3]; car.y = surf(car.x, car.z, c[1]); } } catch (e) {} }
+addEventListener('pagehide', lastKeep); document.addEventListener('visibilitychange', () => { if (document.hidden) lastKeep(); }); setInterval(lastKeep, 4000);
 // Full screen is of the whole page, so the text and the music player stay. While it is on, the page asks for the Esc key for itself (Keyboard Lock, in
 // Chrome and Edge): a press of Esc then only lets go of the mouse, as it does in a window, instead of also leaving full screen; holding Esc down
 // leaves it (the browser says so when full screen begins), as do G and the button. Browsers without Keyboard Lock keep their own Esc.
@@ -91,6 +98,7 @@ try { const v = localStorage.getItem('endless.vol'); if (v !== null && v !== '')
 const setVol = () => { if (SND) { SND.master.gain.setTargetAtTime(mute ? 0 : 0.9 * gameVol, AC.currentTime, 0.05); SND.fx.gain.setTargetAtTime(fxVol, AC.currentTime, 0.05); } try { localStorage.setItem('endless.fx', String(fxVol)); localStorage.setItem('endless.vol', String(gameVol)); localStorage.setItem('endless.mute', mute ? '1' : ''); } catch (e) {} if ($('cfg').open) cfgRead(); };
 const SPK = 'M4 9v6h4l5 4V5L8 9z', SPK_ON = 'M15.5 8.5a5 5 0 0 1 0 7l-1.2-1.2a3.3 3.3 0 0 0 0-4.6zM18 6a8.5 8.5 0 0 1 0 12l-1.2-1.2a6.8 6.8 0 0 0 0-9.6z', SPK_X = 'M16.2 9.3l1.9 1.9 1.9-1.9 1.2 1.2-1.9 1.9 1.9 1.9-1.2 1.2-1.9-1.9-1.9 1.9-1.2-1.2 1.9-1.9-1.9-1.9z';      // the speaker, with its waves or crossed out
 const cfgRead = () => { for (const b of $('skQ').children) b.setAttribute('aria-pressed', b.dataset.v === (smooth ? '1' : '0'));
+  if ($('cfSp')) for (const b of $('cfSp').children) b.setAttribute('aria-pressed', (b.dataset.v === '1') === resume);
   for (const b of $('cfCap').children) b.setAttribute('aria-pressed', Number(b.dataset.v) === fpsCap); for (const b of $('cfVw').children) b.setAttribute('aria-pressed', Number(b.dataset.v) === viewK);
   $('cfVo').value = Math.round(gameVol * 100); $('cfVv').textContent = mute ? 'ปิดอยู่' : Math.round(gameVol * 100) + '%'; $('cfMu').setAttribute('aria-pressed', mute); $('cfMuP').setAttribute('d', mute ? SPK + SPK_X : SPK + SPK_ON); $('cfMu').title = (mute ? 'เปิดเสียง' : 'ปิดเสียง') + ' (M)'; $('cfMu').setAttribute('aria-label', mute ? 'เปิดเสียง' : 'ปิดเสียง');
   $('cfFx').value = Math.round(fxVol * 100); $('cfFv').textContent = Math.round(fxVol * 100) + '%'; };
@@ -98,6 +106,7 @@ const cfgRead = () => { for (const b of $('skQ').children) b.setAttribute('aria-
   const D = $('cfg');
   $('skQ').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; smooth = b.dataset.v === '1'; try { localStorage.setItem('endless.smooth', smooth ? '1' : ''); } catch (err) {} scale = smooth ? 0.8 : 1; lodK = 1; cfgRead(); });      // (changing it starts the frame-rate keeping afresh)
   $('cfVw').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; viewK = Number(b.dataset.v); try { localStorage.setItem('endless.view', viewK < 1 ? String(viewK) : ''); } catch (err) {} cfgRead(); });
+  if ($('cfSp')) $('cfSp').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; resume = b.dataset.v === '1'; try { localStorage.setItem('endless.resume', resume ? '' : '0'); } catch (err) {} cfgRead(); });
   $('cfCap').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; fpsCap = Number(b.dataset.v); try { localStorage.setItem('endless.cap', fpsCap ? String(fpsCap) : ''); } catch (err) {} rBest = 0; rKnown = 0; rPrev = 0; rLid = 1; cfgRead(); });      // (what the best rate is has to be found again)
   $('cfVo').addEventListener('input', () => { gameVol = $('cfVo').value / 100; if (gameVol > 0) mute = false; initSound(); setVol(); cfgRead(); });
   $('cfMu').addEventListener('click', () => { mute = !mute; initSound(); setVol(); cfgRead(); });
@@ -151,7 +160,6 @@ addEventListener('keydown', (e) => {
   else if (e.code === 'KeyR') { wxAuto = false; wxCur = wxCur % 7 + 1; }
   else if (e.code === 'KeyY') { wxAuto = !wxAuto; wxNext = time + 60 + Math.random() * 120; }
   else if (e.code === 'KeyV') view3 = !view3;
-  else if ((e.code === 'KeyB' || e.code === 'KeyN') && SND && AC.state === 'running') dogVoice(AC.currentTime + 0.05, 1, e.code === 'KeyB' ? 'howl' : 'bark');      // B: a dog howls now, N: it barks - close and plain (for listening to the sounds)
   else if (e.code === 'KeyL') headOn = (headOn === -1 ? (AT.night > 0.5 ? 0 : 1) : headOn ? 0 : 1);
   else if (e.code === 'KeyP') { auto.on = !auto.on; drvRead(); }
   else if (STEP_KEY[e.code]) stepStart(STEP_KEY[e.code]);      // - and +: by 1, and by 5 at a time while held

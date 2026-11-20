@@ -196,6 +196,12 @@ TREES.push(makeCasuarina(141), makeCasuarina(149));      // 12, 13
 // high over the verge (no limb hangs down across the road); hardly a leaf - the whole crown is pink
 TREES.push(makeTree(163, { H: 8.5, r: 0.36, n: [9, 5, 3], ang: [0.92, 0.9, 0.85], crown: 0.44, len0: 0.5, lenR: 0.62, trop: 0.26, wob: 0.3, per: 4, leaf: 0.62, wide: 0.38, bloom: 0.93 }),
   makeTree(171, { H: 9.5, r: 0.42, n: [10, 5, 3], ang: [0.98, 0.9, 0.85], crown: 0.46, len0: 0.48, lenR: 0.62, trop: 0.24, wob: 0.28, per: 4, leaf: 0.64, wide: 0.38, bloom: 0.96 }));
+// ยางพารา (16): a rubber tree as a plantation grows it - a straight slender trunk, clear for half its height, then a few steep boughs and a light crown
+TREES.push(makeTree(181, { H: 15, r: 0.19, n: [6, 3, 2], ang: [0.7, 0.85, 0.85], crown: 0.52, len0: 0.36, lenR: 0.62, trop: 0.3, wob: 0.1, per: 4, leaf: 0.66, wide: 0.5, kind: 14 }));
+TREES.push(makeOilPalm(193), makeOilPalm(199));      // 17, 18
+// small slender trees (19, 20), for the hedgerows of the flower fields: a thin stem, a light round head not much above a man's height
+TREES.push(makeTree(211, { H: 4.4, r: 0.085, n: [7, 4, 2], ang: [1.0, 0.9, 0.85], crown: 0.42, len0: 0.42, lenR: 0.6, trop: 0.22, wob: 0.2, per: 4, leaf: 0.5, wide: 0.42 }),
+  makeTree(223, { H: 5.2, r: 0.1, n: [8, 4, 2], ang: [0.85, 0.9, 0.85], crown: 0.5, len0: 0.36, lenR: 0.6, trop: 0.3, wob: 0.16, per: 4, leaf: 0.48, wide: 0.4 }));
 const DEMO = Number(new URLSearchParams(location.search).get('plant') ?? -1);
 const BL = [0, 1, 2, 10, 11, 0, 1, 2];      // the broadleaf kinds, the rarer ones met less often
 

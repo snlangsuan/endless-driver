@@ -92,7 +92,7 @@ const placeName = (x, z) => { const u = urb(x, z);
 // ---- What the engine's shared scripts ask of a land (they were written for Endless's one long road). Ruin answers for the place the eye is:
 // HERE is kept up to date by ruin/game.js. Nothing here is sea, snow, tunnel or cherry avenue.
 const SEG = 1, HERE = { x: START[0], z: START[1], u: 0, wood: 0 };
-const townW = () => HERE.u, hillW = () => HERE.wood, seaW = () => 0, snowW = () => 0, chyAt = () => 0, inTun = () => false, tunAt = () => false;
+const townW = () => HERE.u, hillW = () => HERE.wood, seaW = () => 0, snowW = () => 0, chyAt = () => 0, flwAt = (z) => false, inTun = () => false, tunAt = () => false;
 const roadSl = () => 0, shoreX = () => 1e9;
 const roadX = () => nsX(Math.round(HERE.x / (8 * BK)) * 8, HERE.z);
 // the place on the nearest north-south arterial abreast of z, off metres to its east (where the car is put down when the flying camera lands on something solid)

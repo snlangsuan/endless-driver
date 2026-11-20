@@ -69,6 +69,18 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     if (px * 20. < 1.4) { let lf = pebble(Pr * vec2f(9., 14.) + 70., .03 + .09 * ss(.5, .8, vn(P * .3))); soil = mix(soil, mix(vec3f(.17, .11, .05), vec3f(.30, .22, .10), lf.y), lf.x * nk * .8 * (1. - ss(.5, 1.4, px * 20.))); }      // dry leaves and bits of straw
   }
   var alb = mix(soil * (1. - .28 * ss(-.14, 0., gedge)), grass, gm);                                         // the earth is darker and damper in under the edge of the turf
+  // Under the rubber trees: the ground is in shade the year round and deep in their fallen leaves - brown litter, little grass - from the back of
+  // the verge on.
+  let plz = plw(wp.z); let rbz = plz * rubk(wp.z); let opz = plz - rbz;
+  if (rbz > 0.) { let lit = rbz * ss(8., 12., rd) * (.72 + .2 * ss(.3, .7, n2));
+    alb = mix(alb, mix(vec3f(.150, .100, .055), vec3f(.230, .165, .085), vn(P * .8 + 31.)) * (.7 + .5 * n3) * (.85 + .3 * n4), lit); }
+  // Under the oil palms: shade too, but a palm drops no litter of small leaves - the ground keeps a low green cover, darker and damper than the
+  // open verge, with bare trodden earth in a ring round each palm's foot (the palms stand on a lattice: see buildChunk).
+  if (opz > 0.) { let cov = opz * ss(8., 12., rd); alb = mix(alb, mix(vec3f(.060, .095, .030), vec3f(.105, .125, .045), n2) * (.75 + .4 * n3) * (.85 + .3 * n4), cov * .7);
+    let row = round(P.y / 7.8); let pq = vec2f(P.x - (round((P.x - 4.5 * (row - 2. * floor(row * .5))) / 9.) * 9. + 4.5 * (row - 2. * floor(row * .5))), P.y - row * 7.8);
+    alb = mix(alb, vec3f(.20, .145, .09) * (.75 + .4 * n3), cov * (1. - ss(1.1, 1.9 + rag * 4., length(pq))) * .8);
+    let dzp = abs(P.y - (round((P.y - 3.9) / 15.6) * 15.6 + 3.9));      // under the heaps of cut fronds down every other lane: brown with their rot
+    alb = mix(alb, mix(vec3f(.17, .115, .06), vec3f(.26, .19, .10), n2) * (.7 + .5 * n3), cov * (1. - ss(.9, 1.6 + rag * 5., dzp)) * (1. - ss(80., 95., rd)) * .75); }
   // The drive of a house in the fields (marked in the grid by chunks.js: i.w negative says how far it is to the drive's middle line, -.45 on it ..
   // -.05 at 4 m): earth beaten hard and pale by coming and going, the two wheel tracks barest and a shade darker, thin grass left standing between
   // them, and the turf closing in raggedly at the sides.
@@ -91,7 +103,7 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   let rk = ss(.30, .50, slope + (n2 - .5) * .14) * max(hz_, swz);
   alb = mix(alb, mix(vec3f(.23, .20, .17), vec3f(.36, .32, .27), strata) * (.6 + .7 * n2) * (.8 + .4 * n4), rk); bump = mix(bump, 2.2, rk); }
   // rice paddies
-  let fv = flw(wp.z, twz); let pad = ss(mix(44., 10., fv), mix(52., 14., fv), rd) * (1. - ss(0., .15, hw(wp.z))) * (1. - twz) * (1. - ss(0., .15, swz)) * (1. - ss(0., .15, nwz));
+  let fv = flw(wp.z, twz); let pad = ss(mix(44., 6.5, fv), mix(52., 8.5, fv), rd) * (1. - ss(0., .15, hw(wp.z))) * (1. - twz) * (1. - seaz(wp.z)) * (1. - plz) * (1. - ss(0., .15, nwz));
   if (pad > 0.) {
   let pc = P / vec2f(28., 22.); let f = fract(pc); let hsh = ph(vec2i(floor(pc)));
   let ed = min(min(f.x, 1. - f.x) * 28., min(f.y, 1. - f.y) * 22.);
@@ -111,11 +123,26 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     field = mix(vec3f(.17, .16, .045), vec3f(.25, .21, .06), n2) * (.8 + .3 * n3) * mix(1.2, .45 + .3 * hill, rowN) * (.9 + .15 * vn(P * .35 + 4.)); wet = 0.; }
   else if (hsh >= .90) { field = vec3f(.24, .19, .10) * (.7 + .5 * n4) * mix(1., .75 + .45 * hill, rowN); wet = .35 * (1. - hill) * ss(.4, .7, n2); }   // cut: stubble in rows, water lying in the low places
   let sgi = i32(floor(wp.z / SEG));
-  if (zoneOf(sgi) == 0 && (sgi == 4 || ph(vec2i(sgi, 51)) < .5) && ph(vec2i(i32(floor(pc.x)) + 50, i32(floor(pc.y)))) < .75) {
-    field = vec3f(.075, .085, .035) * (.8 + .4 * n3) * (.85 + .15 * sin(P.x * 9.)); wet = 0.;
+  if (zoneOf(sgi) == 0 && flws(sgi)) {
+    // tilled earth, raked into beds along the rows the flowers stand in (as far apart as chunks.js sets each kind), dark furrows between
+    let fk0 = fkind(wp.z); let per = select(select(select(.6, .45, fk0 == 2.), 1.3, fk0 == 1.), .7, fk0 == 0.);
+    let fur = ss(.55, .92, abs(fract(P.x / per) - .5) * 2.) * (1. - ss(.5, 1.4, px * 2. / per));
+    field = mix(vec3f(.185, .125, .075), vec3f(.085, .058, .036), fur) * (.78 + .44 * n3) * (.9 + .2 * n4); wet = 0.;
     // from far off a field in bloom is a sheet of colour: the ground takes the colour of its flowers where the flowers themselves are too small or too far to draw
-    let fcol = select(vec3f(.78, .42, .58), vec3f(.90, .58, .04), ph(vec2i(i32(floor(pc.x)), i32(floor(pc.y)) + 50)) < .8);
-    field = mix(field, fcol * .6 * (.8 + .4 * n2), max(.2, ss(35., 110., dcam)) * (.75 + .25 * sin(P.x * 9.))); }      // a flower field: tilled rows
+    let fk = fkind(wp.z); var fcol = vec3f(.88, .60, .04);                                                                    // sunflowers
+    if (fk == 1.) { fcol = mix(vec3f(.28, .38, .80), vec3f(.70, .42, .72), ss(.35, .65, vn(P * .05 + 3.))); }              // hydrangeas: blue, turning mauve and pink in patches
+    if (fk == 2.) { fcol = tulc(ph(vec2i(i32(floor(P.x / 5.)), 61))); }                                                     // tulips: a band of one colour, then the next
+    if (fk == 3.) { let hp = ph(vec2i(i32(floor(pc.x)), i32(floor(pc.y)) + 50)); fcol = vec3f(.84, .82, .76); if (hp > .4) { fcol = vec3f(.88, .46, .12); } if (hp > .75) { fcol = vec3f(.80, .30, .48); } }      // lilies: a plot of white, a plot of orange, a plot of pink
+    // (under sunflowers, hydrangeas and lilies the ground is hidden by leaves: seen through the stems it is dark green, not bare tilled earth)
+    if (fk != 2.) { field = mix(field, mix(vec3f(.028, .060, .016), vec3f(.13, .10, .045), fdry() * .8) * (.8 + .4 * n3), .85 * (1. - .55 * fur)); }      // (the furrows still show as lines of earth between the rows)
+    // (by season: out of bloom there is little of the flowers' colour in the field - it is the green of the plants, or in the hot season their straw)
+    let blm = fbloom(); let lfc = mix(vec3f(.050, .110, .022), vec3f(.20, .16, .06), fdry()); fcol = mix(lfc, fcol, blm);
+    field = mix(field, fcol * .6 * (.8 + .4 * n2), max(select(.2, .05, fk != 2.), ss(35., 110., dcam)) * (.75 + .25 * sin(P.x * 9.)));
+    // Looked down on, single plants leave the ground showing between them and a field seems thin: so where the eye looks steeply down the
+    // ground under the plants is the soft green of the leaves lower in the crop, with a wash of the flowers' colour - no shapes. (Cards of
+    // flowers laid over the field, and flower heads painted on the ground, were both tried for this: paper, and a printed cloth.)
+    let tk = ss(.38, .75, Vg.y);
+    field = mix(field, mix(mix(mix(vec3f(.026, .066, .013), vec3f(.058, .125, .024), vn(P * 4.5)), vec3f(.15, .12, .05), fdry() * .8) * (.7 + .5 * n3), fcol * .5, .3), tk * select(.85, .5, fk == 2.)); }
   let bundCol = mix(vec3f(.20, .14, .085), vec3f(.12, .15, .04), ss(.35, .65, n2)) * (.7 + .5 * n3);
   alb = mix(alb, mix(field, bundCol, bund), pad); wet *= pad * (1. - bund); }
   // river and canal: muddy grown-over banks, brown-green water; no road is painted across (the bridge carries it)
@@ -156,7 +183,7 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   if (pnw > 0.) { alb = mix(alb, mix(vec3f(.30, .19, .10), vec3f(.36, .30, .20), ss(.4, .7, n2)) * (.7 + .5 * n3) * (.85 + .3 * n4), pnw * ss(pin0, pin0 + .5, rd) * (1. - ss(mix(17., 30., step(dxs, 0.)), mix(23., 40., step(dxs, 0.)), abs(dxs))) * .9 * (1. - sandM)); }
   // in town. Behind the street the land is yards of swept earth and rough grass, cut by lanes (ซอย) of patched concrete that leave the
   // main road every 36 m. The shophouses stand on a concrete apron poured in bays; along the road a tiled footpath and a painted kerb.
-  var zebra = 0.; var xm = 0.;      // xm: in the mouth of a cross street, where the main road's kerb paint and edge lines stop
+  var zebra = 0.; var xm = 0.; var lm = 0.;      // lm: in the mouth of any lane, where the road's white edge line is broken      // xm: in the mouth of a cross street, where the main road's kerb paint and edge lines stop
   if (twz > .01) {
     let so = soi(P); let tk = twz * (1. - rivK);
     let yard = mix(mix(soil, vec3f(.30, .235, .165) * (.75 + .4 * n3), .45), grass * .92, ss(-.03, .03, tfv - .52 + rag));      // swept earth, grass only where nobody walks
@@ -165,22 +192,31 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     let conc = vec3f(.30, .29, .27) * (.75 + .35 * n2) * (.85 + .3 * n4) * (.78 + .22 * cj);
     alb = mix(alb, mix(conc, conc * vec3f(.62, .6, .56), ss(.55, .8, vn(P * .21 + 3.)) * .6), tk * (1. - ss(25.5, 27.5 + n2 * 2., rdT)));
     let xr = tlb(so.z); let lw = 1.85 + 1.65 * xr;                    // xr: this lane is a cross street (two lanes of asphalt, a centre line, zebra crossings on the main road each side of it)
-    let lane = (1. - ss(lw, lw + .2, abs(so.x))) * step(abs(so.y), 160.);
+    // A lane is as long as its town is deep there: the full 160 m in the town proper, a short stub at the edges where the houses thin out - and it
+    // stops where the town does (on a slanting road its far end would else run out of the town and across the fields to end in a paddy).
+    let zl = so.z * 36. + 34.; let Ll = lanel(zl); let lk = step(.5, tw(zl)) * (1. - rivK) * ss(.35, .6, twz) * (1. - lriv(zl));
+    let lane = (1. - ss(lw, lw + .2, abs(so.x))) * step(abs(so.y), Ll) * lk;
     let lcol = vec3f(.21, .205, .20) * (.72 + .4 * n2) * (.85 + .3 * n4) * (.78 + .22 * ss(0., .03, abs(fract(so.y / 5.) - .5)));
-    alb = mix(alb, mix(lcol, vec3f(.075, .075, .08) * (.8 + .4 * n4), max(xr, ss(.5, .7, vn(P * .13 + so.z)))), tk * lane);     // some lengths resurfaced in asphalt
-    alb = mix(alb, vec3f(.60, .47, .06), xr * tk * lane * step(abs(so.x), .07) * step(.45, fract(so.y / 6.)) * step(9., abs(so.y)));
-    alb = mix(alb, vec3f(.62, .62, .58), xr * tk * step(abs(abs(so.x) - 3.3), .06) * step(8.5, abs(so.y)) * step(abs(so.y), 160.));
-    alb = mix(alb, vec3f(.20, .15, .10) * (.7 + .5 * n3), tk * (1. - lane) * (1. - ss(lw + .15, lw + 1.05, abs(so.x))) * ss(26., 28., rdT) * .7);      // worn earth at the lane's edges
+    alb = mix(alb, mix(lcol, vec3f(.075, .075, .08) * (.8 + .4 * n4), max(max(xr, ss(.5, .7, vn(P * .13 + so.z))), 1. - ss(10., 16., abs(so.y)))), lane);     // some lengths resurfaced in asphalt
+    alb = mix(alb, vec3f(.60, .47, .06), xr * lane * step(abs(so.x), .07) * step(.45, fract(so.y / 6.)) * step(9., abs(so.y)));
+    alb = mix(alb, vec3f(.62, .62, .58), xr * lk * step(abs(abs(so.x) - 3.3), .06) * step(8.5, abs(so.y)) * step(abs(so.y), Ll));
+    alb = mix(alb, vec3f(.20, .15, .10) * (.7 + .5 * n3), tk * lk * (1. - lane) * (1. - ss(lw + .15, lw + 1.05, abs(so.x))) * step(abs(so.y), Ll) * ss(26., 28., rdT) * .7);      // worn earth at the lane's edges
     let ft = 1. - ss(.5, 1.4, px * 5.); let tq = fract(Pf / .4); let joint = mix(.8, ss(0., .06, min(min(tq.x, 1. - tq.x), min(tq.y, 1. - tq.y))), ft);
     let tile = mix(vec3f(.34, .33, .32), vec3f(.40, .27, .22), mix(.5, step(.5, fract((floor(Pf.x / .4) + floor(Pf.y / .4)) * .5)), ft) * .55);      // grey and brick-red paving blocks
     let kb = mix(kerb, mix(vec3f(.72, .72, .69), vec3f(.74, .58, .06), step(.5, fract(Pf.y / 1.6))) * (.85 + .2 * n4), step(.5, fract(so.z * .37))); let kbare = step(.6, fract(so.z * .61));      // four blocks in ten have bare kerbs
+    // (no footpath and no kerb across the mouth of any lane - 1 - lane, below: its own surface runs out to the road's asphalt)
     let pave = mix(tile * (.8 + .25 * n4) * (.68 + .32 * joint), mix(kb, vec3f(.50, .49, .46) * (.85 + .2 * n4), kbare), 1. - ss(3.95, 4.02, rdT));
-    alb = mix(alb, pave, tk * (1. - ss(7.7, 8.0, rdT)) * (1. - lane * max(xr, ss(4.0, 4.1, rdT)))); bump = mix(bump, .3, twz); let ud = udk(wp.z); xm = xr * twz * lane * (1. - ud);
+    alb = mix(alb, pave, tk * (1. - ss(7.7, 8.0, rdT)) * (1. - lane));
+    // A lane joins the road as a road does: asphalt for its first lengths (above), and the kerb turned in along both its sides across the footpath.
+    // (No stop line is painted across its mouth: tried, a white bar there read as the lane being closed off.)
+    let kret = lk * step(abs(so.y), Ll) * ss(lw + .16, lw + .2, abs(so.x)) * (1. - ss(lw + .42, lw + .46, abs(so.x))) * ss(3.9, 4.0, rdT) * (1. - ss(7.7, 8.0, rdT));
+    alb = mix(alb, mix(mix(vec3f(.72, .72, .69), mix(vec3f(.58, .06, .05), vec3f(.74, .58, .06), step(.5, fract(so.z * .37))), step(.5, fract(so.y / 1.6))) * (.85 + .2 * n4), vec3f(.50, .49, .46) * (.85 + .2 * n4), kbare), kret);
+    bump = mix(bump, .3, twz); let ud = udk(wp.z); xm = xr * twz * lane * (1. - ud); lm = twz * lane * (1. - ud);
     let zc = mix(abs(so.x - 5.5), abs(abs(so.x) - 6.0), xr);
     zebra = twz * step(zc, 1.6) * step(rdT, 3.0) * step(.5, fract(dxs / 1.1)) * max(xr, step(fract(so.z * .5), .25)) * (1. - ud) * step(sv, .05);      // (none either where the frontage roads leave the main road)
   }
   var road = vec3f(.034, .035, .038) * (.72 + .5 * n4) * (.85 + .3 * n2);
-  road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, abs(rdT - 3.2)) * (1. - xm));      // (rdT: beside an underpass, the frontage road's outer edge too)
+  road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, abs(rdT - 3.2)) * (1. - lm));      // (rdT: beside an underpass, the frontage road's outer edge too)
   road = mix(road, vec3f(.58, .42, .04), ss(.09, .05, rd) * max(step(.5, fract(wp.z / 9.)), ss(0., .2, hpw(wp.z))) * (1. - xm));      // a solid line round the switchbacks
   road = mix(road, vec3f(.55, .55, .52) * (.8 + .25 * n4), zebra);
   road = mix(road, vec3f(.56, .58, .63) * (.9 + .1 * n4), nwz * .85 * (1. - ss(.55, .25, min(abs(rd - .95), abs(rd - 2.55)))) * ss(.3, .6, vn(P * .45) + .15));      // snow on the road, worn away in the wheel tracks
@@ -214,8 +250,13 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     // paddy water is a hand deep over mud and thick with it: it never mirrors the sky cleanly as a lake does. The mud shows through it even
     // at a low angle, in clouded patches, and what it does reflect it reflects browned.
     let pdw = 1. - lake; let murk = .55 + .45 * vn(P * .7 + 3.) * vn(P * 2.3 + 9.);
-    let refl2 = mix(refl, refl * vec3f(.78, .74, .62), pdw); let fr2 = mix(max(fr, lake * .35), min(fr, .42) * murk, pdw);
-    c = mix(c, mix(c * mix(.6, .78, pdw), refl2, fr2), wet);
+    var refl2 = mix(refl, refl * vec3f(.78, .74, .62), pdw); var fr2 = mix(max(fr, lake * .35), min(fr, .42) * murk, pdw); var deep = mix(.6, .78, pdw);
+    // A town's canal lies low between concrete walls, with houses and trees along it: what it mirrors is mostly those, not the open sky, so it is
+    // dark green-brown water with a dull sheen - left to mirror the bright horizon it came out as pale as the concrete and read as pavement.
+    let cnl = lake * rivK * step(rv.w, .5) * step(.001, rv.y);
+    if (cnl > 0.) { let cw = mix(vec3f(.030, .048, .030), vec3f(.050, .058, .030), murk) * (g.amb.rgb * 1.6 + g.sunCol.rgb * .22 * sh);
+      c = mix(c, cw, cnl); refl2 = mix(refl2, refl * vec3f(.30, .36, .30), cnl); fr2 = mix(fr2, min(fr, .5), cnl); deep = mix(deep, 1., cnl); }
+    c = mix(c, mix(c * deep, refl2, fr2), wet);
   }
   // rain: the road darkens and shines, puddles mirror the sky
   let rw = g.amb.w;

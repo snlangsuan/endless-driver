@@ -2,12 +2,12 @@
 // What stops the car (the chunks' col lists) and what it flattens (their soft lists). Used by any game's driving.
 // How far a car standing at (x, z), its floor at height y, is into something solid (0: clear of everything). The car is taken as a circle
 // 0.85 m across the half; a thing counts if any of it is between the car's sill and its roof (see the chunks: col).
-function solidAt(x, z, y) {
+function solidAt(x, z, y, r = 0.85) {      // (r: asked with a wider circle, it tells of things near the car's path as well as in it - the self-driving looks ahead so)
   let pen = 0;
   for (const c of chunks.values()) { if (abs(c.x - x) > 46 || abs(c.z - z) > 46) continue; const A = c.col;
-    for (let i = 0; i < A.length; i += 8) { const dx = x - A[i], dz = z - A[i + 1], hx = A[i + 4], hz = A[i + 5], rr = hx + hz + 0.85; if (abs(dx) > rr || abs(dz) > rr) continue;
+    for (let i = 0; i < A.length; i += 8) { const dx = x - A[i], dz = z - A[i + 1], hx = A[i + 4], hz = A[i + 5], rr = hx + hz + r; if (abs(dx) > rr || abs(dz) > rr) continue;
       if (A[i + 6] > y + 1.25 || A[i + 7] < y + 0.45) continue;
-      const ex = max(abs(dx * A[i + 2] - dz * A[i + 3]) - hx, 0), ez = max(abs(dx * A[i + 3] + dz * A[i + 2]) - hz, 0), d = 0.85 - Math.sqrt(ex * ex + ez * ez); if (d > pen) pen = d; } }
+      const ex = max(abs(dx * A[i + 2] - dz * A[i + 3]) - hx, 0), ez = max(abs(dx * A[i + 3] + dz * A[i + 2]) - hz, 0), d = r - Math.sqrt(ex * ex + ez * ez); if (d > pen) pen = d; } }
   return pen;
 }
 // Shrubs and saplings under the car are pressed flat, and stand up again slowly once it has gone. CRUSH: up to eight of them at a time, each

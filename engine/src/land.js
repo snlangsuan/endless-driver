@@ -8,7 +8,9 @@ const roadX = (z) => 60 * sin(z * 0.004) + 25 * sin(z * 0.011 + 1.3) + 9 * sin(z
 // or the open rice plain (0) - is drawn by lot from the stretch's number, so the zones never come in a fixed order.
 // Between stretches the land eases back to the plain. The shaders have the same functions (zoneOf, zw, hw, tw, sw).
 const SEG = 1200, SEA = -6;
-const zoneRaw = (s) => { if (s === 1) return 3; if (s === 2) return 1; if (((s % 4) + 4) % 4 === 3) return 2;      /* a town at least every fourth stretch */
+// (Stretches 0 and -2, in the middle of the map, are plain by decree - and flower fields, see flwS: left to the lot, the only flower fields
+// lay at the two far ends, 18 km apart, and were hardly ever met.)
+const zoneRaw = (s) => { if (s === 0 || s === -2) return 0; if (s === 1) return 3; if (s === 2) return 1; if (((s % 4) + 4) % 4 === 3) return 2;      /* a town at least every fourth stretch */
   const h = ph(s, 913); return h < 0.25 ? 1 : h < 0.44 ? 2 : h < 0.63 ? 3 : h < 0.74 ? 4 : h < 0.82 ? 5 : 0; };      // 4: a snowfield, 5: the crossing to an island
 const zoneOf = (s) => { const r = zoneRaw(s); return s !== 1 && r === zoneRaw(s - 1) ? 0 : r; };       // never the same kind twice running: the plain comes between
 const zw = (z, T, w, f) => { const p = z / SEG, s = floor(p); return zoneOf(s) !== T ? 0 : 1 - sm(w * f, w, abs(p - s - 0.5)); };
@@ -27,7 +29,10 @@ const townW = (z) => { const p = z / SEG, s0 = floor(p); let w = 0;
 const hillW = (z) => zw(z, 1, 0.46, 0.7), seaW = (z) => zw(z, 3, 0.45, 0.5), snowW = (z) => zw(z, 4, 0.46, 0.6);
 // พญาเสือโคร่ง (wild Himalayan cherry) in bloom: 1 on a hill stretch whose woods and roadside are mostly cherry, 2 on a flat stretch with an avenue of them
 const chyAt = (z) => { const s = floor(z / SEG), k = zoneOf(s); return k === 1 && ph(s, 61) < 0.55 ? 1 : k === 0 && !flwAt(z) && ph(s, 63) < 0.25 ? 2 : 0; };
-const flwAt = (z) => { const s = floor(z / SEG); return zoneOf(s) === 0 && (s === 4 || ph(s, 51) < 0.5); };        // a plain stretch where many plots are flower fields
+const flwS = (s) => s === 0 || s === -2 || ph(s, 51) < 0.5, flwAt = (z) => { const s = floor(z / SEG); return zoneOf(s) === 0 && flwS(s); };        // a plain stretch where many plots are flower fields
+// A flower stretch is cut in three by its two canals, and each part between them is one place growing one flower, the whole of it: 0 sunflowers,
+// 1 hydrangeas, 2 tulips (in bands of colour), 3 lilies. (fkind in land.wgsl.)
+const flwKind = (z) => { const p = z / SEG, s = floor(p), q = p - s; return floor(ph(s * 3 + (q < 0.3 + (ph(s, 71) - 0.5) * 0.12 ? 0 : q < 0.72 + (ph(s, 72) - 0.5) * 0.12 ? 1 : 2), 387) * 4); };
 // Along the coast the shore is sometimes a cliff of rocks under a high road and sometimes a sand beach the road comes down to.
 // beachW is 1 on the beaches; shoreX is how far from the road the water begins (pushed far away where the coast stretch starts and ends).
 // Some hill stretches cross a pass by switchbacks: the road swings 100 m to either side, turning about 140 degrees round bends of
@@ -144,23 +149,43 @@ const PLX = 28, PLZ = 22, VERGE = 48;
 // up to it - 14 m - so that the fields are what you drive through. flwW is 1 there; it eases off over 120 m at each end of the stretch,
 // where a town has grown into it, and at the two rivers (so the bridges keep their banks). vergeAt: where the plots begin. (flw in the shaders.)
 const flwW = (z) => { if (!flwAt(z)) return 0; const p = z / SEG, s = floor(p), q = p - s, r0 = (s + 0.3 + (ph(s, 71) - 0.5) * 0.12) * SEG, w0 = 10 + 5 * ph(s, 75), r1 = (s + 0.72 + (ph(s, 72) - 0.5) * 0.12) * SEG;
-  return sm(0, 0.1, q) * (1 - sm(0.9, 1, q)) * (1 - sm(0, 0.3, townW(z))) * sm(w0 + 30, w0 + 70, abs(z - r0)) * sm(34, 74, abs(z - r1)); };
-const vergeAt = (z) => mix(VERGE, 14, flwW(z));
+  // (The flowers come up to the road - 14 m from its middle - all along the stretch but for its last 36 m and the banks of its canals. They used
+  // to draw back to 48 m over a long run-in at each end and either side of each canal, so that for much of the way the driver saw a wide
+  // empty verge with a line of flowers far off.)
+  return sm(0, 0.03, q) * (1 - sm(0.97, 1, q)) * (1 - sm(0, 0.3, townW(z))) * sm(w0 + 14, w0 + 30, abs(z - r0)) * sm(18, 34, abs(z - r1)); };
+const vergeAt = (z) => mix(VERGE, 8.5, flwW(z));      // (flowers come right up to the road: 8.5 m from its middle, just beyond the poles)
 // metres from the middle of the nearest town lane (soi() in the shaders)
+// No lane comes out at the neck of a bridge, onto its rail: laneRiv says whether lane b would (its mouth within 16 m of the canal's banks).
+// Looked up once a lane and kept; and what rivOf leaves behind it (RV) is put back, for this is asked from inside ground() and soiD(), in the
+// middle of other work that has its own river in RV.
+const LRV = new Map(), laneRiv = (b) => { let v = LRV.get(b); if (v === undefined) { const keep = Object.assign({}, RV), zl = b * 36 + 34; v = !!(rivOf(zl) && abs(zl - RV.zr) < RV.W / 2 + 16); Object.assign(RV, keep); if (LRV.size > 4000) LRV.clear(); LRV.set(b, v); } return v; };
 const soiD = (x, z) => { const s0 = roadX(z + 0.5) - roadX(z - 0.5), b0 = Math.round((z + s0 * (x - roadX(z)) - 34) / 36); let o = 99;
-  for (let b = b0 - 1; b <= b0 + 1; b++) { const zl = b * 36 + 34, s = (roadX(zl + 1) - roadX(zl - 1)) / 2; o = min(o, abs(((x - roadX(zl)) * s + z - zl) / sqrt(1 + s * s)) - (xroad(b) ? 1.65 : 0)); }      // (a cross street is 3.3 m wider than a lane: measured from where a lane's edge would be)
+  for (let b = b0 - 1; b <= b0 + 1; b++) { const zl = b * 36 + 34, s = (roadX(zl + 1) - roadX(zl - 1)) / 2; if (laneRiv(b)) continue;
+    o = min(o, abs(((x - roadX(zl)) * s + z - zl) / sqrt(1 + s * s)) - (xroad(b) ? 1.65 : 0)); }      // (a cross street is 3.3 m wider than a lane: measured from where a lane's edge would be)
   return o; };
 // plot under a point: [stage 0 flooded / 1 green / 2 ripe / 3 cut, metres to the nearest bund]. A third of the plots lie under water with
 // nothing or only seedlings in them, two fifths stand in ripe golden rice, the rest are green or cut (the same shares in the shaders).
 function plotAt(x, z, o) {
   const px = x / PLX, pz = z / PLZ, ix = floor(px), iz = floor(pz), fx = px - ix, fz = pz - iz, h = ph(ix, iz);
-  o[0] = h < 0.34 ? 0 : h < 0.48 ? 1 : h < 0.90 ? 2 : 3; o[1] = min(min(fx, 1 - fx) * PLX, min(fz, 1 - fz) * PLZ); if (flwAt(z) && ph(ix + 50, iz) < 0.75) o[0] = ph(ix, iz + 50) < 0.8 ? 4 : 5;      // 4: marigolds, 5: cosmos
+  o[0] = h < 0.34 ? 0 : h < 0.48 ? 1 : h < 0.90 ? 2 : 3; o[1] = min(min(fx, 1 - fx) * PLX, min(fz, 1 - fz) * PLZ); if (flwAt(z)) o[0] = 4;      // 4: flowers - every plot of a flower stretch, and all of one kind (flwKind)
   return o;
 }
 // ground height; gw[0] is set to 1 where the point is under the reservoir's water
 const gw = [0];
+// Rice does not stand salt (its yield falls from about 3 dS/m in the soil, and sea water is some 50): there are no paddies on a stretch that has
+// the sea beside it - the coast road, the island crossing - nor in the first 40 m of the stretches next to those. seaZ: 1 on such land, 0 inland.
+// (What grows there instead is what grows on Thai shores: coconut, casuarina, scrub - see buildChunk. seaz in land.wgsl is the same.)
+// Plantations: some of the plain's stretches - those that are neither flower fields nor a cherry avenue - are planted, from their start as far as
+// their second canal (the rice begins again beyond it), with rubber (สวนยางพารา) or with oil palm (สวนปาล์มน้ำมัน) instead of rice. plantW: 1 inside
+// one, falling to 0 at its ends and where a town reaches in; rubW and oilW the same for each kind. (rub and oilp in land.wgsl are the same; the
+// trees are set out in buildChunk.)
+const plSeg = (s) => zoneOf(s) === 0 && !flwS(s) && ph(s, 63) >= 0.25, rubSeg = (s) => plSeg(s) && ph(s, 66) < 0.7;
+const plantW = (z) => { const p = z / SEG, s = floor(p), q = p - s; if (!plSeg(s)) return 0; const e = 0.72 + (ph(s, 72) - 0.5) * 0.12; return sm(0.04, 0.09, q) * (1 - sm(e - 0.03, e - 0.006, q)) * (1 - sm(0, 0.3, townW(z))); };
+const rubW = (z) => rubSeg(floor(z / SEG)) ? plantW(z) : 0, oilW = (z) => rubSeg(floor(z / SEG)) ? 0 : plantW(z);
+const seaSeg = (s) => { const k = zoneOf(s); return k === 3 || k === 5; };
+const seaZ = (z) => { const p = z / SEG, s = floor(p), q = (p - s) * SEG; return seaSeg(s) ? 1 : max(seaSeg(s - 1) ? 1 - sm(0, 40, q) : 0, seaSeg(s + 1) ? 1 - sm(0, 40, SEG - q) : 0); };
 function ground(x, z) {
-  const rx = roadX(z), d = abs(rdist(x, z)), zr = rzs, hpz = hpW(z), tw = townW(z), hw = hillW(z) * (1 - tw), sea = seaW(z), fv = flwW(z), pad = sm(mix(VERGE - 8, 8, fv), mix(VERGE + 4, 14, fv), d) * (1 - sm(0, 0.15, hillW(z))) * (1 - tw) * (1 - sm(0, 0.15, sea)) * (1 - sm(0, 0.15, snowW(z)));
+  const rx = roadX(z), d = abs(rdist(x, z)), zr = rzs, hpz = hpW(z), tw = townW(z), hw = hillW(z) * (1 - tw), sea = seaW(z), fv = flwW(z), pad = sm(mix(VERGE - 8, 6.5, fv), mix(VERGE + 4, 8.5, fv), d) * (1 - sm(0, 0.15, hillW(z))) * (1 - tw) * (1 - seaZ(z)) * (1 - plantW(z)) * (1 - sm(0, 0.15, snowW(z)));
   let h = (hpz > 0 ? mix(roadY(zr), roadY(z), sm(8, 40, d)) : roadY(z)) + sm(5, 30, d) * (1 - pad) * (1 - tw) * (fbm(x * 0.03 + 7, z * 0.03, 3) - 0.5) * 1.3;
   // The paddies: each plot is a level floor sunk 0.7 m below the land beside the road, for water to stand in - level, so each takes the height
   // of the road abreast of its own middle and the plots step down the plain like shallow terraces - and between the plots run the bunds,
@@ -168,7 +193,18 @@ function ground(x, z) {
   // point every 2 m and the plots are 28 by 22, so the lines of points fall exactly along the bunds: a bund is a ridge one point high.
   if (pad > 0) { const pz = z / PLZ, iz = floor(pz), fz = pz - iz, px = x / PLX, fx = px - floor(px), lv = roadY((iz + 0.5) * PLZ), ln = roadY((iz + (fz < 0.5 ? -0.5 : 1.5)) * PLZ);
     const kz = 1 - sm(0.2, 1.9, min(fz, 1 - fz) * PLZ), kx = 1 - sm(0.2, 1.9, min(fx, 1 - fx) * PLX);
-    h = mix(h, lv - 0.7 + max(kz * (max(ln - lv, 0) + 0.45), kx * 0.45), pad); }
+    // (Flowers are not rice: they want drained ground, not standing water. A flower plot is not sunk and has no bunds - it lies level with the
+    // land beside the road, its tilled bed a hand higher than the paths that part the plots.)
+    h = flwAt(z) ? mix(h, roadY(z) + 0.12 * (1 - max(kz, kx)), pad) : mix(h, lv - 0.7 + max(kz * (max(ln - lv, 0) + 0.45), kx * 0.45), pad); }
+  // Behind a town's street the land is terraced lane by lane: everything that belongs to one lane - the lane itself, the lots along both sides
+  // of it, their walls and houses - lies at one level, that of the road where the lane leaves it, and the step to the next lane's level is taken
+  // in the last 2.5 m before the line half way between them. (It used to follow the road's height abreast of each point, so on a road that
+  // climbs every lot sloped along its length, and the houses, walls and gate posts - each built level from one point - stood in the air at
+  // their lower end.)
+  if (tw > 0.3 && d > 25) { const s0 = roadX(z + 0.5) - roadX(z - 0.5), b0 = Math.round((z + s0 * (x - rx) - 34) / 36); let ds = 99, zb = 0;
+    for (let b = b0 - 1; b <= b0 + 1; b++) { const zl = b * 36 + 34, s = (roadX(zl + 1) - roadX(zl - 1)) / 2, q = ((x - roadX(zl)) * s + z - zl) / Math.sqrt(1 + s * s); if (abs(q) < abs(ds)) { ds = q; zb = zl; } }
+    // (the street's level - roadYs - not the road's: beside an underpass the road is down in its cutting; and less the dip here, which is put back below)
+    h = mix(h, mix(roadYs(zb), roadYs(zb + (ds > 0 ? 36 : -36)), 0.5 * sm(15.5, 18, abs(ds))) - udip(z), sm(25, 29, d) * sm(0.3, 0.6, tw)); }
   gw[0] = 0; const tt = tunT(z);
   if (hw > 0.001) {
     h += hw * (1 - pad) * sm(7, 70, d) * ((fbm(x * 0.005, z * 0.005) - 0.44) * 58 + (fbm(x * 0.021 + 3, z * 0.021, 3) - 0.5) * 7);
@@ -214,7 +250,10 @@ function ground(x, z) {
   // the wall or behind it. Out past that the ground is made dead level a hand below the street, under the frontage road (left to its own
   // gentle rise and fall it came up through that road's surface in places).
   { const dp = udip(z); if (dp > 0) { const sl = roadSl(z), k = sm(7.0, 8.2, d / Math.sqrt(1 + sl * sl)); h += dp * k;
-      if (dp > 0.02) h = mix(h, roadY(z) + dp - 0.07, sm(0.02, 0.3, dp) * k * (1 - sm(12, 15, d))); } }
+      // (In the mouth of a lane, or of the street that crosses over the underpass, the ground is that lane's own surface, running up to the frontage road:
+      // there it is kept only a finger below, not a hand, or the frontage road stood a step above the street that joins it.)
+      if (dp > 0.02) { const low = d > 8 ? mix(0.025, 0.07, sm(2.3, 4.3, soiD(x, z))) : 0.07;
+        h = mix(h, roadY(z) + dp - low, sm(0.02, 0.3, dp) * k * (1 - sm(12, 15, d))); } } }
   { const w = ism(x, z); if (w > -46) { const k = isBr(z) ? 1 : sm(9.5, 22, d);          // (the road runs out to the bridge's end on a bank of its own, whatever the shore does beside it)
       if (w > 0) { h = mix(h, SEA, k); if (k > 0.97) gw[0] = 1; } else h = mix(h, SEA + 0.3, k * sm(-mix(16, 46, sm(9, 34, d)), 0, w)); } }      // (a long easy slope, but for the embankment that carries the road to the bridge)
   //      // the sea round the island, and the shore going down to it
@@ -228,7 +267,12 @@ const zlim = (z) => isOf(z) && abs(z - IS.zc) < 540 ? 70 : townW(z) > 0.02 ? 50 
 // The cycle is 30 s: 16 green, 3 amber, 11 red (the signal head's shader works the same sum, from the same clock).
 // The lights stand at a real crossroads: one lane in every ten (xroad; tlb in the shaders) is a proper two-lane street crossing the main road, with
 // the shophouse rows held back from its corners. Lane b meets the main road at z = b * 36 + 34.
-const xroad = (b) => { const g = floor(b / 10); return b === g * 10 + 2 + floor(ph(g, 520) * 6); };
-const tlOf = (g) => { const zs = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36 + 34; return townW(zs) > 0.6 && !nearRiv(zs, 24) && !udG(g) ? zs : null; };      // (not where the road goes under instead)
+// - and only well inside the town (townW over 0.9 at it): at the town's edges, where the houses thin out, there are only lanes, and those short (laneLen)
+const xroad = (b) => { const g = floor(b / 10); return b === g * 10 + 2 + floor(ph(g, 520) * 6) && townW(b * 36 + 34) > 0.9 && !laneRiv(b); };
+// A post beside a town street (off metres out on that side) is not stood in the mouth of a lane: where its place along the road falls in one, it is
+// moved along by the least that clears the mouth. (Worked out from z alone, so every chunk agrees where a pole and the next one stand.)
+const clearZ = (z, side, off) => { if (townW(z) < 0.45) return z; for (const d of [0, 5, -5, 8, -8, 11, -11]) { const zz = z + d; if (soiD(roadX(zz) + side * off, zz) > 3.3) return zz; } return z; };
+const laneLen = (zl) => mix(26, 160, sm(0.5, 0.9, townW(zl)));
+const tlOf = (g) => { const zs = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36 + 34; return townW(zs) > 0.9 && !nearRiv(zs, 24) && !udG(g) ? zs : null; };      // (not where the road goes under instead)
 const tlNext = (z, dir) => { for (let g = floor((z - 34) / 360), i = 0; i < 3; i++, g += dir) { const zs = tlOf(g); if (zs !== null && (zs - z) * dir > -4) return [zs, ph(g, 521)]; } return null; };
 const tlState = (off, t) => { const p = (t / 30 + off) % 1; return p > 19 / 30 ? 2 : p > 16 / 30 ? 1 : 0; };

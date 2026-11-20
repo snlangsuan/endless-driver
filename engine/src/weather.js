@@ -44,6 +44,7 @@ function atmos(z) {
   AT.wet = clamp(AT.wet + (AT.rain > 0.05 ? AT.rain * 0.006 : -0.0005), 0, 1);                 // the road stays wet a while after the rain
   AT.dry = sm(0.35, 0.7, vnoise(z / 5200 + 9, 1.7));
   if (chyAt(z)) { const q = z / SEG - floor(z / SEG); AT.dry = mix(AT.dry, 0.22, sm(0, 0.06, q) * sm(1, 0.94, q)); }      // the cherries flower in the cool season: the grass still green, only just beginning to yellow
+  if (flwAt(z)) { const q = z / SEG - floor(z / SEG); AT.dry = mix(AT.dry, 0.25, sm(0, 0.06, q) * sm(1, 0.94, q)); }      // and the flower fields are in bloom in the cool season: left to itself, that is the season there (chosen by hand, another season shows them out of bloom - see fbloom in common.wgsl)
   if (seaMode) AT.dry = [0, 0, 0.25, 0.95][seaMode];                        // a season chosen by hand: green after the rains, just yellowing in the cool, burnt in the hot
   // The mist of early morning (the dawn keys' fog, four times the day's) belongs to damp ground: thick after the rains and in the cool season,
   // all but gone in the hot dry one, when the air is clear from first light (what haze there is then is the day's own).
@@ -62,6 +63,6 @@ function atmos(z) {
   if (windSet >= 0) AT.wind += (windSet * 5.5 * (0.85 + 0.3 * vnoise(time * 0.05, 3.3)) - AT.wind) * 1;      // set by hand: steady at that strength, but for a slow breathing of a sixth either way (a wind never blows quite evenly)
   return AT;
 }
-const seasonName = (z) => (seaMode ? ['', 'ฤดูฝน', 'ฤดูหนาว', 'ฤดูร้อน'][seaMode] + ' (เลือกเอง)' : chyAt(z) ? 'ฤดูหนาว' : AT.dry > 0.5 ? 'ฤดูร้อน' : 'ฤดูฝน');
+const seasonName = (z) => (seaMode ? ['', 'ฤดูฝน', 'ฤดูหนาว', 'ฤดูร้อน'][seaMode] + ' (เลือกเอง)' : chyAt(z) || flwAt(z) ? 'ฤดูหนาว' : AT.dry > 0.5 ? 'ฤดูร้อน' : 'ฤดูฝน');
 const todName = () => (tday < 0.22 || tday >= 0.79 ? 'กลางคืน' : tday < 0.36 ? 'เช้า' : tday < 0.66 ? 'กลางวัน' : 'เย็น');
 

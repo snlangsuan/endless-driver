@@ -35,11 +35,69 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   let v = wp - g.cam.xyz; let d = length(v); let hc = horizon(v / d);
   return mix(c, hc, max(1. - exp(-d * g.fog.x), ss(g.fog.y * .72, g.fog.y, d)));
 }
+// One flower head of kind ft (0 sunflower, 1 hydrangea, 2 tulip, 3 lily, else a plain eight-petalled one), drawn in a square: q from -1 to 1
+// both ways, yv from 0 at its foot to 1 at its top; sd its own seed; col its colour. Returns the colour, and 0 in w where there is no flower.
+fn fhead(ft: f32, q: vec2f, yv: f32, sd: f32, col: vec3f) -> vec4f {
+  let rr = length(q); let an = atan2(q.y, q.x); var alb = col;
+    if (ft < .5) {               // a sunflower: a ring of many narrow petals round a broad dark disc of seeds
+    if (rr > .60 + .36 * abs(cos(an * 9.))) { return vec4f(0.); }
+    alb = mix(col * (.8 + .3 * rr), vec3f(.11, .065, .03) * (.7 + .6 * h2(floor(q * 16.))), ss(.42, .36, rr));
+  } else if (ft < 1.5) {       // a hydrangea's mophead: a dome of small four-petalled florets, each with a pale eye; rounded - lit above, in
+    // shade beneath; here and there a floret not yet open, green-white
+    if (rr > .93 + .05 * sin(an * 11. + sd * 20.)) { return vec4f(0.); }
+    let g2 = q * 4.6 + vec2f(.5 * floor(q.y * 4.6), sd * 3.); let c2 = fract(g2) - .5; let fl = length(c2); let hh = h2(floor(g2) + sd * 31.); let pa = atan2(c2.y, c2.x) + hh * 6.;
+    let pet = ss(.5, .34, fl * (1. + .22 * cos(pa * 4.)));
+    alb = col * (.5 + .55 * pet) * (.82 + .3 * hh) * (.62 + .5 * (q.y * .5 + .5)) * (1. - .3 * rr * rr); alb = mix(alb, vec3f(.80, .82, .62), ss(.09, .03, fl) * .6);
+    alb = mix(alb, vec3f(.62, .72, .45), step(.9, hh) * .6);
+  } else if (ft < 2.5) {       // a tulip, seen from the side: a cup, widest below the middle, three points at the lip
+    let y = yv; if (abs(q.x) > .78 * pow(sin(3.14159 * clamp(y * .8 + .12, 0., 1.)), .55) || y > .80 + .19 * abs(cos(q.x * 4.7))) { return vec4f(0.); }
+    alb = col * (.62 + .5 * y) * (1. - .28 * ss(.07, .0, abs(abs(q.x) - .27)));
+  } else if (ft < 3.5) {       // a lily. Half of them are seen face on - six long pointed petals, three broad and three narrower between,
+    // each with a groove down it, bent back at the tip; a green-yellow throat; freckles toward it; six stamens with rust-brown anthers. The
+    // other half are seen from the side: a trumpet - a narrow tube at the stalk, flaring, the petal tips curling out and back.
+    if (sd < .55) { let k3 = cos(an * 3. + sd * 9.); let len = mix(.74, .96, step(0., k3)); let wd = pow(abs(k3), mix(1.1, .7, step(0., k3)));
+      if (rr > .16 + (len - .16) * wd) { return vec4f(0.); }
+      alb = col * (.80 + .28 * rr) * (1. - .16 * ss(.2, .0, 1. - abs(k3)) * step(.25, rr)); alb = mix(alb, vec3f(.50, .62, .18), ss(.3, .08, rr));
+      alb = mix(alb, col * vec3f(.45, .2, .12), step(.72, h2(floor(q * 26.))) * ss(.5, .25, rr) * step(.16, rr) * .8);
+      let sa = fract(an / 1.0472 + .5 + sd) - .5; alb = mix(alb, vec3f(.42, .16, .04), step(abs(sa), .11) * ss(.06, .02, abs(rr - .38)) + step(abs(sa), .035) * step(rr, .38) * step(.14, rr) * .5);
+    } else { let y = yv; let w = .09 + .62 * pow(y, 2.4) + .2 * ss(.72, 1., y);
+      if (abs(q.x) > w || y > .86 + .13 * cos(q.x * 5.5)) { return vec4f(0.); }
+      alb = col * (.70 + .4 * y) * (1. - .22 * ss(.05, .0, abs(abs(q.x) - w * .45))); alb = mix(alb, vec3f(.36, .50, .16), ss(.3, .05, y));
+      alb = mix(alb, vec3f(.42, .16, .04), step(.9, y) * step(abs(abs(q.x) - .13), .035) * .9); }
+  } else {                     // (elsewhere) eight petals round a dark eye
+    if (rr > .52 + .44 * abs(cos(an * 4.))) { return vec4f(0.); }
+    alb = mix(col * (.75 + .4 * rr) * (.9 + .1 * cos(an * 8.)), col * vec3f(.35, .22, .08), ss(.26, .18, rr)); }
+  return vec4f(alb, 1.);
+}
 @fragment fn fsLeaf(i: LO, @builtin(front_facing) ff: bool) -> @location(0) vec4f {
   var n = normalize(i.n); if (!ff) { n = -n; }
   let L = g.sun.xyz; let V = normalize(g.cam.xyz - i.wp);
   var alb = i.col * mix(.50, 1.18, i.uv.y) * (.74 + .26 * ss(0., .3, abs(i.uv.x)));
   var trv = i.pr.y;
+  if (i.pr.y > 79.) {          // A broad leaf on its stalk, as a sunflower's or a hydrangea's: heart-shaped - broadest a third of the way out, drawn
+    // to a point, a notch where the stalk joins - with a saw-toothed edge, a pale midrib, side veins running out from it toward the edge, the
+    // blade a little quilted between them; matt, darker toward the edge.
+    let sd = (i.pr.y - 80.6) / 4.; trv = .28; let y = i.uv.y; let ax = abs(i.uv.x);
+    let w = pow(max(sin(3.14159 * pow(clamp((y - .1) / .9, 0., 1.), .55)), 0.), .85) * (1. - .22 * y) * (1. - .07 * abs(sin(y * 46. + sd * 20.)));
+    if (y < .1) { if (ax > .05) { discard; } alb = vec3f(.16, .24, .07); }      // the stalk
+    else { if (ax > w) { discard; }
+      let vq = fract(y * 6.5 - ax * 1.9 + sd * 3.) - .5; let vein = ss(.09, .02, abs(vq)) * ss(.02, .12, ax);
+      alb = i.col * (.86 + .22 * (.5 - abs(vq))) * mix(1.08, .8, ax / max(w, .05)) * mix(.92, 1.06, y);
+      alb = mix(alb, vec3f(.12, .21, .06), max(vein * .3, ss(.05, .015, ax) * .7)); }
+  } else
+  if (i.pr.y > 69.) {          // A sprig of a rubber tree: its leaves are of three leaflets - long pointed ovals spread from the end of a thin stalk -
+    // and two such leaves are cut from the card, one above the other. Glossy mid green with a pale midrib; in the dry season the tree 'winters':
+    // the leaves yellow and redden before they fall.
+    let sd = (i.pr.y - 71.) / 4.; trv = .55; let P = vec2f(i.uv.x * .42, i.uv.y); var hit = 0.; var rib = 0.; var tone = 1.;
+    for (var k = 0; k < 2; k++) { let y0 = .08 + .4 * f32(k); let len = .44 - .06 * f32(k); let sway = (fract(sd * 7.3 + f32(k) * .37) - .5) * .5;
+      for (var j = -1; j <= 1; j++) { let a = f32(j) * (.72 + .2 * fract(sd * 3.1)) + sway; let d = vec2f(sin(a), cos(a)); let r = P - vec2f(0., y0) - d * .05;
+        let al = dot(r, d) / len; if (al < 0. || al > 1.) { continue; } let ac = abs(r.x * d.y - r.y * d.x); let hw = len * .2 * pow(sin(3.14159 * pow(al, .8)), .75);
+        if (ac < hw) { hit = 1.; rib = max(rib, ss(.012, .004, ac)); tone = .86 + .22 * f32(j + 1) * .5 + .12 * f32(k) - .25 * ac / max(hw, .01); } } }
+    if (abs(P.x) < .008 && P.y < .5) { hit = 1.; tone = .7; }
+    if (hit < .5) { discard; }
+    alb = i.col * vec3f(.95, 1.15, .75) * tone; alb = mix(alb, vec3f(.30, .36, .12), rib * .7);
+    alb = mix(alb, mix(vec3f(.42, .30, .05), vec3f(.40, .14, .04), fract(sd * 5.7)), g.fog.w * .55 * step(.35, fract(sd * 9.1)));
+  } else
   if (i.pr.y > 49.) {          // A hill of rice, cut from an upright card: a sheaf of long narrow leaves fanning up and out from one foot, green
     // below and paler toward the tips; and when ripe, above them the ears - each a stalk that arches over and hangs outward under its own
     // weight, beaded with grain, gold. (One card shows a dozen leaves and ears: the plain could not be filled leaf by leaf.)
@@ -84,10 +142,8 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
     alb = mix(alb, vec3f(.40, .45, .15), ss(.085, .03, ax));
     alb = mix(alb, vec3f(.24, .17, .07), ss(.8, 1., ax / max(wv, .05)) * ss(.45, .9, sd) * .8);
   } else
-  if (i.pr.y > 19.) {          // a flower seen from above or the side: eight petals round a dark eye
-    trv = .7; let q = vec2f(i.uv.x, i.uv.y * 2. - 1.); let rr = length(q); let an = atan2(q.y, q.x);
-    if (rr > .52 + .44 * abs(cos(an * 4.))) { discard; }
-    alb = mix(i.col * (.75 + .4 * rr) * (.9 + .1 * cos(an * 8.)), i.col * vec3f(.35, .22, .08), ss(.26, .18, rr));
+  if (i.pr.y > 19.) {          // a flower head, cut from a card that faces the eye: which flower is in pr.y (see leafV)
+    trv = .7; let fv = (i.pr.y - 20.) / 2.; let h4 = fhead(floor(fv), vec2f(i.uv.x, i.uv.y * 2. - 1.), i.uv.y, clamp((fract(fv) - .05) / .8, 0., 1.), i.col); if (h4.w < .5) { discard; } alb = h4.rgb;
   } else
   if (i.pr.y > 9.) {           // casuarina: a hanging spray of long thin needles
     trv = 1.;
@@ -139,6 +195,19 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
     alb *= .55 + .9 * ss(.25, .75, fur);                                                             // deep in the furrows it is dark
     alb = mix(alb, vec3f(.30, .33, .25), ss(.62, .8, vn(i.wp.xy * 1.7 + i.wp.z)) * .55);              // pale lichen
     alb *= (.8 + .2 * vn(vec2f(i.uv.x * 7., i.uv.y * 11.))) * (1. - .35 * g.amb.w);                                             // cross cracks
+    // a rubber tree's bark (every tree back from the road in a rubber plantation is one): smooth, pale grey-brown, blotched with paler lichen and
+    // a little green - not the dark furrowed bark of the other trees
+    let rb = rub(i.wp.z); if (rb > .5 && abs(rdist(i.wp.xz)) > 10.5) { let bl = vn(i.wp.xy * 2.3 + i.wp.z * 1.7);
+      alb = mix(vec3f(.21, .185, .15), vec3f(.36, .34, .29), ss(.35, .7, bl)) * (.85 + .25 * fur) * (.9 + .2 * vn(vec2f(i.uv.x * 5., i.uv.y * 14.)));
+      alb = mix(alb, vec3f(.24, .29, .19), ss(.66, .85, vn(i.wp.xy * 1.1 + 7. + i.wp.z)) * .45) * (1. - .3 * g.amb.w); nb = normalize(mix(nb, n, .6)); }
+    // an oil palm's trunk (every plant back from the road in an oil palm plantation is one): not bark but the weathered butts of its old fronds,
+    // lozenges in rows that step round the trunk - grey-brown and fibrous, pale on their upper faces, black in the gaps between, moss in patches
+    if (oilp(i.wp.z) > .5 && abs(rdist(i.wp.xz)) > 10.5) { let row = floor(i.uv.y / .2); let qx = i.uv.x * 9. + row * .5; let cx = fract(qx) - .5; let cy = fract(i.uv.y / .2) - .5;
+      let hh = h2(vec2f(floor(qx), row)); let dm = abs(cx) * 1.25 + abs(cy);
+      alb = mix(vec3f(.19, .15, .11), vec3f(.34, .29, .22), hh) * (.75 + .35 * fur) * (.8 + .5 * (cy + .5));
+      alb = mix(alb, vec3f(.030, .024, .018), ss(.5, .72, dm));
+      alb = mix(alb, vec3f(.10, .15, .055), ss(.6, .82, vn(i.wp.xy * 1.4 + i.wp.z * 1.1)) * .5 * (1. - ss(.5, .72, dm))) * (1. - .3 * g.amb.w);
+      nb = normalize(n + vec3f(0., -cy * 1.1, 0.) + normalize(cross(vec3f(0., 1., 0.), n) + vec3f(1e-4, 0., 0.)) * cx * .9); }
   }
   if (i.m > .5) { alb = vec3f(.40, .39, .37) * (.8 + .3 * vn(i.wp.xy * 9.)); }
   if (i.m > 1.5) { alb = vec3f(.012); }
@@ -154,6 +223,8 @@ fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   if (i.m > 10.5) { let st = vn(vec2f(i.uv.x * 30., i.uv.y * 1.1)); alb = mix(vec3f(.30, .38, .11), vec3f(.46, .47, .20), st); alb = mix(alb, vec3f(.30, .21, .10), ss(.5, .8, vn(vec2f(i.uv.x * 6., i.uv.y * 1.4))) * .6); }      // top of the stem: yellow-green sheaths, streaked brown      // banana stem: pale green, with brown dried sheaths
   if (i.m > 11.5) { let age = fract(i.m); let young = mix(vec3f(.07, .17, .025), vec3f(.13, .24, .04), fur); let old = mix(vec3f(.42, .30, .05), vec3f(.52, .26, .04), fur);      // a coconut: green, ripening through yellow to orange
     alb = mix(young, old, ss(.45, .8, age)) * (.85 + .25 * vn(i.wp.xy * 23.)); alb = mix(alb, vec3f(.20, .14, .07), ss(.6, .85, vn(i.wp.xz * 31. + i.wp.y * 17.)) * .35); }      // scuffed brown here and there
+  // a bunch of oil palm fruit: close-packed, purple-black where the fruits are shaded and unripe, orange-red where they have ripened, bristling
+  if (i.m > 13.5) { let rp = ss(.42, .7, vn(i.wp.xz * 6. + i.wp.y * 4.)); alb = mix(vec3f(.035, .018, .030), vec3f(.36, .11, .025), rp) * (.6 + .8 * vn(i.wp.xy * 37. + i.wp.z * 29.)); }
   let E = g.sunCol.rgb * shadowF(i.wp + n * .08);
   var c = alb * (E * max(dot(nb, L), 0.) + sky(nb) * .8) + alb * head(i.wp, nb);
   return vec4f(fogged(c, i.wp), 1.);
@@ -409,10 +480,11 @@ fn pal(h: f32) -> vec3f {
   else if (mat == 47) {      // a concrete slab carrying a road along its length (local x): asphalt down the middle with a broken yellow centre line and white edge lines; bare concrete beside it and on its sides
     let n4 = vn(i.wp.xz * 14.); alb = vec3f(.40, .39, .37) * (.8 + .3 * n4) * (.9 + .15 * vn(uv * 1.3));
     if (i.ln.y > .5) {
-      let az = abs(i.lp.z); var road = vec3f(.034, .035, .038) * (.72 + .5 * n4) * (.85 + .3 * vn(i.wp.xz * .55));
-      road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, abs(az - 3.1)));
-      road = mix(road, vec3f(.58, .42, .04), ss(.09, .05, az) * step(.5, fract((i.wp.x + i.wp.z) * .12)));
-      let ax = abs(i.lp.x); road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, abs(ax - 5.5)) * step(3.6, az));      // the frontage roads crossing it, their inner edge lines stopping at the cross street
+      // (The cross street meets a frontage road on each side of the cutting, ten metres apart: the whole of it up here is one crossroads, so no
+      // line of the cross street's is painted on it - an edge line or a centre line here was a solid line drawn across the junction. Nor is there a stop line across
+      // the frontage roads: tried, a white bar across a lane read as the lane being closed.)
+      let az = abs(i.lp.z); let ax = abs(i.lp.x); var road = vec3f(.034, .035, .038) * (.72 + .5 * n4) * (.85 + .3 * vn(i.wp.xz * .55));
+      road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, abs(ax - 5.5)) * step(3.6, az));      // the frontage roads crossing it, their inner edge lines stopping at the cross street
       alb = mix(alb, road, max(1. - ss(3.5, 3.6, az), step(5.2, ax) * (1. - ss(9.1, 9.2, ax)))); gloss = .22;
     }
   }
@@ -420,10 +492,12 @@ fn pal(h: f32) -> vec3f {
     let n4 = vn(i.wp.xz * 14.); alb = vec3f(.40, .39, .37) * (.8 + .3 * n4);
     if (i.ln.y > .5) {
       let pd = 7.9 + i.lp.x * sd; var road = vec3f(.034, .035, .038) * (.72 + .5 * n4) * (.85 + .3 * vn(i.wp.xz * .55));      // pd: metres out from the road's middle, square to it (the box is 5.4 wide about 7.9; its seed is its side)
-      road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, min(abs(pd - 5.5), abs(pd - 8.6))));
+      // (where a lane or the cross street over the underpass joins it, the asphalt runs on across the footpath's strip to meet that street's own, and the outer edge line stops)
+      let so = soi(i.wp.xz); let lw = 1.85 + 1.65 * tlb(so.z); let xm = 1. - ss(lw, lw + .2, abs(so.x));
+      road = mix(road, vec3f(.52, .52, .48), max(ss(.08, .04, abs(pd - 5.5)), ss(.08, .04, abs(pd - 8.6)) * (1. - xm)));
       let tq = fract(i.wp.xz / .4); let joint = ss(0., .06, min(min(tq.x, 1. - tq.x), min(tq.y, 1. - tq.y)));
       let tile = mix(vec3f(.34, .33, .32), vec3f(.40, .27, .22), step(.5, fract((floor(i.wp.x / .4) + floor(i.wp.z / .4)) * .5)) * .55) * (.8 + .25 * n4) * (.68 + .32 * joint);
-      alb = mix(road, tile, ss(9.12, 9.18, pd)); gloss = .22 * (1. - ss(9.12, 9.18, pd));      // beyond the kerb line, the footpath's paving
+      let pv = ss(9.12, 9.18, pd) * (1. - xm); alb = mix(road, tile, pv); gloss = .22 * (1. - pv);      // beyond the kerb line, the footpath's paving
     }
   }
   else if (mat == 44) {      // a shop ceiling: white tiles, set with rows of light panels that are on day and night
@@ -468,12 +542,14 @@ fn pal(h: f32) -> vec3f {
     // under it a row of small figures (the telephone number). A lightbox at night, unless the height slot is negative (road signs are not lit).
     var q = i.lp.xy; if (abs(i.ln.x) > .5) { q = i.lp.zy; }
     if (i.ln.z < -.5 || i.ln.x > .5) { q.x = -q.x; }                 // so the words read the right way round on every face
+    // (a seed of 3 or more names the road word itself: 3 + its number among the sixteen, and the fraction is the seed for the board's colour)
+    let named = sd >= 3.; let sd0 = sd; let sd = select(sd0, fract(sd0), named);
     let hgt = abs(i.m.z); var bg = pal2(sd); var fg = vec3f(.95, .93, .86); let brand = sd > 1.5;      // (seed 2: the convenience store's board, see below)
     if (dot(bg, vec3f(.3, .6, .1)) > .45) { fg = mix(vec3f(.60, .04, .04), vec3f(.05, .13, .45), step(.5, h2(vec2f(sd * 13., 2.)))); }      // on yellow or white: red or blue letters
     if (i.m.z < 0. && dot(bg, vec3f(.3, .6, .1)) > .45) { fg = vec3f(.04); }
     // which words: a shop name (0-47) or, on a road board, one of the road words (48-63); written across, or downward on a tall board
     var wd = hgt * 4.; if (i.m.w > 10.05) { wd = i.m.w - 10.; }
-    var idx = floor(h2(vec2f(sd * 91., 5.)) * 46.99); if (i.m.z < 0.) { idx = 48. + floor(h2(vec2f(sd * 57., 9.)) * 15.99); }
+    var idx = floor(h2(vec2f(sd * 91., 5.)) * 46.99); if (i.m.z < 0.) { idx = 48. + floor(h2(vec2f(sd * 57., 9.)) * 15.99); } if (named) { idx = 48. + floor(sd0 - 3.); }
     if (brand) { idx = 47.; bg = vec3f(.24, .07, .36); fg = vec3f(.97, .96, .92); }      // the made-up chain's colours: purple, white letters, a yellow line above and below
     var ink = 0.;
     if (hgt > wd * 1.4) {

@@ -52,9 +52,9 @@ function cricket(t, vol) {      // a chirp of three or four quick pulses
 // the mouth. So each sound is made of a harsh tone and a breath of noise together, passed through two resonances that stand for the mouth (they
 // open as the bark opens), roughened by a fast flutter, and then - since these dogs are somewhere off in the dark - dulled by distance and
 // followed by a faint echo off the houses.
-function dogOut(pan, far) {      // far: 0.35 (a long way off) .. 1 (near)
+function dogOut(pan, far, echo = 1) {      // far: 0.35 (a long way off) .. 1 (near); echo: 0 for none (barks are dry)
   const lp = AC.createBiquadFilter(), g = AC.createGain(), dl = AC.createDelay(0.5), dg = AC.createGain(); lp.type = 'lowpass'; lp.frequency.value = 600 + 1300 * far * far; lp.Q.value = 0.5; g.gain.value = 1;      // (always a long way off: dull, the edges gone)
-  dl.delayTime.value = 0.21 + 0.2 * (1 - far); dg.gain.value = 0.2 + 0.15 * (1 - far);
+  dl.delayTime.value = 0.21 + 0.2 * (1 - far); dg.gain.value = (0.2 + 0.15 * (1 - far)) * echo;
   lp.connect(g); lp.connect(dl); dl.connect(dg); dg.connect(g);      // (the echo comes back more than once, fading: open country and house walls)
   let out = g; if (AC.createStereoPanner) { const pn = AC.createStereoPanner(); pn.pan.value = pan; g.connect(pn); out = pn; }
   out.connect(SND.fx); return lp;
@@ -78,33 +78,40 @@ function howl(t, f, d, vol, dest) {      // one howl: f its highest held note (H
   o.connect(env); o2.connect(g2); g2.connect(env); n.connect(nf); nf.connect(ng); ng.connect(env); env.connect(dest);
   for (const x of [o, o2]) { x.start(t); x.stop(t + d + 0.05); } n.start(t, Math.random() * 3); n.stop(t + d + 0.05);
 }
-// Barks, likewise shaped after a measured recording of dogs barking (nothing of the recording is used). A bark heard across a village turned out
-// to be nothing like the harsh falling buzz first guessed: it is a short clear yelp of a note, 0.11 to 0.15 s long, loudest 0.03 s in; its pitch
-// RISES through it, from about 450 Hz to 550-600; nearly all its sound lies in a narrow band about that note, with a weaker overtone an octave
-// up and a trace of the next. They come in runs, about 0.27 s from one to the next, with pauses of a second or so between runs; and now and
-// then one is drawn out for half a second, holding its note and sagging a little.
-function bark(t, f, d, vol, dest) {      // one bark: f the note it ends on (Hz), d its length (s)
-  const env = AC.createGain(), long = d > 0.25;
-  env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(vol, t + 0.03); env.gain.linearRampToValueAtTime(vol * (long ? 0.8 : 0.45), t + d * 0.6); env.gain.linearRampToValueAtTime(0, t + d);
-  for (const [k, g] of [[1, 1], [2, 0.32], [3, 0.1]]) { const o = AC.createOscillator(), og = AC.createGain(), F = o.frequency; o.type = 'sine'; og.gain.value = g;
-    F.setValueAtTime(f * 0.78 * k, t); F.exponentialRampToValueAtTime(f * 0.95 * k, t + Math.min(0.05, d * 0.4));
-    if (long) { F.linearRampToValueAtTime(f * k, t + d * 0.4); F.linearRampToValueAtTime(f * 0.9 * k, t + d); } else F.linearRampToValueAtTime(f * 1.04 * k, t + d);
-    o.connect(og); og.connect(env); o.start(t); o.stop(t + d + 0.03); }
-  const n = AC.createBufferSource(), nf = AC.createBiquadFilter(), ng = AC.createGain(); n.buffer = SND.nb; n.loop = true; nf.type = 'bandpass'; nf.frequency.value = f * 2; nf.Q.value = 1.5; ng.gain.value = 0.12;      // a little breath at the start
-  ng.gain.setValueAtTime(0.25, t); ng.gain.linearRampToValueAtTime(0.04, t + 0.05); n.connect(nf); nf.connect(ng); ng.connect(env); n.start(t, Math.random() * 3); n.stop(t + d + 0.03);
-  env.connect(dest);
+// Barks. Five ways of making a bark out of tones and noise were tried, each tuned until it measured like a recording of village dogs - as long,
+// as high, as rough, as noisy - and each was something else to the ear: a beep, a ghost, a seal. What makes a bark a bark is in finer detail
+// than such measures hold. So the barks are no longer made up: eight real ones are written down closely (barkdata.js - 26 narrow bands, level
+// and phase of each 200 times a second) and built again from those numbers, once, the first time a dog barks. A dog's own voice is that
+// played a little faster or slower.
+let BARKB = null;
+function barkBufs() {
+  if (BARKB) return BARKB; BARKB = []; if (typeof BARK_DATA === 'undefined') return BARKB;
+  const D = BARK_DATA, sr = AC.sampleRate;
+  for (const s of D.barks) { const raw = atob(s), nf = raw.length / (D.nb * 2), n = floor((nf - 1) / D.fr * sr), buf = AC.createBuffer(1, n, sr), o = buf.getChannelData(0), re = new Float32Array(nf), im = new Float32Array(nf);
+    for (let b = 0; b < D.nb; b++) { const w = TAU * (D.f0 + D.bw * b) / sr;
+      for (let f = 0; f < nf; f++) { const k = (b * nf + f) * 2, x = raw.charCodeAt(k), y = raw.charCodeAt(k + 1); re[f] = (x > 127 ? x - 256 : x) / 127; im[f] = (y > 127 ? y - 256 : y) / 127; }
+      for (let i = 0; i < n; i++) { const x = i * D.fr / sr, f = floor(x), u = x - f, g = min(f + 1, nf - 1); o[i] += (re[f] + (re[g] - re[f]) * u) * cos(w * i) - (im[f] + (im[g] - im[f]) * u) * sin(w * i); } }
+    let m = 0; for (let i = 0; i < n; i++) m = max(m, abs(o[i])); for (let i = 0; i < n; i++) o[i] /= m || 1;
+    BARKB.push(buf); }
+  return BARKB;
 }
-function barks(t, v, dest) {      // a dog barking: one to three runs of two to five barks, all on its own note
-  const f = rnd(520, 620); let a = t;
-  for (let r = 0, nr = 1 + floor(rnd(0, 2.6)); r < nr; r++) { const n = 2 + floor(rnd(0, 4));
-    for (let i = 0; i < n; i++) { const long = Math.random() < 0.08, d = long ? rnd(0.35, 0.7) : rnd(0.11, 0.15); bark(a, f * rnd(0.95, 1.06) * (long ? 0.88 : 1), d, v * rnd(0.75, 1), dest); a += long ? d + 0.15 : rnd(0.24, 0.31); }
-    a += rnd(0.6, 1.3); }
+function bark(t, k0, vol, dest) {      // one bark: k0 this dog's own voice (1 = as written down; higher is a smaller dog)
+  const B = barkBufs(); if (!B.length) return 0; const buf = B[floor(Math.random() * B.length)], src = AC.createBufferSource(), g = AC.createGain();
+  src.buffer = buf; src.playbackRate.value = k0; g.gain.value = vol * 1.3; src.connect(g); g.connect(dest); src.start(t); return buf.duration / k0;
+}
+// A dog barking, in the rhythm measured: runs of barks 0.2 to 0.47 s from one to the next (most often 0.29) - usually two or three to a run,
+// now and then as many as ten - and between runs a pause of two thirds of a second to a few seconds. One to three runs, all in its own voice.
+function barks(t, v, dest) {
+  const k0 = rnd(0.9, 1.1); let a = t;
+  for (let r = 0, nr = 1 + floor(rnd(0, 2.6)); r < nr; r++) { let n = 1; while (n < 10 && Math.random() < 0.66) n++;
+    for (let i = 0; i < n; i++) { bark(a, k0 * rnd(0.97, 1.03), v * rnd(0.75, 1), dest); a += 0.2 + 0.27 * Math.pow(Math.random(), 1.6); }
+    a += rnd(0.5, 1.6); }
 }
 // One dog at a time, doing one thing: barking (three times in five) or howling - never one over the other, which made a muddle.
-// test: played at once and plainly, for listening to (keys B: a howl, N: barking).
+// test ('howl' or 'bark'): played at once and plainly, for listening to (no key calls it now).
 function dogVoice(t, vol, test = '') {
-  const pan = test ? 0 : rnd(-0.9, 0.9), far = test ? 1 : rnd(0.35, 1), dest = dogOut(pan, far), v = test ? 0.5 : vol * (0.35 + 0.65 * far) * 0.3;
-  if (test === 'bark' || (!test && Math.random() < 0.6)) { barks(t, v * 0.6, dest); return; }
+  const isBark = test === 'bark' || (!test && Math.random() < 0.6), pan = test ? 0 : rnd(-0.9, 0.9), far = test ? 1 : rnd(0.35, 1), dest = dogOut(pan, far, isBark ? 0 : 1), v = test ? 0.5 : vol * (0.35 + 0.65 * far) * 0.3;
+  if (isBark) { barks(t, v * 0.6, dest); return; }
   let a = t; for (let i = 0, n = 1 + floor(rnd(0, 2)); i < n; i++) { const d = rnd(1.4, 3); howl(a, rnd(360, 560), d, v * 0.5, dest); a += d + rnd(0.6, 1.9); }
 }
 function updateSound(dt) {

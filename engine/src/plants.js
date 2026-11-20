@@ -44,7 +44,7 @@ function makeTree(seed, o) {
     const f = R(), a = i < t.length - 1 ? t[i] : t[i - 1], b = i < t.length - 1 ? t[i + 1] : t[i];
     const x = mix(a[0], b[0], f), y = mix(a[1], b[1], f), z = mix(a[2], b[2], f);
     const dist = hypot(x - cx, y - cy, z - cz) / rad, shade = 0.42 + 0.58 * clamp((dist - 0.25) / 0.6, 0, 1), L = o.leaf * (0.7 + R() * 0.6);
-    leaves.push(x, y, z, L, R() * TAU, -0.35 + R() * 1.1, L * o.wide, 0.5 + R() * 1.0, o.bloom && R() < o.bloom ? 10 : 0, R(), shade, y);      // (o.bloom: that share of the sprigs are sprays of blossom)
+    leaves.push(x, y, z, L, R() * TAU, -0.35 + R() * 1.1, L * o.wide, 0.5 + R() * 1.0, o.bloom && R() < o.bloom ? 10 : o.kind || 0, R(), shade, y);      // (o.bloom: that share of the sprigs are sprays of blossom)
   }
   shuffleLeaves(leaves, R);
   const all = [].concat(segs[0], segs[1], segs[2], segs[3]);
@@ -94,6 +94,43 @@ function makePalm(seed) {
   }
   shuffleLeaves(leaves, R);
   return { segs: new Float32Array(segs), nSeg: segs.length / 10, nSegFar: nTrunk + 114, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
+}
+// oil palm (ปาล์มน้ำมัน), as a plantation grows it: a short stout trunk, knobbly all the way up with the butts of the fronds that were cut from it;
+// a great head of some two dozen long feathered fronds - the young ones standing up, the rest arching out and down under their own weight, the
+// oldest hanging dry; and tucked in among the frond butts at the top of the trunk the fruit: heavy dark bunches, two to four of them.
+function makeOilPalm(seed) {
+  const R = rng(seed), segs = [], spikes = [], leaves = [], Hh = 5.2 + R() * 2.6, lean = (R() - 0.5) * 0.05, la = R() * TAU;
+  const tp = (t) => [cos(la) * lean * Hh * t, t * Hh - 0.3, sin(la) * lean * Hh * t];
+  for (let i = 0; i < 12; i++) { const a = tp(i / 12), b = tp((i + 1) / 12), kn = i % 2 ? 0.035 : 0; segs.push(a[0], a[1], a[2], 0.36 + kn + (i === 0 ? 0.08 : 0), b[0], b[1], b[2], 0.36 + (kn ? 0 : 0.035), max(a[1], 0), b[1]); }
+  const top = tp(1);
+  for (let k = 0; k < 16; k++) { const a = k * 2.39996, y = top[1] - 0.15 - k * 0.14, c = tp((y + 0.3) / Hh), dx = cos(a), dz = sin(a);      // the cut frond butts just under the head: short stubs standing out and up
+    segs.push(c[0] + dx * 0.3, y, c[2] + dz * 0.3, 0.085, c[0] + dx * 0.55, y + 0.22, c[2] + dz * 0.55, 0.06, max(y, 0), max(y + 0.22, 0)); }
+  for (let bn = 0, nb = 2 + floor(R() * 2.99); bn < nb; bn++) {      // the fruit bunches: an egg of close-packed fruit half a metre long, purple-black, sitting on the frond butts
+    const a = bn * TAU / nb + R() * 0.9, bx = top[0] + cos(a) * 0.52, bz = top[2] + sin(a) * 0.52, by = top[1] - 0.25 - R() * 0.25, SW = -2 - top[1], s = 0.85 + R() * 0.35, ox = cos(a) * 0.1, oz = sin(a) * 0.1;
+    const q = (t) => [bx + ox * t, by - 0.5 * s * t, bz + oz * t], p0 = q(0), p1 = q(0.3), p2 = q(0.7), p3 = q(1);
+    for (let k = 0; k < 10; k++) { const t = 0.15 + 0.75 * R(), c0 = q(t), an = R() * TAU, rr = 0.19 * s * sin(PI * (0.12 + 0.8 * t)), ux = cos(an), uz = sin(an), uy = (R() - 0.5) * 0.8; spikes.push(c0[0] + ux * rr, c0[1] + uy * rr * 0.4, c0[2] + uz * rr, 0.016, c0[0] + ux * (rr + 0.11), c0[1] + uy * (rr + 0.11) * 0.4 - 0.02, c0[2] + uz * (rr + 0.11), 0.004, SW, 13); }      // its spines: the bunch bristles
+    segs.push(p0[0], p0[1], p0[2], 0.1 * s, p1[0], p1[1], p1[2], 0.2 * s, SW, 13, p1[0], p1[1], p1[2], 0.2 * s, p2[0], p2[1], p2[2], 0.19 * s, SW, 13, p2[0], p2[1], p2[2], 0.19 * s, p3[0], p3[1], p3[2], 0.06 * s, SW, 13); }
+  const nTrunk = segs.length / 10, NF = 24;
+  for (let k = 0; k < NF; k++) {
+    const dead = k >= NF - 3, f = k / (NF - 1), a = k * 2.39996 + R() * 0.3, el = dead ? -0.75 - R() * 0.2 : 1.15 - f * 1.35 + (R() - 0.5) * 0.2, L = 4.6 + R() * 1.2, dx = cos(a) * cos(el), dy = sin(el), dz = cos(el) * sin(a), sag = dead ? 0.1 : 0.28 + f * 0.3;
+    const rib = (t) => [top[0] + dx * L * t, top[1] + 0.15 + dy * L * t - t * t * L * sag, top[2] + dz * L * t];
+    for (let i = 0; i < 5; i++) { const p = rib(i / 5), q = rib((i + 1) / 5); segs.push(p[0], p[1], p[2], 0.06 - 0.009 * i, q[0], q[1], q[2], 0.051 - 0.009 * i, p[1], q[1]); }
+    for (let j = 0; j < 20; j++) for (const s of [1, -1]) {      // (the leaflets stand out in two ranks, one lifted and one flat: the frond looks feathery, not combed)
+      const t = 0.16 + 0.84 * (j + 0.5) / 20, p = rib(t), ll = L * (0.09 + 0.15 * sin(PI * Math.pow(t, 0.75)));
+      leaves.push(p[0], p[1], p[2], ll, a + s * (1.3 - t * 0.3), (j & 1 ? 0.15 : -0.3) - R() * 0.25, 0.05, 0.9 + R() * 0.7, dead ? 7 : 1, R(), 0.55 + 0.45 * t, p[1]);
+    }
+  }
+  // Ferns: an oil palm's trunk is a garden of them - they root in the mould that gathers behind the old frond butts. A dozen or so small bright
+  // fronds arching out of the upper trunk. (Leaflet-shaped leaves, short and broad, drooping at the tip.)
+  for (let k = 0; k < 18; k++) { const hh = (0.3 + 0.65 * R()) * (Hh - 0.3), c0 = tp((hh + 0.3) / Hh), an = R() * TAU, L = 0.7 + R() * 0.55;
+    leaves.push(c0[0] + cos(an) * 0.33, hh, c0[2] + sin(an) * 0.33, L, an, 0.3 + R() * 0.5, 0.13, 1.6 + R() * 0.8, 1, R() * 0.5, 1, hh); }      // (kind 1, as the palm's own leaflets are: the kinds drawn as grass blades take their height another way and would be blown off the trunk)
+  shuffleLeaves(leaves, R);
+  // The trunk is clad all the way down in the butts of old fronds, set round it in spirals: each a short thick stub standing out and up. (With
+  // the spines, among the pieces drawn only from near to; from far off the trunk's paint - fsBranch - carries the pattern.)
+  for (let k = 0, y = 0.25; y < top[1] - 2.3; k++, y += 0.105) { const a = k * 2.39996, c = tp((y + 0.3) / Hh), dx = cos(a), dz = sin(a), o = 0.3 + (y < 0.6 ? 0.07 : 0);
+    spikes.push(c[0] + dx * o, y, c[2] + dz * o, 0.1, c[0] + dx * (o + 0.2), y + 0.2, c[2] + dz * (o + 0.2), 0.06, max(y, 0), y + 0.2); }
+  for (const v of spikes) segs.push(v);      // (last: drawn only from near to)
+  return { segs: new Float32Array(segs), nSeg: segs.length / 10, nSegFar: nTrunk + NF * 5, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
 // sugar palm (ต้นตาล): a tall straight trunk and a round head of stiff fans
 function makeSugarPalm(seed) {

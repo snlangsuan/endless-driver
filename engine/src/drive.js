@@ -10,7 +10,20 @@ function drive(dt) {
     const dirz = cos(car.yaw) >= 0 ? 1 : -1, sl0 = roadSl(car.z), nn = Math.sqrt(1 + sl0 * sl0), va = abs(car.v);
     const hd = (zq) => atan2(roadSl(zq) * dirz, dirz), wrap = (q) => q - Math.round(q / TAU) * TAU;
     const pv = (0.5 + va * 0.08) / nn, th = hd(car.z + dirz * pv), kap = wrap(hd(car.z + dirz * (pv + 1.5 / nn)) - hd(car.z + dirz * (pv - 1.5 / nn))) / 3;
-    const e = rdist(car.x, car.z) * dirz - 1.7;                       // how far to the left of the lane's middle the car is
+    // Something solid standing in the lane ahead - a thing left on the road, a wall's corner, a parked machine out too far - is steered round:
+    // the car looks along its line as far as it needs to stop in (and a little more), and if that line is not clear it takes the nearest line
+    // across the road that is - nearer the middle first, then the other lane (nothing comes the other way), then out by the edge - goes round
+    // at a walking-to-town pace, and comes back to its lane when the lane is clear again. If no line is clear it stops short of the thing.
+    // (Looked at every fourth frame: it is a search through everything solid nearby. auto.lat is the line being driven, metres left of the
+    // road's middle; auto.stopIn how far off the thing is that nothing gets round.)
+    if (auto.lat === undefined) { auto.lat = 1.7; auto.aim = 1.7; auto.stopIn = -1; auto.tick = 0; }
+    if (auto.tick++ % 4 === 0) { const look = 9 + va * 1.5 + va * va / 12, yq = car.y;
+      const cur = rdist(car.x, car.z) * dirz;      // (near the car the line asked about starts from where the car is, and is over on L by 8 m ahead)
+      const clearTo = (L) => { for (let s = 3.5; s < look; s += 2.5) { const q = rp(car.z + dirz * s / nn, mix(cur, L, min(1, s / 8)) * dirz); if (solidAt(q[0], q[1], surf(q[0], q[1], yq), 1.2) > 0) return s; } return -1; };
+      const own = clearTo(1.7); auto.stopIn = -1;
+      if (own < 0) auto.aim = 1.7; else { let best = null; for (const L of [auto.aim, 0.7, -0.5, -1.7, 2.5]) if (L !== 1.7 && clearTo(L) < 0) { best = L; break; } if (best === null) auto.stopIn = own; else auto.aim = best; } }
+    auto.lat += clamp(auto.aim - auto.lat, -dt * 2.2, dt * 2.2);
+    const e = rdist(car.x, car.z) * dirz - auto.lat;                       // how far to the left of the line it is driving the car is
     const rate = 1.7 * clamp(car.v / 5, -1, 1) / (1 + va * 0.03);     // how fast full lock turns the car (the same rule as below)
     st = clamp(car.v * kap / max(rate, 0.2) + wrap(th - atan2(e * 2.0, 3 + va * 0.35) - car.yaw) * 3.2, -1, 1);
     const kv = (zq) => abs(roadX(zq + 4) - 2 * roadX(zq) + roadX(zq - 4)) / 16 / Math.pow(1 + roadSl(zq) ** 2, 1.5);
@@ -21,6 +34,7 @@ function drive(dt) {
     const tl = tlNext(car.z, dirz); hold = false;
     if (tl) { const dist = (tl[0] - car.z) * dirz * nn - 10.9, sg = tlState(tl[1], time);            // from the car's nose to the line
       if (dist > -1.5 && (sg === 2 || (sg === 1 && dist > car.v * car.v / 10))) { vt = min(vt, dist < 0.4 ? 0 : Math.sqrt(2 * 2.4 * dist)); hold = dist < 0.4; } }          // never over the driver's own limit, nor the sign's, nor what the bend allows
+    if (abs(auto.lat - 1.7) > 0.15 || auto.aim !== 1.7) vt = min(vt, 9); if (auto.stopIn >= 0) { vt = min(vt, auto.stopIn < 5.5 ? 0 : Math.sqrt(2 * 2.4 * (auto.stopIn - 5.5))); }      // round a thing: slowly; nothing gets round: stop short of it
     const dv = vt - car.v; thr = dv > 0.3 ? min(1, dv * 0.6) : dv < -1.5 ? -1 : 0; if (hold && car.v > 0.2) thr = -1;
   }
   car.v += (thr > 0 ? (K('ShiftLeft') ? 13 : 8) * thr : thr < 0 ? (car.v > 0.5 ? (auto.on ? -7 : -18) : auto.on ? 0 : -5) : 0) * dt;
@@ -72,6 +86,6 @@ function flyMove(dt) {
   else fly.y = max(fly.y, ground(fly.x, fly.z) + 0.8);
 }
 // The second and third lines of the text at the top left: where the car is, the hour and the weather, the speed, the self-driving.
-const hudInfo = () => `${isOf(car.z) && abs(car.z - IS.zc) < 525 ? (isBr(car.z) ? 'สะพานแขวนข้ามทะเล' : 'เกาะ') : inTun(car.z) ? 'อุโมงค์ลอดเขา' : udip(car.z) > 1 ? 'ทางลอด' : chyAt(car.z) ? 'ถนนพญาเสือโคร่ง' : hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? 'ทุ่งหิมะ' : flwAt(car.z) ? 'ทุ่งดอกไม้และนาข้าว' : 'ทุ่งนา'} · ${todName()} ${wxName()} ${seasonName(car.z)} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'} (จำกัด ${auto.limit} km/h) · ป้าย ${zlim(car.z)}`;
+const hudInfo = () => `${isOf(car.z) && abs(car.z - IS.zc) < 525 ? (isBr(car.z) ? 'สะพานแขวนข้ามทะเล' : 'เกาะ') : inTun(car.z) ? 'อุโมงค์ลอดเขา' : udip(car.z) > 1 ? 'ทางลอด' : chyAt(car.z) ? 'ถนนพญาเสือโคร่ง' : hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? 'ทุ่งหิมะ' : flwAt(car.z) ? ['ทุ่งทานตะวัน', 'ทุ่งไฮเดรนเยีย', 'ทุ่งทิวลิป', 'ทุ่งลิลลี่'][flwKind(car.z)] : rubW(car.z) > 0.5 ? 'สวนยางพารา' : oilW(car.z) > 0.5 ? 'สวนปาล์มน้ำมัน' : 'ทุ่งนา'} · ${todName()} ${wxName()} ${seasonName(car.z)} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'} (จำกัด ${auto.limit} km/h) · ป้าย ${zlim(car.z)}`;
 // Under cover (inside a tunnel, beneath the slab of an underpass): no rain or snow crosses the view there, and the sounds of outdoors fall away.
 const underCover = (cx2, cy2, cz2) => (inTun(cz2) && abs(cx2 - roadX(cz2)) < 5 && cy2 < roadY(cz2) + 6.5) || (udOf(cz2) && abs(cz2 - UD.zc) < 15 && cy2 < roadY(cz2) + 5.2);
