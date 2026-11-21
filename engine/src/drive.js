@@ -1,13 +1,22 @@
 // --------------------------------------------------------------------------------------------------------- driving (Endless)
 // The car on the one long road: steering by hand or by the self-driving, what stops it, the flying camera, and the lines of text at the top left.
 let hold = false;
+const alongRoad = (h) => (cos(h - Math.atan2(roadSl(car.z), 1)) >= 0 ? 1 : -1);      // +1 going the way z grows along the road, -1 the other
+// The weather in the tyres. grip: 1 on a dry road; a wet one - in the rain and for a while after, as long as the road stays wet - grips at 70%,
+// and the snowfield's road in the cool season at 45%. Cornering speed goes as the square root of it (15% less when wet, 30% on snow), the brakes
+// take longer to stop the car, and a slide steps out more readily, runs longer and is caught more slowly. (car.grip: the tyres' sound too.)
+const gripAt = (z) => min(1 - 0.3 * (AT.wet || 0), 1 - 0.55 * snowW(z) * (AT.cool || 0));
 function drive(dt) {
-  let thr = K('KeyW') - K('KeyS'), st = K('KeyA') - K('KeyD'); const onRoad = abs(rdist(car.x, car.z)) < 3.9 + svW(car.z);      // (the frontage roads beside an underpass are road too: the car rolls on them as on the main road, not as on rough ground)
+  const grip = car.grip = gripAt(car.z);
+  let thr = K('KeyW') - K('KeyS'), st = K('KeyA') - K('KeyD'); const onRoad = abs(rdist(car.x, car.z)) < (hpW(car.z) > 0.05 ? 4.45 : 3.9) + svW(car.z);      // (a switchback's gutter is driven along as road: see below)      // (the frontage roads beside an underpass are road too: the car rolls on them as on the main road, not as on rough ground)
   if (auto.on) {
     // Keep to the middle of the left lane. The steering has three parts: what the bend itself asks for at this speed (so the car turns with the
     // road and is not left behind by it), the difference between where the car points and where the road points just ahead, and a pull back
     // toward the middle of the lane. (Aiming at a point far ahead, as before, cut every left-hand bend short by up to 2.5 m - off the road.)
-    const dirz = cos(car.yaw) >= 0 ? 1 : -1, sl0 = roadSl(car.z), nn = Math.sqrt(1 + sl0 * sl0), va = abs(car.v);
+    // (Which way along the road it is going: judged against the road, by the way the car travels. Judged by where its nose pointed against the
+    // world's z, a car drifting through a hairpin - the road there 60 degrees across, the nose 40 more out into the slide - was taken to be
+    // going the other way, and the self-driving turned it round and off the road.)
+    const dirz = alongRoad(DRIFT && car.hd !== undefined ? car.hd : car.yaw), sl0 = roadSl(car.z), nn = Math.sqrt(1 + sl0 * sl0), va = abs(car.v);
     const hd = (zq) => atan2(roadSl(zq) * dirz, dirz), wrap = (q) => q - Math.round(q / TAU) * TAU;
     const pv = (0.5 + va * 0.08) / nn, th = hd(car.z + dirz * pv), kap = wrap(hd(car.z + dirz * (pv + 1.5 / nn)) - hd(car.z + dirz * (pv - 1.5 / nn))) / 3;
     // Something solid standing in the lane ahead - a thing left on the road, a wall's corner, a parked machine out too far - is steered round:
@@ -16,29 +25,102 @@ function drive(dt) {
     // at a walking-to-town pace, and comes back to its lane when the lane is clear again. If no line is clear it stops short of the thing.
     // (Looked at every fourth frame: it is a search through everything solid nearby. auto.lat is the line being driven, metres left of the
     // road's middle; auto.stopIn how far off the thing is that nothing gets round.)
-    if (auto.lat === undefined) { auto.lat = 1.7; auto.aim = 1.7; auto.stopIn = -1; auto.tick = 0; }
+    if (auto.lat === undefined) { auto.lat = clamp(rdist(car.x, car.z) * dirz, -9, 9); auto.aim = 1.7; auto.stopIn = -1; auto.tick = 0; }      // (from where the car is: switched on up on a frontage road, it first swung for the lane below)
+    // (Drifting, the self-driving keeps to no lane: it takes the line a racing driver takes - wide before a bend, the inside at its apex, wide
+    // again on the way out - using the whole road. On the switchbacks of a pass its inside wheels run in the gutter at the apex (3.3 m out:
+    // the wheels 4 m out, in the channel), as on a mountain road, the gutter holding the car round the bend - see the grip below.)
+    let home = 1.7;
+    // (At an underpass the self-driving goes down through it or - drifting or not - keeps to the street, along a frontage road:
+    // it moves out onto it as it opens, 136 to 96 m before the middle, and back after. Measured square to the road, as the frontage roads are
+    // built; lat is along x, so it is made the longer by the road's slant.)
+    // (it follows the frontage road's opening a dozen metres ahead, so that it is out on it - 7.2 m from the middle - before the walls begin)
+    // (no further out than the asphalt reaches where the car is - its side a hand inside the kerb - or it drove up onto the footpath as the road opened)
+    // (Which way it goes is drawn afresh each time it comes to one: the frontage road on its own side, down through the middle, or across the
+    // other carriageway to the frontage road on the far side - a third each. Drifting, it always takes the middle, the quickest line: measured
+    // through three underpasses it kept above 90 km/h there, where either frontage road - out and back across the lanes, over the cross street -
+    // dragged it down to 35-70 km/h and cost 2-5 s.)
+    let front = false; { const zq = car.z + dirz * 2; if (udOf(zq) && (svW(zq) > 0.05 || svW(car.z) > 0.05)) { if (auto.udZ !== UD.zc) { auto.udZ = UD.zc; auto.udPick = floor(Math.random() * 3) - 1; }
+      // (Already up on a frontage road - however it got there - it keeps to that one: aimed at the middle line, it steered for the cutting below
+      // the whole length of the underpass, pressed against the parapet.)
+      const dq = udip(car.z), upS = dq > 0.3 && abs(rdist(car.x, car.z)) > 4.6 && car.y > roadY(car.z) + dq * 0.5 ? Math.sign(rdist(car.x, car.z) * dirz) : 0, pk = upS || (DRIFT ? 0 : auto.udPick);
+      if (pk) { front = true; home = pk * (1.7 + min(5.5, svW(car.z) * 1.02)) * nn; } } }
+    if (DRIFT && !front) { const kq = (d) => wrap(hd(car.z + dirz * (d + 1.5) / nn) - hd(car.z + dirz * (d - 1.5) / nn)) / 3, kn = kq(6 + va * 0.5), kf = kq(18 + va * 1.2), hpq = hpW(car.z) > 0.05, slq = abs(car.slip || 0), reach = 0.9 * cos(slq) + 2.1 * sin(slq),
+        inner = hpq ? (abs(kn) > 0.035 && !auto.noGut ? 3.45 : min(2.5, 6.0 - reach)) : (townW(car.z) > 0.05 ? 2.3 : 2.6) - 2.1 * abs(sin(car.slip || 0)), outer = hpq ? min(2.5, 6.0 - reach) : inner;
+      // (3.45 m: the wheels in the middle of the channel, 4.2 m out. At 3.3 they ran a hand inside its edge, and the car's least sway had them in
+      // and out of it - two and three times a bend, the car seeming to make up its mind and the speed planned for the gutter lost each time.)
+      // (On the switchbacks the inside wheels go down into the gutter only at a hairpin's apex - a bend under 25 m round - where it pays; through the
+      // easier bends the wheels stay on the asphalt, 3.4 m out at most, short of the channel. And the car's corners - swung out by the slide, 0.9 m
+      // straight, 2.2 m sideways at 50 degrees - are kept short of the guard rail at 6.4 m: in the gutter by the slide held in (see ts below).)      // (sideways in a drift, the nose swings 2 m out toward the inside of the bend: the line is kept in by that much, or the nose ran along the guard rail)      // (in town no nearer the kerb than its footpath allows)
+      { const h = kn * 75 - kf * 30; home = h * kn > 0 ? clamp(h, -inner, inner) : clamp(h, -outer, outer); }
+      // Round a hairpin the gutter is ridden like a tram's rail: once the inside wheels are down in it at the start of the bend, the car keeps
+      // them there all the way round the U - held in the channel's middle - and only when the road straightens, or turns the other way, does it
+      // draw them out. (Steered to a line beside it, the wheels went in and out two and three times a bend, the car seeming to hesitate, and the
+      // speed planned for the gutter was lost each time.) auto.gLock: the side of the road it is held on, 0 when free.
+      if (hpq && !auto.noGut) { const rs = rdist(car.x, car.z), ins = Math.sign(kn) * dirz;
+        if (!auto.gLock && (car.gut || 0) > 0.5 && abs(kn) > 0.03 && Math.sign(rs) === ins) auto.gLock = Math.sign(rs);
+        if (auto.gLock && ((abs(kn) < 0.015 && abs(kf) < 0.015) || (abs(kn) > 0.01 && ins !== auto.gLock))) auto.gLock = 0;
+        if (auto.gLock) { home = auto.gLock * dirz * 3.39; auto.lat = home; } } else auto.gLock = 0; }
     if (auto.tick++ % 4 === 0) { const look = 9 + va * 1.5 + va * va / 12, yq = car.y;
       const cur = rdist(car.x, car.z) * dirz;      // (near the car the line asked about starts from where the car is, and is over on L by 8 m ahead)
       const clearTo = (L) => { for (let s = 3.5; s < look; s += 2.5) { const q = rp(car.z + dirz * s / nn, mix(cur, L, min(1, s / 8)) * dirz); if (solidAt(q[0], q[1], surf(q[0], q[1], yq), 1.2) > 0) return s; } return -1; };
-      const own = clearTo(1.7); auto.stopIn = -1;
-      if (own < 0) auto.aim = 1.7; else { let best = null; for (const L of [auto.aim, 0.7, -0.5, -1.7, 2.5]) if (L !== 1.7 && clearTo(L) < 0) { best = L; break; } if (best === null) auto.stopIn = own; else auto.aim = best; } }
-    auto.lat += clamp(auto.aim - auto.lat, -dt * 2.2, dt * 2.2);
+      const own = clearTo(home); auto.stopIn = -1; auto.dodge = own >= 0;
+      if (own < 0) auto.aim = home; else { let best = null; for (const L of [auto.aim, 0.7, -0.5, -1.7, 2.5]) if (abs(L - home) > 0.3 && clearTo(L) < 0) { best = L; break; } if (best === null) auto.stopIn = own; else auto.aim = best; } }
+    if ((DRIFT || front) && !(auto.dodge && !front)) auto.aim = home;
+    { const ls = DRIFT || front ? 4.5 : 2.2; auto.lat += clamp(auto.aim - auto.lat, -dt * ls, dt * ls); }
     const e = rdist(car.x, car.z) * dirz - auto.lat;                       // how far to the left of the line it is driving the car is
     const rate = 1.7 * clamp(car.v / 5, -1, 1) / (1 + va * 0.03);     // how fast full lock turns the car (the same rule as below)
-    st = clamp(car.v * kap / max(rate, 0.2) + wrap(th - atan2(e * 2.0, 3 + va * 0.35) - car.yaw) * 3.2, -1, 1);
+    // (drifting, the car's path is its travel, car.hd - its nose is held out into the slide on top of that: see below)
+    st = clamp(car.v * kap / max(rate, 0.2) + wrap(th - atan2(e * 2.0, 3 + va * 0.35) - (DRIFT && car.hd !== undefined ? car.hd : car.yaw)) * 3.2, -1, 1);
     const kv = (zq) => abs(roadX(zq + 4) - 2 * roadX(zq) + roadX(zq - 4)) / 16 / Math.pow(1 + roadSl(zq) ** 2, 1.5);
-    const curv = max(kv(car.z + dirz * (12 + abs(car.v) * 1.2) / nn), kv(car.z + dirz * 5 / nn));
     const ahead = zlim(car.z + dirz * (6 + car.v * car.v / 9) / nn);                              // the sign coming up, seen in time to be down to its speed on reaching it
-    let vt = min((auto.signs ? min(auto.limit, zlim(car.z), ahead) : auto.limit) / 3.6, Math.sqrt(4.5 / max(curv, 1e-4)));
+    // (drifting: no sign is minded, nor any light, and the bends are taken faster - the tail out)
+    // (on the switchbacks the bends are taken at 7 m/s2 sideways rather than 9.5: at 46 km/h the car ran a metre wide of its line at a hairpin's
+    // apex, its nose out over the guard rail. The gutter's help is planned bend by bend, below - by where the car is, all or nothing, the target
+    // dropped the moment a wheel came out and the car was braked hard: a jolt after every gutter.)
+    // The speed the bends allow: the road ahead is looked along for 100 m, and the car goes no faster than lets it ease down - gently, 3 m/s2
+    // drifting, 2 otherwise - to what each bend on it allows by the time it gets there. (It looked at two points only, one near and one a little
+    // way on: it sped up on every short straight between bends and braked hard at the next - two jerks to every bend, and a car that never
+    // flowed. Now through a run of bends close together it keeps the pace they all allow.)
+    // (Drifting round a switchback, the tyres alone hold 7.2 m/s2 sideways. A wheel down in the gutter does more: its lip holds the car like a
+    // rail, half as much again - so a hairpin, where the tyres alone would have the car braking, is planned for the gutter and taken faster;
+    // the easier bends, where the tyres suffice, are not, and the wheels stay up on the asphalt. auto.noGut: never use it - for comparison.)
+    const gutOK = DRIFT && !auto.noGut, aT = (DRIFT ? 9.5 : 4.5) * grip, aHp = 7.2 * grip, aG = aHp + 3.6 * grip * (0.6 + 0.4 * grip), dec = (DRIFT ? 3 : 2) * grip; let vBend = 99;
+    const aAt = (zq, kb) => (DRIFT && hpW(zq) > 0.05 ? mix(aHp, aG, gutOK ? sm(0.03, 0.05, kb) : 0) : aT);      // (by degrees with the bend's tightness: a bend just either side of the line had the speed jump)
+    { let zz = car.z, sL = 0, xx = roadX(zz); for (let i = 0; i < 60 && sL < 100; i++) { const zn = zz + dirz * 2, xn = roadX(zn); sL += Math.hypot(xn - xx, 2); zz = zn; xx = xn;
+      const kb = kv(zz), vb = Math.sqrt(aAt(zz, kb) / max(kb, 1e-4)); vBend = min(vBend, Math.sqrt(vb * vb + 2 * dec * max(0, sL - 4))); } }
+    // (In fog and at night it sees less of the road: a bend it cannot see yet might be anything, so it goes no faster than lets it slow to
+    // 43 km/h within what it can see - 100 m on a clear day, much less in thick fog, and a third less in the dark.)
+    { const vis = min(100, 2.5 / max(AT.fog || 0, 1e-4)) * (1 - 0.3 * (AT.night || 0)); vBend = min(vBend, Math.sqrt(144 + 2 * dec * vis)); }
+    let vt = min((auto.signs && !DRIFT ? min(auto.limit, zlim(car.z), ahead) : auto.limit) / 3.6, vBend);
     // traffic lights: stop at the line (short of the zebra crossing) for red, and for amber if there is room to; wait; go on green
     const tl = tlNext(car.z, dirz); hold = false;
-    if (tl) { const dist = (tl[0] - car.z) * dirz * nn - 10.9, sg = tlState(tl[1], time);            // from the car's nose to the line
+    if (tl && !DRIFT) { const dist = (tl[0] - car.z) * dirz * nn - 10.9, sg = tlState(tl[1], time);            // from the car's nose to the line
       if (dist > -1.5 && (sg === 2 || (sg === 1 && dist > car.v * car.v / 10))) { vt = min(vt, dist < 0.4 ? 0 : Math.sqrt(2 * 2.4 * dist)); hold = dist < 0.4; } }          // never over the driver's own limit, nor the sign's, nor what the bend allows
-    if (abs(auto.lat - 1.7) > 0.15 || auto.aim !== 1.7) vt = min(vt, 9); if (auto.stopIn >= 0) { vt = min(vt, auto.stopIn < 5.5 ? 0 : Math.sqrt(2 * 2.4 * (auto.stopIn - 5.5))); }      // round a thing: slowly; nothing gets round: stop short of it
-    const dv = vt - car.v; thr = dv > 0.3 ? min(1, dv * 0.6) : dv < -1.5 ? -1 : 0; if (hold && car.v > 0.2) thr = -1;
+    if (auto.dodge && (abs(auto.lat - home) > 0.15 || auto.aim !== home)) vt = min(vt, 9); if (auto.stopIn >= 0) { vt = min(vt, auto.stopIn < 5.5 ? 0 : Math.sqrt(2 * 2.4 * (auto.stopIn - 5.5))); }      // round a thing: slowly; nothing gets round: stop short of it
+    // (throttle and brake by how far off the speed is: the brake all or nothing, the car was braked and let go on alternate frames)
+    const dv = vt - car.v; thr = dv > 0.3 ? min(1, dv * 0.6) : dv < -0.8 ? max(-1, (dv + 0.8) * 0.5) : 0; if (hold && car.v > 0.2) thr = -1;
+    // Stuck off the road - nosed into a tree, a wall, a fence, standing there a second and more - it backs out: two seconds in reverse, the
+    // wheel over so that the nose swings round to point at the road - at its line on it, as the steering below aims - and then on again. (It had
+    // no reverse, and sat there for good.)
+    const offR = abs(rdist(car.x, car.z)) > (hpW(car.z) > 0.05 ? 4.45 : 3.9) + svW(car.z) + 0.3;
+    auto.stk = offR && abs(car.v) < 1 && !hold && !(auto.back > 0) ? (auto.stk || 0) + dt : 0;
+    // (Four tries and still off the road - down in a hollow below a high road, a step too tall to climb, with no way up - and it is set back on
+    // its lane where it left it, pointing along the road: the self-driving is never left stranded.)
+    if (!offR) auto.fails = 0;
+    if (auto.stk > 1.2) { auto.stk = 0; auto.fails = (auto.fails || 0) + 1; if (auto.fails <= 4) { auto.back = 2; car.hd = car.yaw; }
+      else { const s = roadSl(car.z), zf = car.z + (car.x - roadX(car.z)) * s / (1 + s * s), q = rp(zf, 1.7 * dirz); car.x = q[0]; car.z = q[1]; car.y = surf(q[0], q[1]); car.yaw = car.hd = atan2(roadSl(zf) * dirz, dirz); car.v = 0; car.slip = 0; auto.fails = 0; auto.lat = undefined; } }
+    if (auto.back > 0) { auto.back -= dt; thr = -0.6; st = -clamp(wrap(th - atan2(e * 2.0, 3) - car.yaw) * 2, -1, 1); if (!offR && auto.back < 1.5) auto.back = 0; }
   }
-  car.v += (thr > 0 ? (K('ShiftLeft') ? 13 : 8) * thr : thr < 0 ? (car.v > 0.5 ? (auto.on ? -7 : -18) : auto.on ? 0 : -5) : 0) * dt;
+  if (K('Space')) thr = min(thr, 0);      // (braking, the foot is off the throttle - the self-driving's too)
+  const hb = K('HB'); if (hb > 0) thr *= 1 - 0.8 * hb;      // (the handbrake on: the driven wheels held - see below)
+  car.v += (thr > 0 ? (K('ShiftLeft') ? 13 : 8) * thr : thr < 0 ? (car.v > 0.5 ? (auto.on ? -7 : -18) * grip : auto.on && !(auto.back > 0) ? 0 : -5) : 0) * dt;
   car.v -= (car.v * (onRoad ? 0.2 : 0.9) + Math.sign(car.v) * (onRoad ? 0.35 : 1.4)) * dt;
+  // Space: the brake - hard (8 m/s², a little short of locking the wheels; less on rough ground), in either direction, down to a standstill and no
+  // further (it never drives the car backwards); it overrides the throttle and the self-driving, which takes up again when it is let go.
+  if (K('Space')) { const b = (onRoad ? 8 : 5.5) * grip * dt; car.v = abs(car.v) <= b ? 0 : car.v - Math.sign(car.v) * b; }
+  // The handbrake (a game pad's Square: K('HB')): the rear wheels locked. It slows the car - less hard than the brake, 5 m/s2 - and takes the
+  // drive off them; and drifting, it breaks the tail loose: the nose swings into the turn the faster and the slide is caught the slower (below).
+  if (hb > 0) { const b = 5 * hb * grip * dt; car.v = abs(car.v) <= b ? 0 : car.v - Math.sign(car.v) * b; }
   if (auto.on && hold && abs(car.v) < 1) car.v = 0;                              // standing at a red light
   if (car.v < -8) car.v = -8;
   // Steering by hand. A key is all or nothing, and taken as it comes it threw the wheel hard over at once: at 70 km/h a touch of A or D turned the
@@ -47,16 +129,104 @@ function drive(dt) {
   // never more turning than presses the car sideways at 11 m/s2. (A first try was much gentler - 0.4 s to full lock, 8 m/s2 - and went too far
   // the other way: short taps, which is how keys are steered with, did next to nothing.) At town speeds the car turns as quickly as before; at
   // 70 km/h about half as quickly, at 110 two fifths. The self-driving steers by its own rule, unchanged.
-  if (auto.on) { car.sm = 0; car.yaw += st * dt * 1.7 * clamp(car.v / 5, -1, 1) / (1 + abs(car.v) * 0.03); }
+  if (auto.on) { car.sm = 0; const dy = st * dt * 1.7 * clamp(car.v / 5, -1, 1) / (1 + abs(car.v) * 0.03); if (DRIFT && car.hd !== undefined && abs(car.v) > 4) car.hd += dy; else car.yaw += dy; }      // (slow, there is no slide - car.hd is the nose's way, below - so the wheel turns the nose; turning car.hd there was undone, and the car could not steer)
   else { const cur = car.sm || 0, k = (st === 0 || st * cur < 0 ? 9 : 6) * dt; car.sm = cur + clamp(st - cur, -k, k); st = car.sm;
-    car.yaw += st * dt * clamp(car.v / 5, -1, 1) * min(1.7, 11 / max(abs(car.v), 1)); }
+    // (drifting by hand, the wheel steers the car's path as the self-driving's does - the slide is laid over it below; car.turn: how fast the
+    // path is turning, rad/s, for the slide to be sized by)
+    const dy = st * dt * clamp(car.v / 5, -1, 1) * min(1.7, 11 / max(abs(car.v), 1)); if (DRIFT && DASSIST && car.hd !== undefined && abs(car.v) > 4) { car.hd += dy; car.turn = dy / max(dt, 1e-4); } else car.yaw += dy; }
   car.steer = (car.steer || 0) + (st - (car.steer || 0)) * (1 - exp(-dt * 8));
-  const nx = car.x + sin(car.yaw) * car.v * dt, nz = car.z + cos(car.yaw) * car.v * dt, top = udTop(nx, nz, car.y), pr = !top && pierAt(nx, nz), onBr = top || pr || brAt(nx, nz) || tunAt(nx, nz), gy = top ? roadYs(nz) + 0.03 : pr ? max(ground(nx, nz), PIERY + 0.06) : onBr ? roadY(nz) + 0.03 : ground(nx, nz);
+  // Drifting. The car goes the way it is travelling (car.hd), not the way it points (car.yaw): turned hard at speed, the tail steps out - the
+  // nose comes round faster than the car follows - and the travel swings round after it as the tyres bite, quicker with the wheel straightened
+  // (that is how a drift is caught), slower with it held over; a slide scrubs speed off. With the ordinary grip the two are the same.
+  if (car.hd === undefined) car.hd = car.yaw;
+  if (DRIFT && abs(car.v) > 4 && (auto.on || DASSIST)) {
+    // (Driving by hand the same - with the help on, 'ช่วยคุม' in the driving panel (DASSIST): the stick steers the path, and the slide is laid over it by how hard the car is turning at its speed - so it is
+    // as smooth and as easily held as the self-driving's. The throttle opens it - the rear wheels spinning - and lifting off closes it; the
+    // handbrake kicks the tail out; steering the other way takes the turn out of the path and the slide with it. Driven by hand as a free
+    // spin of the nose against the tyres' grip, as first made, no slide could be held: it caught itself in half a second or spun.)
+    // (The self-driving drifts through the bends as a driver does: it steers the car's path round the bend, and holds the nose out into it by
+    // as much as the bend is tight at that speed - up to 35 degrees in a hairpin - straightening as the road does. The slide scrubs speed off.)
+    // (how far out: by the bend's own tightness at this speed - the sideways pull v^2 x curvature - as well as how hard the wheel is over, up to
+    // 60 degrees in a hairpin; the nose swings out quickly on the way in and comes back more slowly on the way out)
+    const wr = (q) => q - Math.round(q / TAU) * TAU, sp = clamp((abs(car.v) - 6) / 10, 0, 1), dz2 = alongRoad(car.hd), nn2 = Math.sqrt(1 + roadSl(car.z) ** 2);
+    const kk = auto.on ? wr(atan2(roadSl(car.z + dz2 * 9 / nn2) * dz2, dz2) - atan2(roadSl(car.z + dz2 * 3 / nn2) * dz2, dz2)) / 6 : 0, lat = auto.on ? car.v * car.v * kk : car.v * (car.turn || 0);
+    // (with a wheel down in a switchback's gutter the car is held round by it and needs less slide: half as much, its nose kept off the rail)
+    const gq = hpW(car.z) > 0.05 ? 1 - 0.5 * sm(2.7, 3.3, abs(rdist(car.x, car.z))) : 1;
+    // (and on a slippery road - wet, or snow - it slides wider: the same sideways pull is more of what the tyres can take there - measured
+    // against the pull alone, the slower car on a wet road slid less than on a dry one - and up to 30% more on top)
+    // (By hand, the tyres hold the car up to a point - more than a lane change asks - and only beyond that does the tail step out: sized from the first m/s2 as the self-driving's is, a touch of the stick to change lanes swung the car 30 degrees one way and
+    // then the other. The self-driving sizes it as before - it only ever asks for it in the bends.)
+    // (Tuned again: the pull is taken over the last third of a second - a quick correction on a straight, a tap of the key or a flick of the
+    // stick, no longer kicks the tail out; a turn held does - and the tail steps out sooner than before, at 3.2 m/s2 and fully by 7, sooner
+    // still on the throttle.)
+    car.latF = (car.latF || 0) + (lat - (car.latF || 0)) * (1 - exp(-dt / 0.35));
+    const pw = auto.on ? 0.5 : max(0, thr), l0 = (3.2 - 1.2 * pw) * grip, over = Math.sign(car.latF) * clamp((abs(car.latF) - l0) / (3.8 * grip), 0, 1);
+    const base = auto.on ? clamp(lat / (5.5 * grip), -1, 1) * 0.75 + st * 0.55 : over * 0.85, kick = auto.on ? 0 : 0.55 * hb * (Math.sign(st || car.slip || 0));
+    const ts = gq * (1 + 0.3 * (1 - grip)) * clamp((base * (auto.on ? 1 : 0.6 + 0.8 * pw) + kick), auto.on ? -1 : -1.05, auto.on ? 1 : 1.05) * 1.05 * clamp((abs(car.v) - 5) / 7, 0, 1), cur = wr(car.yaw - car.hd);      // (up to 60 degrees, from 30 km/h on; by hand to 66 on the throttle)
+    // (by hand the nose is led by the path's own turning, so that it does not trail a few degrees behind a gentle turn - it read as the car not
+    // answering the stick)
+    const lead = auto.on ? 0 : (car.turn || 0) / 5;      // (and the stick let go, the car straightens the quicker)
+    car.yaw += wr(car.hd + ts + lead - car.yaw) * (1 - exp(-dt * (abs(ts) > abs(cur) ? 5 : !auto.on && abs(st) < 0.15 ? 3.6 : 2.2))); car.slip = wr(car.yaw - car.hd); car.v *= 1 - min(1, abs(sin(car.slip)) * 0.18 * dt); }
+  // Drifting by hand without the help ('อิสระ' in the driving panel, DASSIST off): the nose is swung by the wheel against the tyres' grip and
+  // the travel follows it as they bite - harder to hold, as a real car is.
+  else if (DRIFT && abs(car.v) > 4) { const wr = (q) => q - Math.round(q / TAU) * TAU, sp = clamp((abs(car.v) - 4) / 8, 0, 1);
+    // (Power: the throttle spins the driven rear wheels and keeps them sliding - the tail swings out further and the slide is held, not caught;
+    // off the throttle the tyres bite again and the car straightens. That is how a drift is held and steered with the right foot.)
+    const pw = max(0, thr) * sp;
+    // (The extra swing of the nose fades as the slide grows - it is the tail stepping out, not a spin - and the tyres bite harder the further
+    // the car is sideways, so that held through a hairpin the slide settles at 30 to 40 degrees instead of going round: on the first try a
+    // driver steering into a U-bend spun off the road into the trees. Steering the other way, the slide is caught quickly.)
+    let sl0 = wr(car.yaw - car.hd); const into = st * sl0 > 0 ? 1 - min(1, abs(sl0) / (0.65 + 0.45 * pw)) : 1;
+    car.yaw += st * dt * 1.15 * sp * Math.sign(car.v) * (hb > 0 ? 1 : into) * (1 + 0.6 * (1 - grip)) * (1 + 1.6 * hb) * (1 + 0.7 * pw);      // (on a slippery road the tail steps out more readily)
+    // (A wheel run in a switchback's gutter on the inside of the turn - the car 3 to 3.7 m out on the side it is turning toward - is held by
+    // it like a rail: the slide is checked and less speed is scrubbed. That is the gutter trick of the mountain passes.)
+    const rg = rdist(car.x, car.z) * alongRoad(car.hd), inG = hpW(car.z) > 0.05 && rg * st > 0 ? sm(2.8, 3.1, abs(rg)) * (1 - sm(3.7, 3.95, abs(rg))) : 0;      // (by degrees, likewise)
+    const k = ((1.6 + 3.2 * (1 - abs(st)) + 3.5 * abs(sl0) * (1 - 0.7 * pw) + (st * sl0 < 0 ? 3 : 0)) + 5 * inG * (0.6 + 0.4 * grip)) * (1 - 0.5 * pw); car.hd += wr(car.yaw - car.hd) * (1 - exp(-dt * k * grip * (1 - 0.75 * hb)));
+    const slMax = 0.75 + 0.2 * pw; let sl = wr(car.yaw - car.hd); if (abs(sl) > slMax) { car.hd = car.yaw - Math.sign(sl) * slMax; sl = Math.sign(sl) * slMax; }
+    car.slip = sl; car.v *= 1 - min(1, abs(sin(sl)) * (0.32 - 0.2 * inG) * (0.5 + 0.5 * grip) * dt); }
+  else { car.hd = car.yaw; car.slip = (car.slip || 0) * exp(-dt * 6); }
+  let nx = car.x + sin(car.hd) * car.v * dt, nz = car.z + cos(car.hd) * car.v * dt, top = udTop(nx, nz, car.y), pr = !top && pierAt(nx, nz), onBr = top || pr || brAt(nx, nz) || tunAt(nx, nz), gy = top ? roadYs(nz) + 0.03 : pr ? max(ground(nx, nz), PIERY + 0.06) : onBr ? roadY(nz) + 0.03 : ground(nx, nz);
+  // (run along a switchback's gutter, the car drops into it by a wheel's worth: 6 cm, and shakes a little on its joints)
+  // (A wheel in a switchback's gutter is held by its lip: the car does not slide on out over it - it runs along the channel, the lip taking the
+  // push, and scrubs a little speed. That is what makes the gutter worth a wheel.)
+  // (and the self-driving, riding it round a hairpin, holds it in the channel's middle both ways - see auto.gLock)
+  // (The step's excess is taken off square to the road where the car is - its sideways part only, the way along it kept. Put back at a point
+  // worked out afresh from the road's slant, at a hairpin's apex - the road there running nearly across z - the car was put back where it had
+  // been, frame after frame, and stood still at speed.)
+  const sideOff = (lo, hi, fromIn) => { const r1 = rdist(nx, nz), zs = rzs, a1 = abs(r1), ac = clamp(a1, lo, hi); if (ac === a1 || (fromIn && a1 < lo)) return false; const sl = roadSl(zs), n = Math.sqrt(1 + sl * sl), ex = (a1 - ac) * Math.sign(r1); nx -= ex / n; nz += ex * sl / n; return true; };
+  if (auto.on && auto.gLock && !onBr && hpW(nz) > 0.05) sideOff(3.3, 3.5, false);
+  if (!onBr && hpW(nz) > 0.05) { const r0 = abs(rdist(car.x, car.z)); if (r0 > 3.0 && r0 < 3.75 && sideOff(0, max(r0, 3.68), true)) car.v *= 1 - min(1, dt * 0.25); }
+  const gut0 = car.gut || 0; car.gut = 0; if (!onBr && hpW(nz) > 0.05) { const rg = abs(rdist(nx, nz)) + 0.75; if (rg > 3.8 && rg < 4.5) { car.gut = sm(3.84, 3.98, rg) * (1 - sm(4.3, 4.45, rg));      // (by where the outer wheels run, 0.75 m out from the car's middle: the channel is 3.86 to 4.42 m out)
+    gy -= 0.06 * car.gut + 0.008 * sin(nz * 3.1); } }      // (car.gut: its rumble, sound.js)
+  // (a wheel going down into the gutter, or coming up out of it, is felt and heard: a jolt through the car and a thump - main.js, sound.js)
+  // (and through a game pad's motors: a thud going in or out, and a tick at every joint of the channel's 2 m sections the wheel runs over)
+  if ((gut0 - 0.5) * (car.gut - 0.5) < 0 && abs(car.v) > 2) { car.jolt = min(1, 0.4 + abs(car.v) / 25); if (typeof gutThump === 'function') gutThump(car.jolt, car.gut > 0.5); if (typeof padRumble === 'function') padRumble(0.9 * car.jolt, 0.5 * car.jolt, 150); }
+  else if (car.gut > 0.5 && floor(nz / 2) !== floor(car.z / 2) && typeof padRumble === 'function') padRumble(0.15, 0.5 * min(1, abs(car.v) / 12), 45);
+  car.jolt = (car.jolt || 0) * exp(-dt * 7);
   let blocked = gy - car.y > 1.1 || (!onBr && gw[0] > 0);
   if (inTun(nz) && abs(nx - roadX(nz)) > 3.55 && abs(nx - roadX(nz)) > abs(car.x - roadX(car.z)) && abs(car.x - roadX(car.z)) <= 4.75) blocked = true;      // the tunnel's walkways and walls
   { const dp = udip(nz); if (dp > 0.2) { const pd = (px, pz) => { const s = roadSl(pz); return abs(px - roadX(pz)) / Math.sqrt(1 + s * s); }, d0 = pd(car.x, car.z), d1 = pd(nx, nz), dz0 = abs(car.z - UD.zc), dz1 = abs(nz - UD.zc);      // (square to the road)      // an underpass:
-    if (car.y < roadY(nz) + dp * 0.5) { if (d1 > 2.85 && d1 > d0) blocked = true; }                                     // down in the cutting, its walls;
-    else if ((dz1 > 16 && d1 < 6.1 && d1 < d0) || (d0 < 6.1 && (dz0 - 15.4) * (dz1 - 15.4) < 0)) blocked = true; } }      // up at street level, the parapet along it and the rails of the slab (only across the cutting: the frontage roads run on through the crossroads)
+    // Down in the cutting, its walls (the kerb at their foot 3.75 m out). The car slides along them as along the parapet, and its corners are
+    // kept out of them: turned toward a wall, its nose reaches further out than its side - stopped dead by its middle at 2.85 m, it stuck there
+    // with the throttle down and its nose a metre into the concrete.
+    // (Down in it or up at the street's level: inside the walls - under 4.6 m from the middle - the car is down in the cutting, whatever its
+    // height says, unless it is up on the slab over it. Judged by height alone, at the top of the ramp - the cutting a hand deep, the car's
+    // height following the falling road a little behind - a car hugging the right-hand wall counted as up there, and the parapet's rule put it
+    // out on the frontage road.)
+    const downIn = d0 < 4.6 ? !(dz0 < 16 && car.y > roadY(nz) + dp * 0.5) : car.y < roadY(nz) + dp * 0.5;
+    if (downIn) { const wq = (q) => q - Math.round(q / TAU) * TAU, rh = Math.atan2(roadSl(nz), 1), fw = cos(car.hd - rh) >= 0 ? rh : rh + PI, rel = wq(car.yaw - fw), lim = Math.max(1.2, 3.72 - 0.9 * abs(cos(rel)) - 2.1 * abs(sin(rel)));
+      if (d1 > lim && d1 >= d0 - 0.001) { const s = roadSl(nz), sd = Math.sign(nx - roadX(nz)) || 1, zf = nz + (nx - roadX(nz)) * s / (1 + s * s), q = rp(zf, sd * Math.min(d1, Math.max(lim, d0))); nx = q[0]; nz = q[1];
+        car.v *= 1 - min(1, dt * (1.2 + 4 * abs(sin(rel)))); const g = min(1, dt * 3); car.yaw += wq(fw - car.yaw) * g * 0.5; car.hd += wq(fw - car.hd) * g; }      // (and is turned along it)
+      // (and it stays down on the road: the ground was taken where the step would have put it - out past the wall, up at the frontage road's
+      // level - so a car pressed against the right-hand wall was lifted a little each frame until it counted as up there, and was put out on
+      // the frontage road above)
+      gy = min(ground(nx, nz), roadY(nz) + 0.1); blocked = gy - car.y > 1.1 || (!onBr && gw[0] > 0); }
+    else if (d0 < 4.6 && (dz0 - 15.4) * (dz1 - 15.4) < 0) blocked = true;
+    // (a car coming off the slab close beside the rail's end - its side over it - is eased out past it, as along the parapet, not stopped)
+    else if (d0 < 6.15 && (dz0 - 15.4) * (dz1 - 15.4) < 0) { const s = roadSl(nz), sd = Math.sign(nx - roadX(nz)) || 1, zf = nz + (nx - roadX(nz)) * s / (1 + s * s), q = rp(zf, sd * 6.2); nx = q[0]; nz = q[1]; car.v *= 1 - min(1, dt * 1.5); }      // the rails of the slab, across the cutting only (5.2 m each side, and the car's half width): a car on the frontage road beside it is clear of them
+    // (the parapet along the frontage road: the car slides along it, as along anything solid, held 6.1 m out - stopped dead, it bounced back off
+    // it at every touch, and on a slanting road, where the lane beside it is narrow, could not be driven along at all)
+    else if (dz1 > 16 && d1 < 6.15 && d1 < d0) { const s = roadSl(nz), sd = Math.sign(nx - roadX(nz)) || 1, zf = nz + (nx - roadX(nz)) * s / (1 + s * s), q = rp(zf, sd * 6.2); nx = q[0]; nz = q[1]; car.v *= 1 - min(1, dt * 1.5); } } }      // (put back out square from the road's point abreast of the car - from the point at its own z, on a slanting road it was thrown metres back along the road at every touch, and W seemed to drive it backwards)      // up at street level, the parapet along it and the rails of the slab (only across the cutting: the frontage roads run on through the crossroads)
   if (brSpan(nz) && (abs(car.x - roadX(car.z)) - 4.3) * (abs(nx - roadX(nz)) - 4.3) < 0) blocked = true;      // the balustrade                  // steep ground and water stop the car
   if (seaW(nz) >= 0.35 && pineWt(nz) <= 0.35) {                                         // so do the guard rail and the retaining wall of the coast road
     const d0 = car.x - roadX(car.z), d1 = nx - roadX(nz);
@@ -73,8 +243,14 @@ function drive(dt) {
   crush(dt);
   const gf = surf(car.x + sin(car.yaw) * 1.6, car.z + cos(car.yaw) * 1.6, car.y);
   car.pit += (atan2(gf - car.y, 1.6) - car.pit) * (1 - exp(-dt * 6));
-  if (abs(car.v) > 2 && !drag) car.ly *= exp(-dt * 0.9);
+  // (The mouse only turns the eye, never the car. Looking round by dragging, the eye swings back to the front by itself once let go, as the car
+  // moves; with the mouse held (pointer lock) it stays where the mouse puts it - pulled back, it fought the mouse, and felt like steering.)
+  // (Looked round with the mouse, the eye stays where it is put while the mouse moves it, and a moment after - but once the mouse has been still
+  // for a second and a half and the car is moving, it swings back to the front. Left turned round for good, a driver who had glanced behind
+  // then saw the road run backward when W was pressed: the car went forward, the eye looked back.)
+  if (abs(car.v) > 2 && !drag && performance.now() - lookT > 1500) { const w = car.ly - Math.round(car.ly / TAU) * TAU; car.ly = w * exp(-dt * 1.6); car.lp *= exp(-dt * 1.6); }
   car.bump += dt * abs(car.v) * 2.2;
+  coachDrift();
   return onRoad;
 }
 function flyMove(dt) {
@@ -86,6 +262,38 @@ function flyMove(dt) {
   else fly.y = max(fly.y, ground(fly.x, fly.z) + 0.8);
 }
 // The second and third lines of the text at the top left: where the car is, the hour and the weather, the speed, the self-driving.
-const hudInfo = () => `${isOf(car.z) && abs(car.z - IS.zc) < 525 ? (isBr(car.z) ? 'สะพานแขวนข้ามทะเล' : 'เกาะ') : inTun(car.z) ? 'อุโมงค์ลอดเขา' : udip(car.z) > 1 ? 'ทางลอด' : chyAt(car.z) ? 'ถนนพญาเสือโคร่ง' : hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? 'ทุ่งหิมะ' : flwAt(car.z) ? ['ทุ่งทานตะวัน', 'ทุ่งไฮเดรนเยีย', 'ทุ่งทิวลิป', 'ทุ่งลิลลี่'][flwKind(car.z)] : rubW(car.z) > 0.5 ? 'สวนยางพารา' : oilW(car.z) > 0.5 ? 'สวนปาล์มน้ำมัน' : 'ทุ่งนา'} · ${todName()} ${wxName()} ${seasonName(car.z)} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'} (จำกัด ${auto.limit} km/h) · ป้าย ${zlim(car.z)}`;
+// The drift coach: driving by hand in the drifting style, a word on what to do now - from the bend coming up (how far, which way, how tight, and
+// the speed it can be taken at), the car's speed, and how far sideways it is and which way that is going - named by the controls in use (the
+// pad's or the keyboard's). car.coach: [the words, 'ok' | 'warn' | 'go' for its colour]; held a moment so that it does not flicker.
+const COACH = { t: '', k: '', at: 0 };
+function coachDrift() {
+  if (!DRIFT || auto.on || fly.on) { car.coach = null; return; }
+  const pad = PAD.on, dirz = alongRoad(car.hd), nn = Math.sqrt(1 + roadSl(car.z) ** 2), hd = (zq) => Math.atan2(roadSl(zq) * dirz, dirz), wr = (q) => q - Math.round(q / TAU) * TAU;
+  const turn = (d) => wr(hd(car.z + dirz * (d + 12) / nn) - hd(car.z + dirz * d / nn)) / 12;      // the road's turn per metre, d metres on
+  const grip = car.grip || 1, aL = (hpW(car.z) > 0.05 ? 8 : 9.5) * grip, v = car.v, sl = car.slip || 0, asl = abs(sl), st = car.steer || 0, hbk = K('HB') > 0.1;
+  let bd = -1, bk = 0; for (let d = 0; d <= 70; d += 5) { const k = turn(d); if (abs(k) > 0.022) { bd = d; bk = k; break; } }
+  const kNow = turn(0), inBend = abs(kNow) > 0.022, side = (k) => (k > 0 ? 'ซ้าย' : 'ขวา');
+  const KEY = { steer: (k) => (pad ? `โยกก้านไป${side(k)}` : `กด ${k > 0 ? 'A' : 'D'}`), cs: (k) => (pad ? `โยกก้านไป${side(-k)}` : `กด ${k > 0 ? 'D' : 'A'}`), hb: pad ? 'แตะ □ เบรกมือ' : 'หักพวงมาลัยแรงๆ', gas: pad ? 'R2' : 'W', brake: pad ? 'L2' : 'S' };
+  let t = '', c = 'ok';
+  if (abs(rdist(car.x, car.z)) > (hpW(car.z) > 0.05 ? 4.6 : 4.2) + svW(car.z)) { t = 'ออกนอกถนน: กลับเข้าถนนก่อน'; c = 'warn'; }
+  else if (v < 6) { t = `กด ${KEY.gas} ออกตัว: ดริฟต์ได้ตั้งแต่ราว 30 km/h`; }
+  else if (asl > 0.1) {      // in a slide
+    const growing = st * sl > 0.05;      // (the wheel held into the slide: it will open further)
+    if (hbk && asl > 0.35) { t = pad ? 'ปล่อย □ ได้แล้ว: เลี้ยงคันเร่ง R2 ครึ่งๆ' : 'เลี้ยงคันเร่งครึ่งๆ'; c = 'go'; }
+    else if (asl > 0.85 || (asl > 0.7 && growing)) { t = `หมุนเกินไป: ${KEY.cs(sl)} แก้ และผ่อน ${KEY.gas}`; c = 'warn'; }
+    else if (!inBend && (bd < 0 || bd > 20)) { t = `พ้นโค้งแล้ว: คืนพวงมาลัยตรง แล้วกด ${KEY.gas} ออก`; c = 'go'; }
+    else if (asl < 0.26 && abs(kNow) > 0.04) { t = pad ? 'ท้ายยังออกน้อย: แตะ □ อีกนิด' : 'ท้ายยังออกน้อย: หักเข้าโค้งให้มากขึ้น'; }
+    else { t = `ดี! ${Math.round(asl * 57.3)}° คุมมุมด้วย ${KEY.gas} ครึ่งๆ และก้าน`.replace(' และก้าน', pad ? ' และก้าน' : ' และ A/D'); c = 'go'; } }
+  else if (bd >= 0) {      // a bend coming up, the car not sliding yet
+    const vb = Math.sqrt(aL / abs(bk)) * 1.15, far = bd * 1;
+    if (v > vb + 2 && far > 8) { t = `โค้ง${side(bk)}ข้างหน้า ${far} m: แตะ ${KEY.brake} ลดเหลือ ~${Math.round(vb * 3.6)} km/h`; c = 'warn'; }
+    else if (far <= 12) { t = hpW(car.z) > 0.05 && abs(bk) > 0.045 ? `${KEY.steer(bk)} ชิดขอบในให้ล้อลงร่อง แล้ว${pad ? 'แตะ □' : 'หักค้าง'}` : `ตอนนี้! ${KEY.steer(bk)} แล้ว${KEY.hb}`; c = 'go'; }
+    else t = `โค้ง${side(bk)}ข้างหน้า ${far} m: เตรียมตัว`; }
+  else if (v * 3.6 < 70) t = `ทางตรง: กด ${KEY.gas} เร่งได้เต็มที่`;
+  // (a new word waits 0.6 s; the same word with a new number - the angle, the distance - is put up at once)
+  const now = performance.now(), same = t.replace(/[0-9]+/g, '') === COACH.t.replace(/[0-9]+/g, ''); if (t !== COACH.t && (same || now - COACH.at > 600 || c === 'warn')) { if (!same) COACH.at = now; COACH.t = t; COACH.k = c; }
+  car.coach = COACH.t ? [COACH.t, COACH.k] : null;
+}
+const hudInfo = () => `${isOf(car.z) && abs(car.z - IS.zc) < 525 ? (isBr(car.z) ? 'สะพานแขวนข้ามทะเล' : 'เกาะ') : inTun(car.z) ? 'อุโมงค์ลอดเขา' : udip(car.z) > 1 ? 'ทางลอด' : chyAt(car.z) ? 'ถนนพญาเสือโคร่ง' : hpW(car.z) > 0.5 ? 'ทางเขาโค้งหักศอก' : seaW(car.z) > 0.5 ? 'ถนนเลียบทะเล' : townW(car.z) > 0.5 ? 'ในเมือง' : hillW(car.z) > 0.5 ? 'ถนนเขา ป่า อ่างเก็บน้ำ' : snowW(car.z) > 0.5 ? (AT.cool > 0.5 ? 'ทุ่งหิมะ' : 'ทุ่งหญ้าบนที่สูง') : flwAt(car.z) ? ['ทุ่งทานตะวัน', 'ทุ่งไฮเดรนเยีย', 'ทุ่งทิวลิป', 'ทุ่งลิลลี่', 'ทุ่งดาวเรือง'][flwKind(car.z)] : kunAt(car.z) ? 'ถนนราชพฤกษ์' : rubW(car.z) > 0.5 ? 'สวนยางพารา' : oilW(car.z) > 0.5 ? 'สวนปาล์มน้ำมัน' : 'ทุ่งนา'} · ${todName()} ${wxName()} · ${fly.on ? 'กล้องบิน' : (abs(car.v) * 3.6).toFixed(0) + ' km/h ' + (onRoad ? 'บนถนน' : 'นอกถนน')} · ${auto.on ? 'ขับอัตโนมัติ' : 'ขับเอง'}${DRIFT ? ' (ดริฟต์)' : ''} (จำกัด ${auto.limit} km/h) · ป้าย ${zlim(car.z)}`;
 // Under cover (inside a tunnel, beneath the slab of an underpass): no rain or snow crosses the view there, and the sounds of outdoors fall away.
 const underCover = (cx2, cy2, cz2) => (inTun(cz2) && abs(cx2 - roadX(cz2)) < 5 && cy2 < roadY(cz2) + 6.5) || (udOf(cz2) && abs(cz2 - UD.zc) < 15 && cy2 < roadY(cz2) + 5.2);

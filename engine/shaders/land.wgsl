@@ -16,10 +16,10 @@ fn sw(z: f32) -> f32 { return zw(z, 3, .45, .5); }
 // 1 on a stretch with the sea beside it (the coast road, the island crossing) and for 40 m into its neighbours: no rice is grown there (seaZ in land.js)
 // the one flower each part of a flower stretch grows - the parts lie between its canals (flwKind in land.js): 0 sunflowers, 1 hydrangeas, 2 tulips, 3 lilies; tulc: a tulip band's colour
 fn fkind(z: f32) -> f32 { let p = z / SEG; let s = i32(floor(p)); let q = p - floor(p); var part = 2; if (q < .3 + (ph(vec2i(s, 71)) - .5) * .12) { part = 0; } else if (q < .72 + (ph(vec2i(s, 72)) - .5) * .12) { part = 1; }
-  return floor(ph(vec2i(s * 3 + part, 387)) * 4.); }
+  if (ph(vec2i(s * 3 + part, 389)) < .25) { return 4.; } return floor(ph(vec2i(s * 3 + part, 387)) * 4.); }      // (4: marigolds - see flwKind)
 fn tulc(h: f32) -> vec3f { if (h < .24) { return vec3f(.78, .05, .06); } if (h < .46) { return vec3f(.93, .70, .05); } if (h < .64) { return vec3f(.88, .36, .55); } if (h < .8) { return vec3f(.45, .12, .50); } if (h < .92) { return vec3f(.90, .40, .08); } return vec3f(.88, .86, .80); }
 // plantations: plw 1 inside one of either kind (plantW in land.js); rub and oilp for rubber and for oil palm
-fn plw(z: f32) -> f32 { let p = z / SEG; let s = i32(floor(p)); let q = p - floor(p); if (zoneOf(s) != 0 || flws(s) || ph(vec2i(s, 63)) < .25) { return 0.; }
+fn plw(z: f32) -> f32 { let p = z / SEG; let s = i32(floor(p)); let q = p - floor(p); if (zoneOf(s) != 0 || flws(s) || ph(vec2i(s, 63)) < .25 || ph(vec2i(s, 67)) < .3) { return 0.; }
   let e = .72 + (ph(vec2i(s, 72)) - .5) * .12; return ss(.04, .09, q) * (1. - ss(e - .03, e - .006, q)) * (1. - ss(0., .3, tw(z))); }
 fn rubk(z: f32) -> f32 { return step(ph(vec2i(i32(floor(z / SEG)), 66)), .7); }
 fn rub(z: f32) -> f32 { return plw(z) * rubk(z); }
@@ -30,21 +30,26 @@ fn seaz(z: f32) -> f32 { let p = z / SEG; let s = i32(floor(p)); let q = (p - fl
 fn nw(z: f32) -> f32 { return zw(z, 4, .46, .6); }
 fn roadX(z: f32) -> f32 { return 60. * sin(z * .004) + 25. * sin(z * .011 + 1.3) + 9. * sin(z * .023 + .7) + sw(z) * 16. * sin(z * .019) + hpx(z); }
 fn tunS(s: i32) -> bool { return s != 2 && (ph(vec2i(s, 31)) > .45 || ((s % 4) + 4) % 4 == 2); }      // a hill stretch with a tunnel and not switchbacks (tunS in land.js)
-fn hpw(z: f32) -> f32 { let p = z / SEG; let s = floor(p); let si = i32(s); if (zoneOf(si) != 1 || tunS(si)) { return 0.; } return 1. - ss(.16, .24, abs(p - s - .5)); }
+fn hpw(z: f32) -> f32 { let p = z / SEG; let s = floor(p); let si = i32(s); if (zoneOf(si) != 1 || tunS(si)) { return 0.; } let w = select(.24, .47, ph(vec2i(si, 34)) < .5); return 1. - ss(w - .08, w, abs(p - s - .5)); }      // (tgS in land.js: a long pass)
 fn hpx(z: f32) -> f32 { let e = hpw(z); if (e <= 0.) { return 0.; } return e * 100. * sin(.0262 * (z - (floor(z / SEG) + .5) * SEG)); }
 // 1 where the plots of a flower stretch come up to the road (flwW in the script)
 // the cherry stretches (chyAt in src/land.js): 1 a hill whose woods are mostly cherry, 2 a flat stretch with an avenue, 0 neither
+// a golden shower stretch (kunAt in land.js): rice, and an avenue of ราชพฤกษ์ down the road
+fn kun(z: f32) -> bool { let s = i32(floor(z / SEG)); return zoneOf(s) == 0 && !flws(s) && ph(vec2i(s, 63)) >= .25 && ph(vec2i(s, 67)) < .3; }
 fn chy(z: f32) -> i32 { let s = i32(floor(z / SEG)); let k = zoneOf(s); if (k == 1 && ph(vec2i(s, 61)) < .55) { return 1; }
   if (k == 0 && !flws(s) && ph(vec2i(s, 63)) < .25) { return 2; } return 0; }
 fn flw(z: f32, twz: f32) -> f32 { let p = z / SEG; let s = i32(floor(p)); if (zoneOf(s) != 0 || !flws(s)) { return 0.; }
   let q = p - f32(s); let r0 = (f32(s) + .3 + (ph(vec2i(s, 71)) - .5) * .12) * SEG; let w0 = 10. + 5. * ph(vec2i(s, 75)); let r1 = (f32(s) + .72 + (ph(vec2i(s, 72)) - .5) * .12) * SEG;
   return ss(0., .03, q) * (1. - ss(.97, 1., q)) * (1. - ss(0., .3, twz)) * ss(w0 + 14., w0 + 30., abs(z - r0)) * ss(18., 34., abs(z - r1)); }
 // the lanes of a town leave the road square to it every 36 m. x: signed metres from the middle of the nearest lane, y: metres along it from the road, z: its number
+// laneSd in land.js: 0 a lane crossing the street, 1 or -1 one that goes off on that side only (a T junction)
+fn lsd(b: f32) -> f32 { if (tlb(b) > .5) { return 0.; } if (ph(vec2i(i32(b), 531)) < .4) { return select(-1., 1., ph(vec2i(i32(b), 532)) < .5); } return 0.; }
 fn soi(P: vec2f) -> vec3f {
   let s0 = roadX(P.y + .5) - roadX(P.y - .5); let b0 = round((P.y + s0 * (P.x - roadX(P.y)) - 34.) / 36.); var o = vec3f(99., 0., 0.);
   // (the lane reckoned nearest first; the ones either side of it are only asked where it is far enough off - 14 of the 18 m to half way - that one of them might be nearer)
   for (var j = 0; j < 3; j++) { let b = b0 + f32((j + 1) / 2) * f32(1 - 2 * (j & 1)); let zl = b * 36. + 34.; let s = (roadX(zl + 1.) - roadX(zl - 1.)) * .5; let iv = inverseSqrt(1. + s * s); let d = P - vec2f(roadX(zl), zl);
-    let ds = (d.x * s + d.y) * iv; if (abs(ds) < abs(o.x)) { o = vec3f(ds, (d.x - d.y * s) * iv, b); }
+    let ds = (d.x * s + d.y) * iv; let al = (d.x - d.y * s) * iv; let sd = lsd(b); if (sd != 0. && al * sd < -3.05) { continue; }      // (a lane that goes off on one side only: not on the other - though across the road itself it counts, for its zebra crossing reaches the far kerb; the far edge line, 3.2 m out, is left whole)
+    if (abs(ds) < abs(o.x)) { o = vec3f(ds, al, b); }
     if (j == 0 && abs(ds) < 14.) { break; } }
   return o; }
 // the island crossing (zone 5; ism and isBr in land.js). ism: metres into the sea (positive) or inland from the waterline; isb: 1 where the road is on a bridge
@@ -67,11 +72,26 @@ fn udk(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.;
   return o; }
 // how much wider than the main road's asphalt the street is at z, each side: the frontage roads beside an underpass (svW in land.js, and its underpass
 // found with every test udG makes there: the town all round it, no river or sea crossing near)
-fn svw(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.;
+// how far the street's things are set out square to the road, not along x (svSide in land.js): 1 beside the cutting, easing to 0 from 96 to 136 m out
+// how far below the street the road is at z beside an underpass (udip in land.js), with every test of its finding as in svw below - and, as there,
+// from the nearest one (bd): two can be 180 m apart, their ramps meeting
+fn udd(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.; var bd = 1e9;
   for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; let dz = abs(z - zc);
-    if (dz < 136. && ph(vec2i(i32(g), 523)) < .5 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
+    if (dz < 96. && dz < bd && ph(vec2i(i32(g), 523)) < .5 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
       let r = rivOf(zc); let si = i32(floor(zc / SEG)); let di = abs(zc - (f32(si) + .5) * SEG);
-      if (!(r.y > 0. && abs(zc - r.x) < r.y * .5 + 112.) && !(zoneOf(si) == 5 && di > 38. && di < 632.)) { o = 5.4 * (1. - ss(96., 136., dz)); } } }
+      if (!(r.y > 0. && abs(zc - r.x) < r.y * .5 + 112.) && !(zoneOf(si) == 5 && di > 38. && di < 632.)) { o = 6.2 * (1. - ss(18., 96., dz)); bd = dz; } } }
+  return o; }
+fn svq(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.; var bd = 1e9;
+  for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; let dz = abs(z - zc);
+    if (dz < 136. && dz < bd && ph(vec2i(i32(g), 523)) < .5 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
+      let r = rivOf(zc); let si = i32(floor(zc / SEG)); let di = abs(zc - (f32(si) + .5) * SEG);
+      if (!(r.y > 0. && abs(zc - r.x) < r.y * .5 + 112.) && !(zoneOf(si) == 5 && di > 38. && di < 632.)) { o = 1. - ss(96., 136., dz); bd = dz; } } }
+  return o; }
+fn svw(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.; var bd = 1e9;
+  for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; let dz = abs(z - zc);
+    if (dz < 136. && dz < bd && ph(vec2i(i32(g), 523)) < .5 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
+      let r = rivOf(zc); let si = i32(floor(zc / SEG)); let di = abs(zc - (f32(si) + .5) * SEG);
+      if (!(r.y > 0. && abs(zc - r.x) < r.y * .5 + 112.) && !(zoneOf(si) == 5 && di > 38. && di < 632.)) { o = 5.4 * (1. - ss(96., 136., dz)); bd = dz; } } }
   return o; }
 // signed distance from the road's centre line, measured square to the road on the switchbacks
 fn rdist(P: vec2f) -> f32 {

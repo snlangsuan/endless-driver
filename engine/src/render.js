@@ -1,5 +1,5 @@
 // --------------------------------------------------------------------------------------------------------- pipelines
-const UBN = 116, UB = new Float32Array(UBN), UBS = new Float32Array(UBN);
+const UBN = 152, UB = new Float32Array(UBN), UBS = new Float32Array(UBN);
 const ubo = device.createBuffer({ size: UBN * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 const uboS = device.createBuffer({ size: UBN * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 const tShadow = device.createTexture({ size: [SHADOW, SHADOW], format: 'depth32float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
@@ -22,7 +22,7 @@ const sShadowCmp = device.createSampler({ compare: 'less', magFilter: 'linear', 
 // Sign writing. The words on shop signs and road boards are real Thai, written once at start-up with the machine's own Thai typeface
 // onto a sheet (no image file is loaded) which the sign material reads. Left half: 64 names written across, in cells 256 x 64.
 // Right half: the same names written downward, letter under letter, in cells 64 x 256, for tall boards. The last 16 are for road boards.
-const signW = (B) => { for (let i = 0; i < B.length; i += 12) if (B[i + 8] === 23) B[i + 11] = 10 + Math.max(B[i + 4], B[i + 6]); return B; };      // a sign board carries its own width, so the words can be fitted to it
+// (signW, which writes each sign board's width into it for the words, is in core.js: the world worker needs it too)
 const SIGNS = ['อาหารตามสั่ง', 'ก๋วยเตี๋ยวเรือ', 'ข้าวมันไก่', 'ร้านขายยา', 'ห้างทอง', 'ซ่อมมอเตอร์ไซค์', 'ตัดผมชาย', 'เสริมสวย', 'วัสดุก่อสร้าง', 'กาแฟสด', 'ซักอบรีด', 'ร้านชำ', 'มินิมาร์ท', 'คลินิก', 'ทันตกรรม', 'ร้านดอกไม้',
   'อะไหล่ยนต์', 'ร้านหนังสือ', 'เครื่องเขียน', 'ถ่ายรูปด่วน', 'มือถือ ซิม', 'เบเกอรี่', 'ส้มตำ ไก่ย่าง', 'โจ๊ก ต้มเลือดหมู', 'เสื้อผ้าแฟชั่น', 'รองเท้า กระเป๋า', 'หอพัก ห้องว่าง', 'ให้เช่า', 'ขายส่ง ขายปลีก', 'น้ำแข็ง น้ำดื่ม', 'ข้าวแกง', 'ขนมไทย',
   'ผลไม้สด', 'เครื่องใช้ไฟฟ้า', 'เฟอร์นิเจอร์', 'ร้านแว่นตา', 'อู่ซ่อมรถ', 'ล้างอัดฉีด', 'ยางรถยนต์', 'แก๊ส', 'ข้าวสาร', 'ของฝาก', 'นวดแผนไทย', 'โรงรับจำนำ', 'ปุ๋ย ยาเกษตร', 'อาหารสัตว์', 'เปิด 24 ชม.', '1 มาร์ท',
@@ -50,8 +50,8 @@ const LB_BRANCH = [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 
   { arrayStride: 40, stepMode: 'instance', attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x4' }, { shaderLocation: 2, offset: 16, format: 'float32x4' }, { shaderLocation: 3, offset: 32, format: 'float32x2' }] }];
 const LB_BOX = [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] },
   { arrayStride: 48, stepMode: 'instance', attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x4' }, { shaderLocation: 3, offset: 16, format: 'float32x4' }, { shaderLocation: 4, offset: 32, format: 'float32x4' }] }];
-const scenePipe = (vs, fs, buffers, topology = 'triangle-list', ws = 1, depthCompare = 'less', nv = 4) => device.createRenderPipeline({ layout: plScene,
-  vertex: Object.assign({ module: mScene, entryPoint: vs, buffers }, vs === 'vsLeaf' ? { constants: { WS: ws, NV: nv } } : {}),
+const scenePipe = (vs, fs, buffers, topology = 'triangle-list', ws = 1, depthCompare = 'less', nv = 4, layout = plScene) => device.createRenderPipeline({ layout,
+  vertex: Object.assign({ module: mScene, entryPoint: vs, buffers }, vs.startsWith('vsLeaf') ? { constants: { WS: ws, NV: nv } } : {}),
   fragment: { module: mScene, entryPoint: fs, targets: [{ format: HDR }] },
   primitive: { topology, cullMode: 'none' }, multisample: { count: AA },
   depthStencil: { format: DEPTH, depthWriteEnabled: depthCompare === 'less', depthCompare } });
@@ -66,9 +66,29 @@ const pTerrain = scenePipe('vsTerrain', 'fsTerrain', LB_TERRAIN), pBranch = scen
 const LODW = [1, 1.75, 3.1, 5.4], LODN = [1, 3, 9, 27], LODV = [10, 6, 6, 6];
 const pLeaf = LODW.map((w, l) => scenePipe('vsLeaf', 'fsLeaf', LB_LEAF, 'triangle-strip', w, 'less', LODV[l] / 2 - 1));
 const pSky = scenePipe('vsSky', 'fsSky', [], 'triangle-list', 1, 'less-equal');
+// Leaves and grass culled on the graphics card (cull.wgsl, and main.js): each frame a compute pass lists, for every chunk's leaves and grass, which
+// instances are in view, and the draws use those lists (vsLeafC). ?cull=0 in the page's address draws them all, as before - for comparing.
+// CU: idx, the lists of the frame one after another (each begun on a 256-byte boundary, as a dynamic offset must be); args, each draw's
+// indirect arguments, 256 bytes apart; par, each draw's numbers for the culling (the sides of the view, the eye, how many, how wide).
+const CULL = !/[?&]cull=0\b/.test(location.search), CULLD = 512;
+const bglCullR = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage', hasDynamicOffset: true } }] });
+const pLeafC = LODW.map((w, l) => scenePipe('vsLeafC', 'fsLeaf', [], 'triangle-strip', w, 'less', LODV[l] / 2 - 1, device.createPipelineLayout({ bindGroupLayouts: [bglScene, bglCullR] })));
+const bglCull = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage', hasDynamicOffset: true } },
+  { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage', hasDynamicOffset: true } }, { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform', hasDynamicOffset: true } }] });
+const pCull = device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [bglCull] }), compute: { module: mod(WGSL.cull, 'cull'), entryPoint: 'cull' } });
+const CU = { idx: null, idxN: 0, ver: 0, A: new Uint32Array(CULLD * 64), P: new Float32Array(CULLD * 64),
+  args: device.createBuffer({ size: CULLD * 256, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST }), par: device.createBuffer({ size: CULLD * 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }) };
+// (room for n entries in the lists; made larger - and every bind group made again - when a frame needs more)
+const cullRoom = (n) => { if (n <= CU.idxN) return; if (CU.idx) CU.idx.destroy(); CU.idxN = Math.ceil(n * 1.4 / 64) * 64; CU.idx = device.createBuffer({ size: CU.idxN * 4, usage: GPUBufferUsage.STORAGE }); CU.ver++; };
+// (a chunk's leaf or grass buffer, made with STORAGE so that it can be culled, has its two bind groups, kept on it: one to cull, one to draw)
+const cullBG = (b) => { if (b._cv !== CU.ver) { const n = b.size / 48, li = { buffer: CU.idx, size: n * 4 };
+    b._cg = device.createBindGroup({ layout: bglCull, entries: [{ binding: 0, resource: { buffer: b } }, { binding: 1, resource: li }, { binding: 2, resource: { buffer: CU.args, size: 16 } }, { binding: 3, resource: { buffer: CU.par, size: 128 } }] });
+    b._rg = device.createBindGroup({ layout: bglCullR, entries: [{ binding: 0, resource: { buffer: b } }, { binding: 1, resource: li }] }); b._cv = CU.ver; } return b; };
 const pBoxS = shadowPipe('vsBox', LB_BOX);
 const LB_CAR = [{ arrayStride: 40, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'float32x3' }, { shaderLocation: 3, offset: 36, format: 'float32' }] }];
 const pCar = scenePipe('vsCar', 'fsCar', LB_CAR), pCarS = shadowPipe('vsCar', LB_CAR);
+const LB_MESH = [{ arrayStride: 28, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'float32' }] }];
+const pMesh = scenePipe('vsMesh', 'fsBranch', LB_MESH), pMeshS = shadowPipe('vsMesh', LB_MESH);      // sculpted things: a chunk's meshB / meshIB (see sculpt in chunks.js)
 const pTerrainS = shadowPipe('vsTerrain', LB_TERRAIN), pBranchS = shadowPipe('vsBranch', LB_BRANCH), pLeafS = shadowPipe('vsLeaf', LB_LEAF, 'triangle-strip', LODW[1]), pLeafS2 = shadowPipe('vsLeaf', LB_LEAF, 'triangle-strip', LODW[2]);
 const sLin = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 const postPipe = (fs, blend) => device.createRenderPipeline({ layout: 'auto', vertex: { module: mPost, entryPoint: 'vs' },
@@ -88,6 +108,11 @@ for (let k = 0; k <= SIDES; k++) { const a = k / SIDES * TAU; tubeV.set([cos(a),
 for (let k = 0; k < SIDES; k++) tubeI.set([2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 2, 2 * k + 1, 2 * k + 3], k * 6);
 const vbuf = (data, usage = GPUBufferUsage.VERTEX) => { const b = device.createBuffer({ size: max(16, (data.byteLength + 3) & ~3), usage: usage | GPUBufferUsage.COPY_DST }); Q.writeBuffer(b, 0, data); return b; };
 const vbTube = vbuf(tubeV), ibTube = vbuf(tubeI, GPUBufferUsage.INDEX);
+// and one of 16 sides, for big round made things seen close and far (a temple's images: with 8 a great seated figure showed its flat sides)
+const tubeV16 = new Float32Array(17 * 6), tubeI16 = new Uint16Array(16 * 6);
+for (let k = 0; k <= 16; k++) { const a = k / 16 * TAU; tubeV16.set([cos(a), sin(a), 0, cos(a), sin(a), 1], k * 6); }
+for (let k = 0; k < 16; k++) tubeI16.set([2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 2, 2 * k + 1, 2 * k + 3], k * 6);
+const vbTube16 = vbuf(tubeV16), ibTube16 = vbuf(tubeI16, GPUBufferUsage.INDEX);
 // and one of 4 sides, a third of the triangles: for twigs, for everything beyond 85 m, and for shadows
 const tubeV4 = new Float32Array(5 * 6), tubeI4 = new Uint16Array(4 * 6);
 // (its corners stand out 1.4 times the radius, so that seen from any side it is as wide as the round tube: a distant wire is kept one pixel

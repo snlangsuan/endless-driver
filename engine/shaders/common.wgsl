@@ -2,7 +2,9 @@
 // The land itself (roads, zones, heights) is in land.wgsl, which src/shaders.js puts after this text.
 // SHADOW_RES (the shadow map's size) is declared by src/shaders.js, in front of this text.
 struct G { vp: mat4x4f, sm: mat4x4f, cam: vec4f, sun: vec4f, sunCol: vec4f, fwd: vec4f, right: vec4f, up: vec4f,
-  fog: vec4f, res: vec4f, amb: vec4f, misc: vec4f, zen: vec4f, hor: vec4f, camM: vec4f, crush: array<vec4f, 8> };
+  fog: vec4f, res: vec4f, amb: vec4f, misc: vec4f, zen: vec4f, hor: vec4f, camM: vec4f, crush: array<vec4f, 8>, wake: array<vec4f, 8>, ssn: vec4f };
+// ssn: x how far it is the cool season (0..1): the snowfield (nw) is under snow only then, and green upland the rest of the year
+// wake: where the car has just been, newest first - x, z, the time it was there, w how hard its passing blows (0: none, or no such point)
 // cam.w time · fwd/right/up: camera basis (right.w, up.w = tan half fov x, y) · fog: x density, y far edge, z cloud cover, w dry season
 // crush: plants the car has pressed down - x, z where, z how far (0..1), w how far round · misc: x headlights, y wind, z exposure, w night · camM: xy the eye's place in its 256 m tile, z snow lying everywhere (snow chosen by hand)
 @group(0) @binding(0) var<uniform> g: G;
@@ -40,11 +42,21 @@ fn ph(c: vec2i) -> f32 { var h = bitcast<u32>(c.x) * 374761393u + bitcast<u32>(c
 fn ss(a: f32, b: f32, x: f32) -> f32 { let t = clamp((x - a) / (b - a), 0., 1.); return t * t * (3. - 2. * t); }
 // wind: the whole plant leans with height; nearby parts share a phase so leaves stay on their branches
 // The flower fields by season (g.fog.w: 0 after the rains, about a quarter in the cool season, near 1 in the hot dry one). fbloom: the share of the
-// plants' flowers that are out - all of them in the cool season, when such fields flower; about half in the rains, the rest still in bud; hardly
+// plants' flowers that are out - all of them in the cool season, when such fields flower; about one in twelve in the rains, the rest still in bud; hardly
 // any in the hot season. fdry: how far the plants have yellowed and dried by then.
-fn fbloom() -> f32 { return mix(.5, 1., ss(.05, .2, g.fog.w)) * (1. - .88 * ss(.45, .85, g.fog.w)); }
+fn fbloom() -> f32 { return mix(.08, 1., ss(.05, .2, g.fog.w)) * (1. - .88 * ss(.45, .85, g.fog.w)); }
 fn fdry() -> f32 { return ss(.45, .85, g.fog.w); }
+// (by the kind of flower: a marigold field (4) is the hot season's - watered, it is green all year and flowers through the hot season, a few out
+// in the rains, some in the cool; the others as above)
+fn fbloomK(ft: f32) -> f32 { if (ft == 4.) { return max(mix(.12, .4, ss(.05, .2, g.fog.w)), ss(.45, .85, g.fog.w)); } return fbloom(); }
+fn fdryK(ft: f32) -> f32 { if (ft == 4.) { return 0.; } return fdry(); }
 fn gust(p: vec2f) -> f32 { let t = g.cam.w; return vn(p * .02 - vec2f(t * .35, t * .22)); }      // gusts travel over the land with the wind
+// How far a low plant (grass, rice, a flower) is bent at p: the wind's steady push, and on it waves that run downwind over the field - a long
+// swell and a quicker ripple - so that it bows and rises again, row after row, the harder the wind the more. A function of the place and the
+// time only, so that a flower's stem, leaves and head, a few centimetres apart, bend together.
+fn fbend(p: vec2f, gs: f32) -> f32 { let t = g.cam.w; let W = g.misc.y; let a = dot(p, vec2f(.824, .567));
+  let wv = .55 * sin(a * .42 - t * (1.6 + .25 * W)) + .3 * sin(a * 1.1 - t * (3.1 + .3 * W) + sin(dot(p, vec2f(-.567, .824)) * .21) * 2.) + .15 * sin(a * 2.3 - t * 5.2);
+  return W * (.08 + .5 * gs) * max(.15, 1. + .85 * wv * ss(.6, 2.2, W)); }
 fn wind(p: vec2f, hgt: f32) -> vec2f { return windG(p, hgt, gust(p)); }
 fn windG(p: vec2f, hgt: f32, gs: f32) -> vec2f {      // (gs: the gust there, for a caller that has it already - a leaf asks for it at every one of its corners)
   let t = g.cam.w; let W = g.misc.y; let ph = dot(p, vec2f(.021, .017));
@@ -76,14 +88,49 @@ override NV: f32 = 4.;      // how many lengths the strip is cut into: 4 (10 ver
 fn leafV(vi: u32, a0: vec4f, b0: vec4f, c: vec4f) -> LO {
   var o: LO;
   let u = f32(vi & 1u) * 2. - 1.; let v = f32(vi >> 1u) / NV;
-  let kind = i32(c.x + .5);
-  var a = a0; var b = b0;
-  if (kind == 11) {        // a petal in the air: it falls from where it was put (b0.y is how far down the ground is), swinging from side to side, turning over, carried off by the wind; then another starts
+  var kind = i32(c.x + .5);
+  // (19: a golden shower's leaf - drawn as any broadleaf sprig, but half of them fall in the hot season, when the tree flowers)
+  let gsl = kind == 19; if (gsl) { kind = 0; }
+  var a = a0; var b = b0; if (gsl && c.y < .55 * ss(.55, .85, g.fog.w)) { a.w = 0.; }
+  if (kind == 11 && c.w > .5) {
+    // A petal lying on the ground (a0: where; b0.x and c.y: its own numbers), not seen while it lies - the ground is painted with them - but
+    // taken up into the air: by the car's passing (g.wake), thrown up and out to the side of its line, whirling, and coming down again within
+    // three seconds; and by a strong wind in its gusts, lifted and carried off downwind in a long low hop, over and over.
+    let tp = g.cam.w; let hs = b0.x; var size = 0.; var off = vec3f(0.);
+    if (distance(a0.xz, g.cam.xz) < 70.) {
+      var wk = 0.; var wage = 0.; var wout = vec2f(0.);
+      for (var q = 0; q < 7; q++) { let wa = g.wake[q]; let wb = g.wake[q + 1]; if (wa.w * wb.w < .0004 || tp - wb.z > 3.2) { continue; }
+        let ab = wb.xy - wa.xy; let hh = clamp(dot(a0.xz - wa.xy, ab) / max(dot(ab, ab), .0001), 0., 1.); let dv = a0.xz - (wa.xy + ab * hh); let dS = length(dv);
+        let k = (1. - ss(1.4, 3.8, dS)) * mix(wa.w, wb.w, hh); if (k > wk) { wk = k; wage = tp - mix(wa.z, wb.z, hh); wout = dv / max(dS, .05); } }
+      let ua = wage * (1.6 + 1.6 * hs); let rise = ua * exp(1. - ua);
+      // (wet petals stick to the ground - g.amb.w: how wet it is - and are hardly taken up at all)
+      let dryk = 1. - .9 * ss(.15, .6, g.amb.w); wk *= dryk;
+      let carVis = wk * ss(0., .08, wage) * (1. - ss(2.2, 3.1, wage));
+      let act = ss(1., 3.2, g.misc.y) * ss(.42, .62, gust(a0.xz)) * dryk; let tt = fract(tp * (.16 + .14 * c.y) + hs * 7.);
+      let windVis = act * ss(0., .1, tt) * (1. - ss(.85, 1., tt));
+      if (carVis > windVis) { let o2 = wout * wk * (1. - exp(-wage * 2.)) * (1. + 2.5 * hs) + vec2f(sin(tp * 5. + hs * 40.), cos(tp * 4.3 + hs * 23.)) * .5 * wk * rise;
+        off = vec3f(o2.x, wk * (.35 + 2.4 * hs * hs) * rise, o2.y); }
+      else { let o2 = vec2f(.824, .567) * tt * (1.5 + 5. * c.y) * act + vec2f(sin(tt * 9. + hs * 40.), cos(tt * 7. + hs * 23.)) * .25;
+        off = vec3f(o2.x, act * sin(3.14159 * tt) * (.15 + 1.6 * c.y * c.y), o2.y); }
+      size = a0.w * max(carVis, windVis);
+    }
+    a = vec4f(a0.xyz + off, size);
+    b = vec4f(hs * 6.2832 + tp * (2. + 3. * c.y), sin(tp * 3.1 + hs * 50.) * 1.2, b0.z, 0.);
+  } else if (kind == 11) {        // a petal in the air: it falls from where it was put (b0.y is how far down the ground is), swinging from side to side, turning over, carried off by the wind; then another starts
     let tt = fract(g.cam.w * (.045 + .035 * c.y) + b0.x); let drift = tt * b0.y * (.12 + .55 * g.misc.y * (.3 + gust(a0.xz)));
     a = vec4f(a0.x + sin(tt * 11. + b0.x * 40.) * .35 + .8 * drift, a0.y - tt * b0.y, a0.z + cos(tt * 8. + b0.x * 23.) * .35 + .55 * drift, a0.w * ss(0., .04, tt));
     b = vec4f(b0.x * 6.2832 + g.cam.w * (2. + 3. * c.y), sin(g.cam.w * 3.1 + b0.x * 50.) * 1.2, b0.z, 0.);
   }
-  var bud = 0.; if (kind == 9 && c.y > fbloom()) { bud = 1.; a = vec4f(a0.x, a0.y + a0.w * .3, a0.z, a0.w * .34); b = vec4f(b0.x, b0.y, b0.z * .3, b0.w); }      // a flower not out (or over): a small green bud in its place
+  // The wild Himalayan cherry (sprays of kind 10, its petals 11) flowers in the cool season, when it has hardly a leaf; the rest of the year it is
+  // in green leaf. Each spray is blossom or leaf by its own number against how far it is the cool season (g.ssn.x), so as the season comes and
+  // goes the trees flower and leaf a spray at a time; and petals fall, and lie, only while they flower.
+  let cbl = kind == 10 && c.y < g.ssn.x * 1.02; let clf = kind == 10 && !cbl;
+  // (a petal whose droop - b0.w - is 1 is a golden shower's: yellow, and about only in the hot season)
+  let gsp = kind == 11 && b0.w > .5;
+  if (kind == 11) { a.w *= select(ss(.02, .3, g.ssn.x), ss(.55, .85, g.fog.w), gsp); }
+  // the golden shower's chains of flowers hang only in the hot season
+  if (kind == 18) { a.w *= ss(.55, .85, g.fog.w); }
+  var bud = 0.; if (kind == 9 && c.y > fbloomK(fkind(a0.z))) { bud = 1.; a = vec4f(a0.x, a0.y + a0.w * .3, a0.z, a0.w * .34); b = vec4f(b0.x, b0.y, b0.z * .3, b0.w); }      // a flower not out (or over): a small green bud in its place
   let cy = cos(b.x); let sy = sin(b.x); let ce = cos(b.y); let se = sin(b.y);
   var dir = vec3f(ce * cy, se, ce * sy); var side = vec3f(-sy, 0., cy);
   var shp = pow(max(sin(3.14159 * pow(v, .75)), 0.), .6);
@@ -109,18 +156,18 @@ fn leafV(vi: u32, a0: vec4f, b0: vec4f, c: vec4f) -> LO {
   let tng = normalize(dir + vec3f(0., -b.w * v, 0.));
   var n = normalize(cross(side, tng));
   let t = g.cam.w;
-  let pk = !blade && kind != 9 && (kind < 12 || kind == 14); var hgt = c.w; var rch = 0.; if (pk) { hgt = floor(c.w) / 32.; rch = fract(c.w) * 32.; }      // leaves of trees carry height and reach packed together
+  let pk = !blade && kind != 9 && (kind < 12 || kind == 14 || kind == 18); var hgt = c.w; var rch = 0.; if (pk) { hgt = floor(c.w) / 32.; rch = fract(c.w) * 32.; }      // leaves of trees carry height and reach packed together
   if (kind == 15) { hgt = .4 + floor(c.w) / 50.; }      // (a flower's leaf: its height up the stem, unpacked - see the bend, below)
   let gs = gust(a.xz); let w = wind3G(a.xz, hgt + v * a.w * se * (1. - f32(kind == 15)), rch, gs);
   p += w;
   if (hgt < 3.4) { let cr = crushed(a.xz, hgt); if (cr.z > .003) {      // (nothing that high is pressed down)
     let up = hgt + v * a.w * se; p.y -= up * cr.z * .86; p = vec3f(p.x + cr.x * cr.z * (.25 + .35 * hgt), p.y, p.z + cr.y * cr.z * (.25 + .35 * hgt)); } }      // flat under the car, splayed a little outward
-  if (blade || kind == 12 || kind == 13) { let bend = g.misc.y * (.08 + .5 * gs) * v * v * a.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // waves run through grass and rice
-  if (kind == 9) { let bend = g.misc.y * (.08 + .5 * gs) * c.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // rides on the tip of its stalk
+  if (blade || kind == 12 || kind == 13) { let bend = fbend(a.xz, gs) * v * v * a.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // waves run through grass and rice
+  if (kind == 9) { let bend = fbend(a.xz, gs) * c.w * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }      // rides on the tip of its stalk
   // A flower plant moves all of a piece: its stem (17) bends with the wind's waves as grass does; a leaf on it (15: its height up the stem
   // and the stem's length are packed in c.w) and its head (9) are carried by exactly as much as the stem has moved where they sit - and none of
   // the three has the small flutter of its own that leaves and blades have, which shook them apart from one another.
-  if (kind == 15) { let hh = floor(c.w) / 50.; let ls = max(fract(c.w) * 5., .05); let bend = g.misc.y * (.08 + .5 * gs) * hh * hh / ls * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }
+  if (kind == 15) { let hh = floor(c.w) / 50.; let ls = max(fract(c.w) * 5., .05); let bend = fbend(a.xz, gs) * hh * hh / ls * .55; p.x += .8 * bend; p.z += .55 * bend; p.y -= bend * .35; }
   let own = 1. - f32(kind == 9 || kind == 15 || kind == 17);
   let fl = own * g.misc.y * (.4 + 1.2 * gs) * sin(t * (6. + c.y * 4.) + c.y * 40. + a.x * 1.7) * .07 * v * a.w;
   p += mix(n, side, f32(blade)) * fl + side * (fl * .4 * (1. - f32(blade)));
@@ -144,14 +191,18 @@ fn leafV(vi: u32, a0: vec4f, b0: vec4f, c: vec4f) -> LO {
   if (kind == 9) { let ft = fkind(a.z); col = mix(vec3f(.92, .60, .03), vec3f(.97, .76, .08), c.y);      // a flower head, of the kind its stretch grows (the kind goes on to the fragment stage in tr)
     if (ft == 1.) { col = mix(vec3f(.28, .38, .82), vec3f(.72, .42, .74), ss(.35, .65, vn(a.xz * .05 + 3.))) * (.85 + .3 * c.y); }
     if (ft == 2.) { col = tulc(ph(vec2i(i32(floor(a.x / 5.)), 61))) * (.88 + .24 * c.y); }
-    if (ft == 3.) { let hp = ph(vec2i(i32(floor(a.x / 28.)), i32(floor(a.z / 22.)) + 50)); col = vec3f(.92, .90, .84); if (hp > .4) { col = vec3f(.93, .46, .10); } if (hp > .75) { col = vec3f(.86, .30, .50); } col *= .92 + .12 * c.y; }
-    col = mix(col, col * vec3f(.62, .5, .36), fdry() * .8); if (bud > .5) { col = mix(vec3f(.10, .19, .04), vec3f(.26, .22, .08), fdry()); }
-    tr = .1 + 2. * mix(ft, 2., bud) + 1.6 * c.y; }      // (a bud is drawn with the tulip's closed shape, whatever the flower)      // (and the head's own seed with it, in the fraction)
-  let snl = max(nw(a.z), g.camM.z); if (snl > .01) { col = mix(col, vec3f(.74, .77, .82), snl * (.3 + .5 * c.z)); }                                      // snow lying on the leaves
+    if (ft == 3.) { let hp = ph(vec2i(i32(floor(a.x / 28.)), i32(floor(a.z / 22.)) + 50)); col = vec3f(.92, .90, .84); if (hp > .25) { col = vec3f(.93, .42, .06); } if (hp > .5) { col = vec3f(.86, .20, .44); } if (hp > .8) { col = vec3f(.95, .78, .08); } col *= .92 + .12 * c.y; }
+    if (ft == 4.) { let hp = ph(vec2i(i32(floor(a.x / 24.)), i32(floor(a.z / 20.)) + 90)); col = select(vec3f(.96, .70, .05), vec3f(.94, .42, .03), hp < .62) * (.88 + .2 * c.y); }      // marigolds: a plot of orange, a plot of yellow
+    col = mix(col, col * vec3f(.62, .5, .36), fdryK(ft) * .8); if (bud > .5) { col = mix(vec3f(.10, .19, .04), vec3f(.26, .22, .08), fdryK(ft)); }
+    tr = .1 + 2. * mix(ft, 2., bud) + select(1.6, .8, ft == 4. && bud < .5) * c.y; }      // (a marigold's seed is kept under .9: its number must stay below the banana leaf's)      // (a bud is drawn with the tulip's closed shape, whatever the flower)      // (and the head's own seed with it, in the fraction)
+  let snl = max(nw(a.z) * g.ssn.x, g.camM.z); if (snl > .01) { col = mix(col, vec3f(.74, .77, .82), snl * (.3 + .5 * c.z)); }                                      // snow lying on the leaves
   if (kind == 15) { col = mix(vec3f(.050, .125, .022), vec3f(.085, .175, .032), c.y); tr = .6; }
-  if (kind == 15 || kind == 17) { col = mix(col, mix(vec3f(.24, .19, .07), vec3f(.17, .12, .05), c.y), fdry() * (.55 + .4 * c.y)); }      // flower plants, dried up in the hot season
-  if (kind == 10 || kind == 11) { col = mix(vec3f(.62, .09, .26), vec3f(.80, .24, .42), c.y); if (c.y > .85) { col = vec3f(.88, .46, .60); } }      // cherry blossom: deep pink to nearly white
-  o.col = col; o.pr = vec2f(c.z, tr + (40. + 4. * c.y) * f32(kind == 10) + 2. * f32(kind == 0) + 4. * c.y * f32(kind == 0) + 10. * f32(kind == 8) + 20. * f32(kind == 9) + (30. + 4. * c.y) * f32(kind == 5) + (50. + 4. * c.y) * f32(kind == 12) + (60. + 4. * c.y) * f32(kind == 13) + (70. + 4. * c.y) * f32(kind == 14) + (80. + 4. * c.y) * f32(kind == 15));
+  if (kind == 15 || kind == 17) { col = mix(col, mix(vec3f(.24, .19, .07), vec3f(.17, .12, .05), c.y), fdryK(fkind(a0.z)) * (.55 + .4 * c.y)); }
+  if (kind == 18) { col = mix(vec3f(.93, .66, .03), vec3f(.98, .80, .10), c.y); tr = .55; }      // golden shower: deep to pale yellow      // flower plants, dried up in the hot season
+  if (cbl || kind == 11) { col = mix(vec3f(.62, .09, .26), vec3f(.80, .24, .42), c.y); if (c.y > .85) { col = vec3f(.88, .46, .60); } }
+  if (gsp) { col = mix(vec3f(.90, .62, .03), vec3f(.98, .80, .12), c.y); }      // cherry blossom: deep pink to nearly white
+  if (clf) { col = mix(vec3f(.075, .17, .03), vec3f(.12, .22, .045), fract(c.y * 7.3)); col = mix(col, vec3f(.16, .15, .04), g.fog.w * .35); }      // and its leaves: a fresh mid green, dulled a little in the hot season
+  o.col = col; o.pr = vec2f(c.z, tr + (90. + 4. * c.y) * f32(kind == 18) + (40. + 4. * c.y) * f32(cbl) + 2. * f32(kind == 0 || clf) + 4. * fract(c.y * 7.3) * f32(clf) + 4. * c.y * f32(kind == 0) + 10. * f32(kind == 8) + 20. * f32(kind == 9) + (30. + 4. * c.y) * f32(kind == 5) + (50. + 4. * c.y) * f32(kind == 12) + (60. + 4. * c.y) * f32(kind == 13) + (70. + 4. * c.y) * f32(kind == 14) + (80. + 4. * c.y) * f32(kind == 15));
   return o;
 }
 struct BO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) uv: vec2f, @location(3) @interpolate(flat) m: f32 };

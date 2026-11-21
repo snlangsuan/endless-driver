@@ -44,7 +44,10 @@ function makeTree(seed, o) {
     const f = R(), a = i < t.length - 1 ? t[i] : t[i - 1], b = i < t.length - 1 ? t[i + 1] : t[i];
     const x = mix(a[0], b[0], f), y = mix(a[1], b[1], f), z = mix(a[2], b[2], f);
     const dist = hypot(x - cx, y - cy, z - cz) / rad, shade = 0.42 + 0.58 * clamp((dist - 0.25) / 0.6, 0, 1), L = o.leaf * (0.7 + R() * 0.6);
-    leaves.push(x, y, z, L, R() * TAU, -0.35 + R() * 1.1, L * o.wide, 0.5 + R() * 1.0, o.bloom && R() < o.bloom ? 10 : o.kind || 0, R(), shade, y);      // (o.bloom: that share of the sprigs are sprays of blossom)
+    leaves.push(x, y, z, L, R() * TAU, -0.35 + R() * 1.1, L * o.wide, 0.5 + R() * 1.0, o.bloom && R() < o.bloom ? 10 : o.hang ? 19 : o.kind || 0, R(), shade, y);      // (o.bloom: that share of the sprigs are sprays of blossom)
+    // (o.hang: a golden shower's - its leaves are kind 19, which it half sheds when it flowers, and from that share of its sprigs hang one or two
+    // long chains of flowers, leaf kind 18, straight down, seen only in its season)
+    if (o.hang) for (let q = 0, nq = R() < o.hang ? (R() < 0.6 ? 2 : 1) : 0; q < nq; q++) { const Lr = 0.5 + R() * 0.38; leaves.push(x + (R() - 0.5) * 0.2, y - 0.05, z + (R() - 0.5) * 0.2, Lr, R() * TAU, -1.48 + R() * 0.16, Lr * 0.2, 0, 18, R(), shade, y); }
   }
   shuffleLeaves(leaves, R);
   const all = [].concat(segs[0], segs[1], segs[2], segs[3]);

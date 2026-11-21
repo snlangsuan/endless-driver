@@ -202,6 +202,10 @@ TREES.push(makeOilPalm(193), makeOilPalm(199));      // 17, 18
 // small slender trees (19, 20), for the hedgerows of the flower fields: a thin stem, a light round head not much above a man's height
 TREES.push(makeTree(211, { H: 4.4, r: 0.085, n: [7, 4, 2], ang: [1.0, 0.9, 0.85], crown: 0.42, len0: 0.42, lenR: 0.6, trop: 0.22, wob: 0.2, per: 4, leaf: 0.5, wide: 0.42 }),
   makeTree(223, { H: 5.2, r: 0.1, n: [8, 4, 2], ang: [0.85, 0.9, 0.85], crown: 0.5, len0: 0.36, lenR: 0.6, trop: 0.3, wob: 0.16, per: 4, leaf: 0.48, wide: 0.4 }));
+// ราชพฤกษ์ (21, 22), the golden shower, for the avenues of its stretches: a medium tree, its trunk dividing low into a few boughs that spread and
+// droop into a broad open head, green all year, and in the hot season hung all over with long chains of yellow flowers
+TREES.push(makeTree(233, { H: 9, r: 0.3, n: [9, 5, 3], ang: [1.12, 0.95, 0.85], crown: 0.4, len0: 0.55, lenR: 0.6, trop: 0.1, wob: 0.26, per: 4, leaf: 0.58, wide: 0.32, hang: 0.9 }),
+  makeTree(241, { H: 10.5, r: 0.34, n: [10, 5, 3], ang: [1.08, 0.95, 0.85], crown: 0.42, len0: 0.5, lenR: 0.6, trop: 0.12, wob: 0.24, per: 4, leaf: 0.6, wide: 0.32, hang: 0.9 }));
 const DEMO = Number(new URLSearchParams(location.search).get('plant') ?? -1);
 const BL = [0, 1, 2, 10, 11, 0, 1, 2];      // the broadleaf kinds, the rarer ones met less often
 

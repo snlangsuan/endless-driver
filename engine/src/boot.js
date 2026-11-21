@@ -15,10 +15,12 @@ addEventListener('unhandledrejection', (e) => fail('JS: ' + (e.reason && (e.reas
 // files for some of the shader texts), say (what the loading screen says at which part). A name with a slash in it is a path from the page (ruin/land);
 // a bare name is a file of the engine (src/core.js, shaders/common.wgsl).
 const GAME = window.GAME || {};
-const PARTS = GAME.parts || ['core', 'land', 'shaders', 'render', 'plants', 'buildings', 'chunks', 'weather', 'input', 'barkdata', 'sound', 'car', 'music', 'collide', 'drive', 'main'];
-const SHADERS = Object.assign({ common: 'common', land: 'land', vertex: 'vertex', terrain: 'terrain', scene: 'scene', post: 'post', final: 'final' }, GAME.shaders);
+const PARTS = GAME.parts || ['core', 'land', 'shaders', 'render', 'plants', 'buildings', 'chunks', 'weather', 'input', 'barkdata', 'sound', 'car', 'music', 'collide', 'drive', 'worldclient', 'main'];
+const SHADERS = Object.assign({ common: 'common', land: 'land', vertex: 'vertex', terrain: 'terrain', scene: 'scene', post: 'post', final: 'final', cull: 'cull' }, GAME.shaders);
 const srcOf = (p) => (p.includes('/') ? p : 'src/' + p) + '.js', wgslOf = (p) => (p.includes('/') ? p : 'shaders/' + p) + '.wgsl';
 const WGSL = {};
+// Binary assets a game uses (name: path), fetched with the shaders and kept as ArrayBuffers in ASSET. Endless: the parked scooters' model.
+const ASSETS = GAME.assets || { scooter: 'assets/scooter.bin', scooterLo: 'assets/scooter_lo.bin', bicycle: 'assets/bicycle.bin', pickup: 'assets/pickup.bin', ranger: 'assets/ranger.bin', rangerLo: 'assets/ranger_lo.bin' }, ASSET = {};
 let adapter, device;
 // The loading screen (#load in the page) stays up until the first picture has been drawn. The scripts do their work in long unbroken stretches
 // - main.js builds the nearest of the world as it loads - so after each step the browser is given a moment to show the new progress. (The timer
@@ -38,13 +40,15 @@ const progress = (k, say, force) => { $('loadF').style.transform = `scaleX(${k})
     const r = await fetch(wgslOf(SHADERS[n])); if (!r.ok) throw new Error('โหลด ' + wgslOf(SHADERS[n]) + ' ไม่ได้ (' + r.status + ')');
     WGSL[n] = await r.text();
   }));
+  const assets = Promise.all(Object.keys(ASSETS).map(async (n) => { const r = await fetch(ASSETS[n]); if (!r.ok) throw new Error('โหลด ' + ASSETS[n] + ' ไม่ได้ (' + r.status + ')'); ASSET[n] = await r.arrayBuffer(); }));
+  assets.catch(() => {});
   shaders.catch(() => {});      // (a failure is reported where it is awaited, below, and only there)
   await progress(0.04, 'กำลังเชื่อมต่อการ์ดจอ ...', true);
   adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
   if (!adapter) { fail('ไม่พบการ์ดจอที่รองรับ WebGPU'); return; }
   device = await adapter.requestDevice();
   await progress(0.1, 'กำลังโหลด shader ...');
-  await shaders;
+  await shaders; await assets;
   for (let i = 0; i < PARTS.length; i++) { const p = PARTS[i];
     await progress(0.16 + 0.64 * i / (PARTS.length - 1), PART_SAY[p], p === 'main');
     await new Promise((ok, no) => {
@@ -52,6 +56,8 @@ const progress = (k, say, force) => { $('loadF').style.transform = `scaleX(${k})
       s.onload = ok; s.onerror = () => no(new Error('โหลด ' + srcOf(p) + ' ไม่ได้')); document.body.appendChild(s);
     });
   }
+  // (the chunks are built by the world worker: the loading screen stays until those round the car have come)
+  if (typeof worldReady === 'function') { await progress(0.86, 'กำลังสร้างถนนและทิวทัศน์ ...', true); await worldReady(() => (fly.on ? fly.x : car.x), () => (fly.on ? fly.z : car.z)); }
   await progress(0.92, 'กำลังวาดภาพแรก ...');
   // main.js asked for the first frame before this did, so by now it has been drawn and sent to the graphics card: wait for the card to finish it.
   await new Promise(requestAnimationFrame); await device.queue.onSubmittedWorkDone();

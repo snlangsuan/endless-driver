@@ -1,6 +1,6 @@
 // --------------------------------------------------------------------------------------------------------- time of day
-// The day passes on its own (one day = 12 minutes; T jumps ahead), and the weather and the season change with the distance
-// driven, on their own rhythms. So coming round to the same kind of place again, it is another hour, another sky, another season.
+// The day passes on its own (one day = 12 minutes; T jumps ahead), and the weather changes on its own rhythm. The season follows the clock (see
+// seasonAt below): hot, the rains, the cool, each a third of a year of the game's time.
 const DAY = [0.42, 0.85, 0.3], NOON = [0.3, 0.88, -0.38], EVE = [0.85, 0.2, -0.45], DAWN = [0.7, 0.32, 0.5], MOON = [-0.4, 0.75, 0.4];
 const NIGHT = { dir: MOON, sun: [0.11, 0.14, 0.21], amb: [0.018, 0.026, 0.046], zen: [0.004, 0.008, 0.02], hor: [0.012, 0.018, 0.035], ex: 2.0, night: 1, fog: 0.0021 };
 const KEYS = [
@@ -14,10 +14,18 @@ const KEYS = [
   { t: 0.81, ...NIGHT }, { t: 1.00, ...NIGHT },
 ];
 let tday = 0.44, dayN = 0, headOn = -1;       // headOn: -1 automatic, 0 off, 1 on
-// Set by hand in the sky panel (input.js): tHold keeps the hour where it was put; seaMode 0 lets the season follow the place, 1 rainy, 2 cool, 3 hot
+// The seasons, by the game's clock: from the start (day 1, the beginning of the hot season) hot, then the rains, then the cool, round and round,
+// each 2922 hours - a third of a year, 121 days and 18 hours; at 12 minutes a day some 24 hours of driving - and each changing into the next
+// over its last three days, the grass greening or yellowing as it goes. The clock is kept between visits (endless.clock: see input.js), so the
+// year goes on where it was left. seasonAt(): i (0 hot, 1 rains, 2 cool), code (as seaMode numbers them: 3 hot, 1 rains, 2 cool), day (of the
+// season, 1 to 122), k (0..1: how far into the change to the next season), next (its code).
+const SEASON_H = 2922, SEA_ORDER = [3, 1, 2], SEA_DRY = [0, 0, 0.25, 0.95], SEA_NAME = ['', 'ฤดูฝน', 'ฤดูหนาว', 'ฤดูร้อน'];
+const seasonAt = () => { const H = (dayN + tday) * 24, q = H / SEASON_H, n = floor(q), f = q - n, i = ((n % 3) + 3) % 3;
+  return { i, code: SEA_ORDER[i], next: SEA_ORDER[(i + 1) % 3], day: floor(f * SEASON_H / 24) + 1, days: Math.ceil(SEASON_H / 24), k: sm(1 - 72 / SEASON_H, 1, f) }; };
+// Set by hand in the sky panel (input.js): tHold keeps the hour where it was put; seaMode 0 lets the season follow the clock, 1 rainy, 2 cool, 3 hot
 // and dry; wxS is how strong the weather picked by hand (wxCur 0, its make-up in WXP[0]) is, 0..1.
 let tHold = false, seaMode = 0, wxS = 0.5, windSet = -1;      // windSet: -1 the wind as the place and the weather make it, or 0..1 set by hand (0 dead calm .. 1 a gale)
-const AT = { dir: [0, 1, 0], sun: [0, 0, 0], amb: [0, 0, 0], zen: [0, 0, 0], hor: [0, 0, 0], ex: 1, night: 0, fog: 0, cover: 0, dry: 0, mist: 0, rain: 0, storm: 0, wet: 0, flash: 0, wind: 1, snow: 0, snowM: 0, snowG: 0 };      // snowM: snow chosen by hand, anywhere; snowG: how white the ground has gone under it
+const AT = { dir: [0, 1, 0], sun: [0, 0, 0], amb: [0, 0, 0], zen: [0, 0, 0], hor: [0, 0, 0], ex: 1, night: 0, fog: 0, cover: 0, dry: 0, mist: 0, rain: 0, storm: 0, wet: 0, flash: 0, wind: 1, snow: 0, snowM: 0, snowG: 0, cool: 0 };      // cool: how far it is the cool season, 0..1 - the snowfield is under snow only then      // snowM: snow chosen by hand, anywhere; snowG: how white the ground has gone under it
 let wxAuto = true, wxCur = 1, wxNext = 0; const WXP = [[0, 0, 0, 0], [0, 0, 0, 0], [0.62, 0, 0, 0], [0.9, 0.12, 0.35, 0], [1, 0.3, 0.9, 0], [1, 0.3, 1, 1], [0.3, 0.45, 0, 0], [0.5, 1, 0, 0]];      // cover, mist, rain, storm
 const LT = { t0: -9, next: 0, az: 0, seed: 0, dist: 1 };
 const wxName = () => (AT.storm > 0.5 ? 'ฝนฟ้าคะนอง' : AT.rain > 0.6 ? 'ฝนตกหนัก' : AT.rain > 0.08 ? 'ฝนตกเบา' : AT.snow > 0.3 ? 'หิมะตก' : AT.mist > 0.7 ? 'หมอกหนา' : AT.mist > 0.25 ? 'หมอกบาง' : AT.cover > 0.75 ? 'ฟ้าครึ้ม' : AT.cover > 0.4 ? 'เมฆมาก' : AT.cover < 0.15 && AT.night < 0.5 ? 'แดดจ้า' : 'ฟ้าใส') + (wxAuto ? ' (อัตโนมัติ)' : ' (เลือกเอง)');
@@ -37,15 +45,15 @@ function atmos(z) {
   }
   const P = WXP[wxCur], cv = P[0], ms = P[1], rn = P[2], st = P[3], rate = wxAuto && time > 3 ? 0.002 : 0.03;      // a change of its own comes on slowly
   AT.cover += (max(cv, rn) - AT.cover) * rate; AT.mist += (ms - AT.mist) * rate; AT.rain += (rn - AT.rain) * rate; AT.storm += (st - AT.storm) * rate;
-  { const sn = snowW(z); AT.rain *= 1 - sn; AT.storm *= 1 - sn; AT.snow = sn * sm(0.15, 0.6, AT.cover + 0.25); }       // over the snowfield it snows instead
+  // the season (see seasonAt): how dry the land is, and whether it is the cool season - chosen by hand in the sky panel, that season throughout
+  { const S = seasonAt(); AT.dry = seaMode ? SEA_DRY[seaMode] : mix(SEA_DRY[S.code], SEA_DRY[S.next], S.k); AT.cool = seaMode ? (seaMode === 2 ? 1 : 0) : mix(S.code === 2 ? 1 : 0, S.next === 2 ? 1 : 0, S.k); }
+  { const sn = snowW(z) * AT.cool; AT.rain *= 1 - sn; AT.storm *= 1 - sn; AT.snow = sn * sm(0.15, 0.6, AT.cover + 0.25); }       // over the snowfield, in the cool season, it snows instead
   // snow picked in the sky panel falls wherever you are, and settles: the ground whitens while it falls (faster the harder it falls) and goes back slowly after
   AT.snowM += ((P[4] || 0) - AT.snowM) * rate; AT.snow = max(AT.snow, AT.snowM);
   AT.snowG = clamp(AT.snowG + (AT.snowM > 0.05 ? AT.snowM * 0.0015 : -0.0006), 0, 1);
   AT.wet = clamp(AT.wet + (AT.rain > 0.05 ? AT.rain * 0.006 : -0.0005), 0, 1);                 // the road stays wet a while after the rain
-  AT.dry = sm(0.35, 0.7, vnoise(z / 5200 + 9, 1.7));
-  if (chyAt(z)) { const q = z / SEG - floor(z / SEG); AT.dry = mix(AT.dry, 0.22, sm(0, 0.06, q) * sm(1, 0.94, q)); }      // the cherries flower in the cool season: the grass still green, only just beginning to yellow
-  if (flwAt(z)) { const q = z / SEG - floor(z / SEG); AT.dry = mix(AT.dry, 0.25, sm(0, 0.06, q) * sm(1, 0.94, q)); }      // and the flower fields are in bloom in the cool season: left to itself, that is the season there (chosen by hand, another season shows them out of bloom - see fbloom in common.wgsl)
-  if (seaMode) AT.dry = [0, 0, 0.25, 0.95][seaMode];                        // a season chosen by hand: green after the rains, just yellowing in the cool, burnt in the hot
+  // (AT.dry, set above from the season: green after the rains, just yellowing in the cool, burnt in the hot. The flower fields bloom in the cool
+  // season, half of them in the rains, hardly any in the hot - see fbloom in common.wgsl)
   // The mist of early morning (the dawn keys' fog, four times the day's) belongs to damp ground: thick after the rains and in the cool season,
   // all but gone in the hot dry one, when the air is clear from first light (what haze there is then is the day's own).
   if (AT.fog > 0.003) AT.fog = 0.003 + (AT.fog - 0.003) * (1 - 0.85 * sm(0.3, 0.9, AT.dry));
@@ -63,6 +71,6 @@ function atmos(z) {
   if (windSet >= 0) AT.wind += (windSet * 5.5 * (0.85 + 0.3 * vnoise(time * 0.05, 3.3)) - AT.wind) * 1;      // set by hand: steady at that strength, but for a slow breathing of a sixth either way (a wind never blows quite evenly)
   return AT;
 }
-const seasonName = (z) => (seaMode ? ['', 'ฤดูฝน', 'ฤดูหนาว', 'ฤดูร้อน'][seaMode] + ' (เลือกเอง)' : chyAt(z) || flwAt(z) ? 'ฤดูหนาว' : AT.dry > 0.5 ? 'ฤดูร้อน' : 'ฤดูฝน');
+const seasonName = () => { if (seaMode) return SEA_NAME[seaMode] + ' (เลือกเอง)'; const S = seasonAt(); return `${SEA_NAME[S.code]} วันที่ ${S.day}/${S.days}`; };
 const todName = () => (tday < 0.22 || tday >= 0.79 ? 'กลางคืน' : tday < 0.36 ? 'เช้า' : tday < 0.66 ? 'กลางวัน' : 'เย็น');
 

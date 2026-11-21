@@ -30,7 +30,6 @@
     <div class="skWr"><button type="button" id="cfMu" class="skI" title="ปิดเสียง (M)" aria-label="ปิดเสียง"><svg viewBox="0 0 24 24"><path id="cfMuP" d=""/></svg></button><input id="cfVo" type="range" min="0" max="100" value="100"></div>
     <div class="skL" title="ฟ้าร้อง นก จิ้งหรีด หมา">เสียง effect <span id="cfFv" class="skV"></span></div>
     <div class="skWr"><input id="cfFx" type="range" min="0" max="100" value="100"></div>
-    <p class="skK">M ปิด/เปิดเสียง · เสียงเพลงปรับที่กล่องเพลง · H ซ่อน/แสดงข้อความ · G เต็มจอ</p>
   </form>
 </dialog>
 <button id="drvB" title="การขับขี่: ขับอัตโนมัติและความเร็ว"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M4 11.2 9.6 12M20 11.2 14.4 12M12 14.5V20.3"/></g><circle cx="12" cy="12" r="2.4"/></svg></button>
@@ -58,7 +57,6 @@
     <div id="skI"><label class="skL" for="skR">ความรุนแรง <span id="skRv"></span></label><input id="skR" type="range" min="0" max="100" value="50"></div>
     <div class="skL">แรงลม <span id="skWv"></span></div>
     <div class="skWr"><button type="button" id="skWa">อัตโนมัติ</button><input id="skWd" type="range" min="0" max="100" value="30"></div>
-    <p class="skK">ปุ่มลัดยังใช้ได้: T ข้ามเวลา · R เลือกอากาศ · Y อากาศอัตโนมัติ</p>
   </form>
 </dialog>
 <button id="fs" title="เต็มจอ (G)"><svg viewBox="0 0 24 24"><path id="fsI" d="M4 4h6v2H6v4H4zM14 4h6v6h-2V6h-4zM4 14h2v4h4v2H4zM18 14h2v6h-6v-2h4z"/></svg></button>
@@ -80,7 +78,7 @@
 <div id="mpY"><div id="mpF"></div></div>
 <div id="bl">
   <div id="clk">--:--</div>
-  <div id="keys">W A S D ขับ · Shift เร่ง · Tab หรือคลิกแผนที่ย่อ เปิด/ปิดแผนที่ใหญ่ · คลิกจอเพื่อจับเมาส์มองรอบ (Esc ปล่อย) · T ข้ามเวลา · R เลือกอากาศ · Y อากาศอัตโนมัติ เปิด/ปิด · L ไฟหน้า · F กล้องบิน (Q/E ลงขึ้น) · M เสียง · G เต็มจอ · H ซ่อน/แสดงข้อความ</div>
+  <div id="keys">W A S D ขับ · Shift เร่ง · Space เบรก · Tab หรือคลิกแผนที่ย่อ เปิด/ปิดแผนที่ใหญ่ · คลิกจอเพื่อจับเมาส์มองรอบ (Esc ปล่อย) · L ไฟหน้า · F กล้องบิน (Q/E ลงขึ้น) · M เสียง · G เต็มจอ · H ซ่อน/แสดงข้อความ</div>
 </div>
 <canvas id="mini" title="แผนที่ย่อ (คลิกหรือกด Tab เพื่อเปิดแผนที่ใหญ่)"></canvas>
 <div id="bigW"><canvas id="big"></canvas><div id="bigK">แผนที่ 20 × 20 กม. (400 ตร.กม.) · 1 ช่องตาราง = 1 กม. · <b class="k1"></b> ถนนสายหลัก <b class="k2"></b> สะพานใช้ได้ <b class="k3"></b> สะพานขาด <b class="k4"></b> จุดเริ่มต้น · Tab ปิด</div></div>
@@ -89,7 +87,8 @@
 <script>
 // Ruin is a second game on the engine of Endless: the same scripts and shaders, with its own land, world and game (the files in ruin/). See src/boot.js.
 window.GAME = {
-  parts: ['core', 'ruin/land', 'shaders', 'render', 'plants', 'buildings', 'ruin/world', 'weather', 'input', 'barkdata', 'sound', 'car', 'collide', 'ruin/game', 'main'],
+  assets: {},
+  parts: ['core', 'ruin/land', 'shaders', 'render', 'plants', 'buildings', 'ruin/world', 'weather', 'input', 'barkdata', 'sound', 'car', 'collide', 'ruin/game', 'worldclient', 'main'],
   shaders: { land: 'ruin/land', terrain: 'ruin/terrain' },
   say: { core: 'กำลังสำรวจแผนที่ ...', main: 'กำลังสร้างเมืองร้าง ...' },
 };

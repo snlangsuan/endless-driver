@@ -1,8 +1,10 @@
 // The canvas, the device's queue, the sizes and formats everything else uses, and the small maths helpers.
-device.addEventListener('uncapturederror', (e) => fail('GPU: ' + e.error.message));
-const canvas = $('c'), ctx = canvas.getContext('webgpu'), FMT = navigator.gpu.getPreferredCanvasFormat();
-ctx.configure({ device, format: FMT, alphaMode: 'opaque' });
-const Q = device.queue, HDR = 'rgba16float', DEPTH = 'depth24plus', SHADOW = 4096, AA = 4;
+// (IN_WORKER: this file is also loaded by the world worker - see worldworker.js - which builds the chunks and has no canvas and no device)
+const IN_WORKER = typeof document === 'undefined';
+if (!IN_WORKER) device.addEventListener('uncapturederror', (e) => fail('GPU: ' + e.error.message));
+const canvas = IN_WORKER ? null : $('c'), ctx = IN_WORKER ? null : canvas.getContext('webgpu'), FMT = IN_WORKER ? null : navigator.gpu.getPreferredCanvasFormat();
+if (!IN_WORKER) ctx.configure({ device, format: FMT, alphaMode: 'opaque' });
+const Q = IN_WORKER ? null : device.queue, HDR = 'rgba16float', DEPTH = 'depth24plus', SHADOW = 4096, AA = 4;
 const { sin, cos, abs, min, max, floor, sqrt, hypot, atan2, PI, exp } = Math, TAU = PI * 2;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v), mix = (a, b, t) => a + (b - a) * t;
 const sm = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -14,4 +16,6 @@ const ph = (i, j) => { let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263
 // the same value noise and the same rule as pn() and turf() in the shaders: where the ground is turf and where bare earth
 const pn = (x, y) => { const ix = floor(x), iy = floor(y), fx = x - ix, fy = y - iy, ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy); return mix(mix(ph(ix, iy), ph(ix + 1, iy), ux), mix(ph(ix, iy + 1), ph(ix + 1, iy + 1), ux), uy); };
 const turfAt = (x, z) => pn(x * 0.09, z * 0.09) * 0.5 + pn(x * 0.37, z * 0.37) * 0.32 + pn(x * 1.3, z * 1.3) * 0.18;
+// a sign board carries its own width (in its last number), so that the words can be fitted to it
+const signW = (B) => { for (let i = 0; i < B.length; i += 12) if (B[i + 8] === 23) B[i + 11] = 10 + Math.max(B[i + 4], B[i + 6]); return B; };
 const rng = (seed) => { let s = (seed >>> 0) || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); };

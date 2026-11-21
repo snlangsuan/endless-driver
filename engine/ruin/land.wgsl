@@ -42,9 +42,11 @@ fn rdist(P: vec2f) -> f32 { return roadAt(P).dn; }
 fn soi(P: vec2f) -> vec3f { return vec3f(99., 0., 0.); }
 fn tlb(b: f32) -> f32 { return 0.; }
 fn rub(z: f32) -> f32 { return 0.; }
-fn fkind(z: f32) -> f32 { return 4.; }
+fn fkind(z: f32) -> f32 { return 5.; }      // (the plain flower: 4 is now the marigold)
 fn tulc(h: f32) -> vec3f { return vec3f(.8); }
 fn oilp(z: f32) -> f32 { return 0.; }
 fn ism(P: vec2f) -> f32 { return -99.; }
 fn tunk(z: f32) -> f32 { return 0.; }
+fn chy(z: f32) -> i32 { return 0; }
+fn kun(z: f32) -> bool { return false; }
 fn shoreX(z: f32) -> f32 { return 1e9; }

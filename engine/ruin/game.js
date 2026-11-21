@@ -14,10 +14,11 @@ const hudInfo = () => { const x = fly.on ? fly.x : car.x, z = fly.on ? fly.z : c
 // ---- driving. The ground everywhere can be driven on; asphalt is fast, anything else slow and rough. What stops the car: steep ground, water,
 // buildings and wrecks and trees (the chunks' col lists), the parapets of a bridge and the gap of a fallen one, and the edge of the map.
 function drive(dt) {
-  const thr = K('KeyW') - K('KeyS'); let st = K('KeyA') - K('KeyD');
+  const thr = K('Space') ? min(0, K('KeyW') - K('KeyS')) : K('KeyW') - K('KeyS'); let st = K('KeyA') - K('KeyD');
   const dk0 = deckAt(car.x, car.z), onBr0 = dk0 > -1e8 && car.y > dk0 - 2.5, onRd = onBr0 || roadEdge(car.x, car.z) < 0.3, rough = onRd ? (!onBr0 && weedAt(car.x, car.z) > 0.69 ? 0.45 : 0) : 1;
   car.v += (thr > 0 ? (K('ShiftLeft') ? 13 : 8) * thr : thr < 0 ? (car.v > 0.5 ? -18 : -5) : 0) * dt;
   car.v -= (car.v * mix(0.2, 0.9, rough) + Math.sign(car.v) * mix(0.35, 1.4, rough)) * dt;
+  if (K('Space')) { const b = mix(8, 5.5, rough) * dt; car.v = abs(car.v) <= b ? 0 : car.v - Math.sign(car.v) * b; }      // Space: the brake (see Endless's drive.js)
   if (car.v < -8) car.v = -8;
   { const cur = car.sm || 0, k = (st === 0 || st * cur < 0 ? 9 : 6) * dt; car.sm = cur + clamp(st - cur, -k, k); st = car.sm;      // (the wheel is turned as a hand turns it: see Endless's drive.js)
     car.yaw += st * dt * clamp(car.v / 5, -1, 1) * min(1.7, 11 / max(abs(car.v), 1)); }

@@ -2,6 +2,11 @@
 struct TO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) w: f32, @location(3) rel: vec3f };
 @vertex fn vsTerrain(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) w: f32) -> TO { var o: TO; o.wp = p; o.n = n; o.w = w; o.rel = p - g.cam.xyz; o.cp = g.vp * vec4f(o.rel, 1.); return o; }
 @vertex fn vsLeaf(@builtin(vertex_index) vi: u32, @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: vec4f) -> LO { return leafV(vi, a, b, c); }
+// The leaves or grass of a chunk as the graphics card culled them (cull.wgsl): cIdx lists the instances still in view, each the place of its
+// twelve numbers in cInst - the chunk's own leaf or grass buffer, read here as storage.
+@group(1) @binding(0) var<storage, read> cInst: array<vec4f>;
+@group(1) @binding(1) var<storage, read> cIdx: array<u32>;
+@vertex fn vsLeafC(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> LO { let j = cIdx[ii] * 3u; return leafV(vi, cInst[j], cInst[j + 1u], cInst[j + 2u]); }
 struct XO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) lp: vec3f, @location(3) @interpolate(flat) ln: vec3f, @location(4) @interpolate(flat) m: vec4f };
 // a box (walls, floors, roof sheets, posts): a centre + turn about the vertical, b size + tilt about its long axis, c material + seed
 @vertex fn vsBox(@location(0) v: vec3f, @location(1) nv: vec3f, @location(2) a: vec4f, @location(3) b: vec4f, @location(4) c: vec4f) -> XO {
@@ -35,4 +40,6 @@ struct XO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
 }
 struct CO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) lp: vec3f, @location(3) @interpolate(flat) m: f32 };
 @vertex fn vsCar(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) lp: vec3f, @location(3) m: f32) -> CO { var o: CO; o.wp = p; o.n = n; o.lp = lp; o.m = m; o.cp = g.vp * vec4f(p - g.cam.xyz, 1.); return o; }
+// A sculpted thing (a temple's image): a mesh of its own, each vertex a place, a normal and a material (as the made tubes number them: 6 whitewash, 7 gilding). Painted by fsBranch.
+@vertex fn vsMesh(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) m: f32) -> BO { var o: BO; o.wp = p; o.n = n; o.uv = vec2f(p.x + p.z, p.y); o.m = m + 1.; o.cp = g.vp * vec4f(p - g.cam.xyz, 1.); return o; }
 @vertex fn vsBranch(@location(0) v: vec3f, @location(1) p0: vec4f, @location(2) p1: vec4f, @location(3) h: vec2f) -> BO { return branchV(v, p0, p1, h); }

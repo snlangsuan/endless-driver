@@ -5,6 +5,79 @@ for (let j = 0; j < GN; j++) for (let i = 0; i < GN; i++) { const a = j * (GN + 
 const ibGrid = vbuf(gridI, GPUBufferUsage.INDEX);
 const chunks = new Map(), HUTS = [];
 const hg = new Float32Array((GN + 3) * (GN + 3)), hwet = new Float32Array((GN + 3) * (GN + 3)), LBUF = new Float32Array(12 * 260000);
+// A sculpted figure. Made of tubes end to end a figure is jointed - every limb a row of pieces, every piece meeting the next at a seam. So the
+// same pieces (each a round length from a to b, radius ra to rb) are instead melted into one skin: the space round them is measured on a fine
+// grid - how far each point is from the nearest piece, pieces close together flowing into one another (smin) - and the surface where that distance
+// is nothing is drawn as a mesh (a vertex in every cell the surface crosses, set where it crosses; a quad across every grid edge it cuts).
+// segs: [ax, ay, az, ra, bx, by, bz, rb] ..., in the figure's own measure (its height 1). Returns { v: place and normal of each vertex, i }.
+// Made once for each figure and kept (SCULPT).
+const SCULPT = new Map();
+// The sculpted parts of a step-through motorcycle, in metres (x across, y up from the ground, z forward; the axles at z = ±0.62, 0.28 up):
+// body - the front mudguard, the leg shield curving back to the footboard, the head cowl and the handlebar's shroud, the spine dipping to the
+// step-through and rising again, the side covers under the seat drawn out into the tail, the rear mudguard; seat; eng - crankcase and cylinder;
+// helm - a helmet left on the seat. Made once (see sculpt).
+// The parked scooter's model (assets/scooter.bin, made from the original by a script outside the game): "SCT1", the number of vertices and of
+// indices, then for each vertex its place (three int16, metres x 2/32767: x across, y up from the ground, z forward), its normal (three int8)
+// and what it is made of (a byte: 0 paint, 1 black plastic, 2 seat, 3 tyre, 4 dark metal, 5 metal, 6 bright metal, 7 lamp glass, 8 red lamp,
+// 9 amber, 10 white, 11 the shock absorber's spring, 12 paint in shadow, 13 window glass); then the triangles (uint16). Read once into the form sculpt() gives.
+const SCMAT = [40, 1, 25, 17, 18, 4, 19, 20, 21, 22, 23, 24, 50, 26];      // (13: window glass)
+function scooter(lo) { return assetMesh(lo ? 'scooterLo' : 'scooter'); }
+// SCT2 (assets/pickup.bin): the same, but each vertex 14 bytes - place (int16, metres x 4/32767), normal, whether it is body paint, its colour
+// (three bytes, the square root of the colour as the model's texture has it there), a byte to spare. Its material is then the colour itself:
+// 100 + red + 32 green + 1024 blue (five bits each), and 32768 more if it is paint (see fsBranch).
+function assetMesh(key) { if (SCULPT[key]) return SCULPT[key]; const B0 = ASSET[key], d0 = new DataView(B0);
+  if (d0.getUint8(3) === 50) { const nv = d0.getUint32(4, true), ni = d0.getUint32(8, true), v = new Float32Array(nv * 6), c = new Float32Array(nv);
+    for (let i = 0, o = 12; i < nv; i++, o += 14) { for (let k = 0; k < 3; k++) { v[i * 6 + k] = d0.getInt16(o + k * 2, true) * 4 / 32767; v[i * 6 + 3 + k] = d0.getInt8(o + 6 + k) / 127; }
+      c[i] = 100 + (d0.getUint8(o + 10) >> 3) + 32 * (d0.getUint8(o + 11) >> 3) + 1024 * (d0.getUint8(o + 12) >> 3) + (d0.getUint8(o + 9) ? 32768 : 0); }
+    const ix = new Uint32Array(ni); ix.set(new Uint16Array(B0, 12 + nv * 14, ni)); return SCULPT[key] = { v, i: ix, c }; }
+  // (SCT4: as SCT1, but its places in metres x 4/32767 - for a thing longer than 4 m, a Ranger)
+  const B = B0, dv = d0, nv = dv.getUint32(4, true), ni = dv.getUint32(8, true), v = new Float32Array(nv * 6), c = new Uint8Array(nv), RG = dv.getUint8(3) === 52 ? 4 : 2;
+  for (let i = 0, o = 12; i < nv; i++, o += 10) { for (let k = 0; k < 3; k++) { v[i * 6 + k] = dv.getInt16(o + k * 2, true) * RG / 32767; v[i * 6 + 3 + k] = dv.getInt8(o + 6 + k) / 127; } c[i] = dv.getUint8(o + 9); }
+  const ix = new Uint32Array(ni), I16 = new Uint16Array(B, 12 + nv * 10, ni); ix.set(I16); return SCULPT[key] = { v, i: ix, c }; }
+function bikeParts() { if (SCULPT.bike) return SCULPT.bike; const ch = (P) => { const o = []; for (let i = 0; i + 1 < P.length; i++) o.push(...P[i], ...P[i + 1]); return o; };
+  const arc = (y0, z0, R, a0, a1, n, x, r) => { const P = []; for (let i = 0; i <= n; i++) { const a = (a0 + (a1 - a0) * i / n) * PI / 180; P.push([x, y0 + R * sin(a), z0 + R * cos(a), r]); } return ch(P); };
+  const body = [];
+  // (a sheet is made of ribs set closer than they are thick, so that they close into one skin)
+  for (const x of [-0.045, -0.015, 0.015, 0.045]) { body.push(arc(0.28, 0.62, 0.32, 25, 150, 7, x, 0.024)); body.push(arc(0.28, -0.62, 0.32, 70, 168, 6, x, 0.024)); }
+  for (let q = -6; q <= 6; q++) { const x = q * 0.03, k = 1 - abs(x) / 0.18; body.push(ch([[x, 0.97, 0.33 + 0.03 * k, 0.03], [x, 0.74, 0.35 + 0.05 * k, 0.03], [x, 0.5, 0.32 + 0.04 * k, 0.03], [x * 0.9, 0.38, 0.26, 0.03], [x * 0.85, 0.355, 0.08, 0.028]])); }
+  body.push(ch([[0, 0.97, 0.36, 0.1], [0, 0.98, 0.47, 0.095], [0, 0.96, 0.535, 0.065]])); body.push(ch([[-0.21, 1.03, 0.35, 0.034], [0, 1.045, 0.37, 0.05], [0.21, 1.03, 0.35, 0.034]]));
+  body.push(ch([[0, 0.94, 0.33, 0.07], [0, 0.62, 0.28, 0.08], [0, 0.45, 0.14, 0.095], [0, 0.47, -0.04, 0.12]]));
+  for (const e of [-1, 1]) { body.push(ch([[e * 0.07, 0.5, -0.02, 0.12], [e * 0.1, 0.58, -0.28, 0.135], [e * 0.1, 0.64, -0.56, 0.115], [e * 0.07, 0.71, -0.8, 0.07], [e * 0.04, 0.76, -0.94, 0.04]])); body.push(ch([[e * 0.09, 0.42, -0.1, 0.09], [e * 0.1, 0.46, -0.45, 0.08]])); }
+  const seat = []; for (const e of [-1, 0, 1]) seat.push(ch([[e * 0.08, 0.75, 0.03, 0.06], [e * 0.1, 0.79, -0.2, 0.07], [e * 0.1, 0.81, -0.5, 0.07], [e * 0.07, 0.84, -0.72, 0.05]]));
+  const eng = [ch([[0, 0.3, 0.14, 0.11], [0, 0.3, -0.04, 0.1]]), ch([[0, 0.33, 0.16, 0.07], [0, 0.4, 0.33, 0.06]])];
+  const helm = [ch([[0, 0.99, -0.12, 0.125], [0, 0.985, -0.08, 0.125]]), ch([[0, 0.93, -0.1, 0.11], [0, 0.9, -0.1, 0.1]])];
+  return SCULPT.bike = { body: sculpt('mb_body', body, 0.026, 0.035), seat: sculpt('mb_seat', seat, 0.028, 0.03), eng: sculpt('mb_eng', eng, 0.03, 0.03), helm: sculpt('mb_helm', helm, 0.028, 0.02) }; }
+// (chains: the pieces come in runs, each run one limb. Within a run the distance is simply to the nearest piece - melting a limb's own pieces
+// into each other swelled it at every joint, a row of lumps; it is run with run that are melted together.)
+function sculpt(key, chains, cell = 0.006, K = 0.011) {
+  let M = SCULPT.get(key); if (M) return M; const segs = [].concat(...chains), T0 = performance.now();
+  let x0 = 1e9, y0 = 1e9, z0 = 1e9, x1 = -1e9, y1 = -1e9, z1 = -1e9;
+  for (let i = 0; i < segs.length; i += 8) for (const o of [0, 4]) { const r = segs[i + o + 3] + K + cell * 2; x0 = min(x0, segs[i + o] - r); x1 = max(x1, segs[i + o] + r); y0 = min(y0, segs[i + o + 1] - r); y1 = max(y1, segs[i + o + 1] + r); z0 = min(z0, segs[i + o + 2] - r); z1 = max(z1, segs[i + o + 2] + r); }
+  const nx = Math.ceil((x1 - x0) / cell) + 1, ny = Math.ceil((y1 - y0) / cell) + 1, nz = Math.ceil((z1 - z0) / cell) + 1, F = new Float32Array(nx * ny * nz).fill(1), id = (i, j, q) => (q * ny + j) * nx + i;
+  const Tm = new Float32Array(F.length).fill(1);
+  for (const ch of chains) { let ci0 = nx, ci1 = 0, cj0 = ny, cj1 = 0, cq0 = nz, cq1 = 0;
+    for (let s = 0; s < ch.length; s += 8) { const ax = ch[s], ay = ch[s + 1], az = ch[s + 2], ra = ch[s + 3], bx = ch[s + 4], by = ch[s + 5], bz = ch[s + 6], rb = ch[s + 7], ux = bx - ax, uy = by - ay, uz = bz - az, L2 = ux * ux + uy * uy + uz * uz || 1e-9, R = max(ra, rb) + K + cell;
+      const i0 = max(0, floor((min(ax, bx) - R - x0) / cell)), i1 = min(nx - 1, Math.ceil((max(ax, bx) + R - x0) / cell)), j0 = max(0, floor((min(ay, by) - R - y0) / cell)), j1 = min(ny - 1, Math.ceil((max(ay, by) + R - y0) / cell)), q0 = max(0, floor((min(az, bz) - R - z0) / cell)), q1 = min(nz - 1, Math.ceil((max(az, bz) + R - z0) / cell));
+      ci0 = min(ci0, i0); ci1 = max(ci1, i1); cj0 = min(cj0, j0); cj1 = max(cj1, j1); cq0 = min(cq0, q0); cq1 = max(cq1, q1);
+      for (let q = q0; q <= q1; q++) for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const px = x0 + i * cell - ax, py = y0 + j * cell - ay, pz = z0 + q * cell - az, t = clamp((px * ux + py * uy + pz * uz) / L2, 0, 1), d = hypot(px - ux * t, py - uy * t, pz - uz * t) - (ra + (rb - ra) * t), n = id(i, j, q); if (d < Tm[n]) Tm[n] = d; } }
+    for (let q = cq0; q <= cq1; q++) for (let j = cj0; j <= cj1; j++) for (let i = ci0; i <= ci1; i++) { const n = id(i, j, q), d = Tm[n]; if (d < 1) { const f = F[n], h = max(K - abs(f - d), 0) / K; F[n] = min(f, d) - h * h * K * 0.25; Tm[n] = 1; } } }
+  const vid = new Int32Array((nx - 1) * (ny - 1) * (nz - 1)).fill(-1), cid = (i, j, q) => (q * (ny - 1) + j) * (nx - 1) + i, V = [], I = [];
+  const EC = [[0, 0, 0, 1, 0, 0], [0, 1, 0, 1, 1, 0], [0, 0, 1, 1, 0, 1], [0, 1, 1, 1, 1, 1], [0, 0, 0, 0, 1, 0], [1, 0, 0, 1, 1, 0], [0, 0, 1, 0, 1, 1], [1, 0, 1, 1, 1, 1], [0, 0, 0, 0, 0, 1], [1, 0, 0, 1, 0, 1], [0, 1, 0, 0, 1, 1], [1, 1, 0, 1, 1, 1]];
+  const G = (i, j, q) => F[id(clamp(i, 0, nx - 1), clamp(j, 0, ny - 1), clamp(q, 0, nz - 1))];
+  for (let q = 0; q < nz - 1; q++) for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) { const n0 = id(i, j, q), b0 = F[n0] < 0; if (F[n0] > cell * 2 || F[n0] < -cell * 2) continue;
+    if (b0 === (F[n0 + 1] < 0) && b0 === (F[n0 + nx] < 0) && b0 === (F[n0 + nx + 1] < 0) && b0 === (F[n0 + nx * ny] < 0) && b0 === (F[n0 + nx * ny + 1] < 0) && b0 === (F[n0 + nx * ny + nx] < 0) && b0 === (F[n0 + nx * ny + nx + 1] < 0)) continue;
+    let sx = 0, sy = 0, sz = 0, n = 0;
+    for (const e of EC) { const a = F[id(i + e[0], j + e[1], q + e[2])], b = F[id(i + e[3], j + e[4], q + e[5])]; if ((a < 0) === (b < 0)) continue; const t = a / (a - b); sx += e[0] + (e[3] - e[0]) * t; sy += e[1] + (e[4] - e[1]) * t; sz += e[2] + (e[5] - e[2]) * t; n++; }
+    if (!n) continue; const fx = i + sx / n, fy = j + sy / n, fz = q + sz / n, ri = Math.round(fx), rj = Math.round(fy), rq = Math.round(fz);
+    let gx = G(ri + 1, rj, rq) - G(ri - 1, rj, rq), gy = G(ri, rj + 1, rq) - G(ri, rj - 1, rq), gz = G(ri, rj, rq + 1) - G(ri, rj, rq - 1); const gl = hypot(gx, gy, gz) || 1;
+    vid[cid(i, j, q)] = V.length / 6; V.push(x0 + fx * cell, y0 + fy * cell, z0 + fz * cell, gx / gl, gy / gl, gz / gl); }
+  const quad = (a, b, c, d) => { if (a < 0 || b < 0 || c < 0 || d < 0) return; I.push(a, b, c, a, c, d); };
+  for (let q = 1; q < nz - 1; q++) for (let j = 1; j < ny - 1; j++) for (let i = 1; i < nx - 1; i++) { const f = F[id(i, j, q)] < 0;
+    if (f !== (F[id(i + 1, j, q)] < 0)) quad(vid[cid(i, j - 1, q - 1)], vid[cid(i, j, q - 1)], vid[cid(i, j, q)], vid[cid(i, j - 1, q)]);
+    if (f !== (F[id(i, j + 1, q)] < 0)) quad(vid[cid(i - 1, j, q - 1)], vid[cid(i, j, q - 1)], vid[cid(i, j, q)], vid[cid(i - 1, j, q)]);
+    if (f !== (F[id(i, j, q + 1)] < 0)) quad(vid[cid(i - 1, j - 1, q)], vid[cid(i, j - 1, q)], vid[cid(i, j, q)], vid[cid(i - 1, j, q)]); }
+  M = { v: new Float32Array(V), i: new Uint32Array(I) }; SCULPT.set(key, M); SCULPT.ms = (SCULPT.ms || 0) + performance.now() - T0; return M;
+}
 function buildChunk(cx, cz) {
   const ox = cx * CH, oz = cz * CH, N = GN + 1, M = GN + 3;
   for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) { hg[j * M + i] = ground(ox + (i - 1) * GS, oz + (j - 1) * GS); hwet[j * M + i] = gw[0]; }
@@ -25,20 +98,39 @@ function buildChunk(cx, cz) {
   // The fishing village on an island (built further down): where its houses stand, so that no tree is planted through one.
   const vil = [], pr0 = pierOf(oz + CH / 2), BRC = [5.18, 1.25];
   if (isOf(oz + CH / 2) && abs(oz + CH / 2 - IS.zc) < 240) { const zc = IS.zc, hv = (i, j) => ph(IS.s * 16 + i, 700 + j); vil.zc = zc;
-    for (let i = 0; i < 9; i++) { const row = i < 5 ? 0 : 1, z = Math.round((zc + 38 + (row ? (i - 5) * 23 + 11 : i * 19) + hv(i, 1) * 5) / GS) * GS, x =      // (on a line of the ground's grid, for its path: see drive, below)
+    for (let i = 0; i < 9; i++) { const row = i < 5 ? 0 : 1; let z = Math.round((zc + 38 + (row ? (i - 5) * 23 + 11 : i * 19) + hv(i, 1) * 5) / GS) * GS;      // (on a line of the ground's grid, for its path: see drive, below)
+      // (a house of the front row has its path out to the road: its mouth is kept 4.5 m from where the nearest power pole really stands)
+      if (!row) { const p = rp(Math.round(z / 40) * 40, 5.6)[1]; if (abs(z - p) < 4.5) z = Math.round((p + (z >= p ? 4.5 : -4.5)) / GS + (z >= p ? 0.5 : -0.5)) * GS; }
+      const x =
         roadX(z) + (row ? 47 : 19) + hv(i, 2) * 9;
       if (ism(x, z) < -52) vil.push([x, z, -PI / 2 + (hv(i, 4) - 0.5) * 0.3, hv(i, 3) < 0.7, hv(i, 5), hv(i, 6)]); } }
   // Trees are not grown as they are asked for but at the end, once every building of the chunk stands: a tree whose crown would sink into a building
   // (its trunk inside it, or nearer its wall than most of the crown's reach) is left out. Beside a building, in front of it, over a low wall: all fine.
   // nbFoot: the buildings of a neighbouring chunk that stand over the border, for the trees on this side ([x, z, yaw, width, depth, foot, top]); and the
   // ways in that must be kept open, from a gate to the lane or road it gives onto (clear: the same, standing from far below to far above).
+  // watFeet: the halls of town temples in or beside this chunk [x, z, yaw]; watNear: is this place within one's ground (the hall, its steps and
+  // boundary stones, and room for a house's yard beside it)? A temple and a house of the lanes behind it once stood in one another: the temple stays.
+  const watFeet = [], watNear = (x, z) => { for (let i = 0; i < watFeet.length; i += 3) { const dx = x - watFeet[i], dz = z - watFeet[i + 1], c = cos(watFeet[i + 2]), sn = sin(watFeet[i + 2]); if (abs(dx * c - dz * sn) < 21 && abs(dx * sn + dz * c) < 16) return true; } return false; };
+  let watSpot = null, watRound = false;      // (where a town temple's hall stands in this chunk, if one does)
   const lowFix = [0, 0];      // (trees stood back from the road for a low bough, and of those the ones not planted at all)
   const pend = [], nbFoot = [], clear = (q, yaw, w, d) => nbFoot.push(q[0], q[1], yaw, w, d, -1e9, 1e9), homes = [];
   const plant = (...a) => { pend.push(a); };
+  // A length of deck - a bridge's, a tunnel's road - laid from road point 0 to road point 1: its top through both, so that neighbours' tops meet
+  // in one line whatever their slopes, and long enough to close the wedge between neighbours where the road bends (half its width times the
+  // turn, each end). (Each was turned about its own middle, half its thickness down: where the slope changed from one length to the next their
+  // top edges stood a few millimetres apart, and through the slit the pale concrete of the ends showed - a white line across the road at every
+  // joint, plain to see driving over a bridge or through a tunnel.) Returns [x, y, z, length] for the box.
+  const deckBox = (x0, y0, z0, x1, y1, z1, th, w) => { const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, hl = Math.hypot(dx, dz) || 1, L = Math.hypot(hl, dy), ux = -dy * dx / hl / L, uy = hl / L, uz = -dy * dz / hl / L;
+    const turn = abs(Math.atan(roadSl(z1)) - Math.atan(roadSl(z0))); return [(x0 + x1) / 2 - th / 2 * ux, (y0 + y1) / 2 + 0.03 - th / 2 * uy, (z0 + z1) / 2 - th / 2 * uz, L + 0.03 + w * turn]; };
+  const hpT = (z) => sm(0, 0.2, hpW(z));      // (0 to 1 as the switchbacks begin: the guard rail and what stands behind it ease out with it)
   const plantNow = (T, x, z, turn, sc, thin = 1, twigs = true, farN = T.nSegFar) => {
     if (wetAt(x, z)) return;
     { const sv = svW(z); if (sv > 0.05) { const sl = roadSl(z), d = abs(x - roadX(z)) / Math.sqrt(1 + sl * sl); if (d < 3.88 + sv + (udip(z) > 0.1 ? 1.4 : 0.9)) return; } }          // nothing grows in an underpass's cutting, nor on the frontage roads beside it and leading to it (measured square to the road, as they are built)
     for (const v of vil) if (abs(x - v[0]) < 8.5 && abs(z - v[1]) < 8.5) return;
+    // (no banana within 70 m of the sea, on the coast or round the island: it will not stand the salt wind - the coastal scrub had this rule
+    // already, but a yard or a hedge by the shore planted them on the beach)
+    if (T === TREES[7] && (ism(x, z) > -70 || (seaW(z) > 0.05 && shoreX(z) - (x - roadX(z)) < 70))) return;
+    if (hpW(z) > 0.05 && abs(rdist(x, z)) < 8.2) return;          // (round the switchbacks none in front of the guard rail nor close behind it, 6.4 m out: its trunk and crown would grow through it)
     if (pr0 && abs(x - pr0[0]) < 4.5 && z > pr0[1] - 30 && z < pr0[2]) return;          // (nor on the way down to the pier)
     const y = hAt(x, z), c = cos(turn), sn = sin(turn), S = T.segs, Lf = T.leaves;
     const tr = (px, py, pz, o) => { o.push(x + (px * c - pz * sn) * sc, y + py * sc, z + (px * sn + pz * c) * sc); };
@@ -58,57 +150,215 @@ function buildChunk(cx, cz) {
   if (DEMO >= 0 && TREES[DEMO]) for (let k = Math.ceil(oz / 14); k * 14 < oz + CH; k++) { const z = k * 14, x = roadX(z) + 7.5; if (inside(x, z)) plant(TREES[DEMO], x, z, k * 1.7, 1); }      // ?plant=N lines the road with plant N, for looking at one kind closely
   const twc = townW(oz + CH / 2); let dbgHouse = null, reach = 0;      // reach: how far (m) this chunk's longest wire runs on beyond a pole's ordinary span
   const stamp = (B, x, y, z, yaw, s1, s2, fl = 0) => { const c = cos(yaw), sn = sin(yaw); for (const b of B) boxes.push(x + b[0] * c + b[2] * sn, y + b[1], z - b[0] * sn + b[2] * c, yaw, b[3], b[4], b[5], b[6], b[7], b[7] === 1 || b[7] === 9 ? s2 : b[7] === 17 ? ph(floor(x * 7 + b[0] * 13), floor(z * 5 + b[1] * 11)) : s1, b[4], fl ? 2 : b[8] || 0); };
+  // ---- temples. A temple is built in a frame of its own: lx across, lz toward its front, from (x, y, z) turned by yaw. put: a box (ya turns it
+  // further about the upright; h: what the material is told its height is); tube: a round piece between two points [lx, ly, lz] (mat 6 whitewash,
+  // 7 gilding); chain: a run of such pieces through points [lx, ly, lz, radius].
+  // (putD, tubeD, chainD: the same, for fine detail that is only made out from near to - drawn within about 100 m and not otherwise.)
+  // Two-wheelers standing about a town. Wf(lx, lz): the place in the world of a point of the frame they stand in; yw: that frame's turn; y: the
+  // ground under the wheels; (bx, bz): where in the frame, nose toward +z; s2: a number for the colour and the fittings. Their bodies are boxes
+  // and tubes seen from any distance; what is small (mirrors, lamps, number plate, shock absorbers, pedals, racks) only from near to.
+  // mbike: a step-through motorcycle of the kind everyone rides - wire wheels, telescopic forks, a leg shield and a head cowl with its lamp,
+  // handlebar and mirrors, a long seat, engine and silencer, a tail with its lamp and plate, a grab rail; some carry a basket, some a helmet.
+  // (A made tube's material is one less than the step that paints it in fsBranch: 1 black, 4 steel.)
+  const twList = [], xcol = [], trkAt = [], trkPend = [];      // (trkAt: where the chunk's pickups stand, so that no two are parked into each other)      // (xcol: solid things made of no box - a sculpted pickup - as [x, z, yaw, half width, half length, foot, top])      // (where they stand, for whoever wants to look at them: kept on the chunk as tw)
+  // They lean on their side stands (lean: toward -x, about the line the tyres stand on). Wh: a wire wheel, leaning with the rest; M: a sculpted part.
+  const twoW = (Wf, yw, y, bx, bz, lean = 0) => { const cl = cos(lean), sl = sin(lean), P = (lx, ly, lz) => { const q = Wf(bx + lx * cl - ly * sl, bz + lz); return [q[0], y + lx * sl + ly * cl, q[1]]; };
+    return { B: (D, lx, ly, lz, sx, sy, sz, mat, seed = 0, tilt = 0) => { const q = P(lx, ly, lz); (D ? boxesD : boxes).push(q[0], q[1], q[2], yw, sx, sy, sz, tilt, mat, seed, sy, 0); },
+      T: (D, a, b, r, mat) => { const p = P(a[0], a[1], a[2]), q = P(b[0], b[1], b[2]); (D ? segs : far).push(p[0], p[1], p[2], r, q[0], q[1], q[2], r, -1, mat); },
+      Wh: (lz, d, w, seed) => { const q = P(0, d / 2, lz); boxes.push(q[0], q[1], q[2], yw + PI / 2, d, d, w, -lean, 39, seed, d, 0); },
+      M: (Mh, mat, dy = 0, lod = 1) => { const q = Wf(bx, bz), cy = cos(yw), sy = sin(yw), V = Mh.v, O = new Float32Array(V.length / 6 * 7), mf = typeof mat === 'function';
+        for (let i = 0, o = 0; i < V.length; i += 6, o += 7) { const vx = V[i] * cl - (V[i + 1] + dy) * sl, vy = V[i] * sl + (V[i + 1] + dy) * cl, nx = V[i + 3] * cl - V[i + 4] * sl, ny = V[i + 3] * sl + V[i + 4] * cl;
+          O[o] = q[0] + vx * cy + V[i + 2] * sy; O[o + 1] = y + vy; O[o + 2] = q[1] - vx * sy + V[i + 2] * cy; O[o + 3] = nx * cy + V[i + 5] * sy; O[o + 4] = ny; O[o + 5] = -nx * sy + V[i + 5] * cy; O[o + 6] = mf ? mat(Mh.c[i / 6]) : mat; }
+        meshP.push([O, Mh.i, lod]); } }; };
+  // mbike: a 125 cc automatic scooter, the model "125cc Scooter - Motorcycle" by T.Arun (sketchfab.com/T.Arun, CC BY 4.0), cut down from 3.2
+  // million triangles to some 19 000 and parted by what it is made of (assets/scooter.bin: see scooter() below). Its paint is in one of eight
+  // colours, red and black the commonest; it leans on its side stand. Within 75 m the model itself; beyond, a copy of it cut to 1800 triangles.
+  const SCPAL = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 4, 5, 5, 6, 7], SCRGB = [[16, 1, 1], [5, 16, 25], [1, 1, 1], [25, 25, 24], [2, 4, 15], [19, 19, 20], [3, 13, 6], [26, 20, 2]];
+  const mbike = (Wf, yw, y, bx, bz, s2) => { twList.push([...Wf(bx, bz), y, yw, 0]); const { B, M } = twoW(Wf, yw, y, bx, bz, 0.12), k = SCPAL[floor(s2 * SCPAL.length) % SCPAL.length], SM = scooter();
+    const mt = (cl) => cl === 0 ? 40 + k : cl === 12 ? 50 + k : SCMAT[cl]; M(SM, mt); M(scooter(true), mt, 0, 2);
+  };
+  // bicycle: the model "Mini bicycle" by Absolute Pen (sketchfab.com/absolutepen, CC BY 4.0), cut down from 112 000 triangles to some 12 000
+  // (assets/bicycle.bin) - a step-through town bicycle with a basket on the front, a rack behind, mudguards, a chain case and a stand; its
+  // frame and mudguards painted in one of eight colours, black the commonest. It leans a little on its stand. The same model at any distance:
+  // its tyres and tubes are too thin to be cut down further without falling apart, and there are few bicycles.
+  const BIPAL = [2, 2, 2, 0, 0, 1, 3, 4, 5, 6];
+  const bicycle = (Wf, yw, y, bx, bz, s2) => { twList.push([...Wf(bx, bz), y, yw, 1]); const { M } = twoW(Wf, yw, y, bx, bz, 0.1), k = BIPAL[floor(s2 * BIPAL.length) % BIPAL.length];
+    M(assetMesh('bicycle'), (cl) => cl === 0 ? 40 + k : SCMAT[cl], 0, 0); };
+  const boxesD = [], meshP = [];      // (meshV, meshI: the sculpted things of the chunk - seven numbers a vertex: place, normal, material)
+  const frame = (x, y, z, yaw) => { const c = cos(yaw), sn = sin(yaw), W = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
+    const put = (lx, ly, lz, sx, sy, sz, mat, seed = 0, tilt = 0, fl = 0, ya = 0, h = sy) => { const q = W(lx, lz); boxes.push(q[0], y + ly, q[1], yaw + ya, sx, sy, sz, tilt, mat, seed, h, fl); };
+    const putD = (lx, ly, lz, sx, sy, sz, mat, seed = 0, tilt = 0, fl = 0, ya = 0, h = sy) => { const q = W(lx, lz); boxesD.push(q[0], y + ly, q[1], yaw + ya, sx, sy, sz, tilt, mat, seed, h, fl); };
+    const tube = (a, ra, b, rb, mat, o = far) => { const p = W(a[0], a[2]), q = W(b[0], b[2]); o.push(p[0], y + a[1], p[1], ra, q[0], y + b[1], q[1], rb, -1, mat); };
+    const chain = (P, mat, ox = 0, oy = 0, oz2 = 0, k = 1, o = far) => { for (let i = 0; i + 1 < P.length; i++) tube([ox + P[i][0] * k, oy + P[i][1] * k, oz2 + P[i][2] * k], P[i][3] * k, [ox + P[i + 1][0] * k, oy + P[i + 1][1] * k, oz2 + P[i + 1][2] * k], P[i + 1][3] * k, mat, o); };
+    const tubeD = (a, ra, b, rb, mat) => tube(a, ra, b, rb, mat, segs), chainD = (P, mat, ox = 0, oy = 0, oz2 = 0, k = 1) => chain(P, mat, ox, oy, oz2, k, segs);
+    return { put, putD, tube, tubeD, chain, chainD, W, x, y, z, yaw, sub: (lx, lz, ya, ly = 0) => { const q = W(lx, lz); return frame(q[0], y + ly, q[1], yaw + ya); } }; };
+  // The ordination hall (อุโบสถ), its ridge along lx: a stepped white base; walls behind a colonnade, shuttered windows in red and gold between
+  // the columns; a roof in three tiers, each end lower than the middle, the gables filled with gold, gilded bargeboards down their edges and a
+  // finial (ช่อฟ้า) curling up from every ridge end; a skirt of roof over the colonnade; a door and a flight of steps between naga rails at each
+  // end; and round it the eight boundary stones (ใบเสมา) that mark consecrated ground.
+  const watHall = (F) => { const put = F.put;
+    put(0, 0.35, 0, 17, 0.7, 11, 41); put(0, 0.95, 0, 15.5, 0.7, 9.5, 41); put(0, 4.0, 0, 12.5, 5.4, 6.6, 41);
+    for (let i = 0; i < 6; i++) for (const ez of [-1, 1]) { put(-6 + i * 2.4, 3.7, ez * 3.9, 0.5, 4.8, 0.5, 41); put(-6 + i * 2.4, 6.2, ez * 3.9, 0.7, 0.25, 0.7, 15); if (i < 5) { put(-4.8 + i * 2.4, 3.6, ez * 3.32, 1.0, 2.6, 0.08, 14); put(-4.8 + i * 2.4, 5.05, ez * 3.33, 1.25, 0.3, 0.1, 15); put(-4.8 + i * 2.4, 2.2, ez * 3.33, 1.25, 0.14, 0.14, 15); } }
+    put(0, 9.05, 0, 9.0, 4.7, 7.6, 9, 0.05, 0, 1); put(0, 9.9, 0, 5.0, 5.0, 6.8, 9, 0.05, 0, 1);
+    for (const ex of [-1, 1]) { put(ex * 5.9, 8.55, 0, 3.2, 3.7, 6.4, 9, 0.05, 0, 1); put(ex * 7.53, 8.45, 0, 0.06, 3.3, 5.6, 15, 0, 0, 1); put(ex * 4.52, 9.2, 0, 0.06, 4.2, 6.9, 15, 0, 0, 1); put(ex * 2.52, 10.1, 0, 0.06, 4.5, 6.3, 15, 0, 0, 1);
+      for (const [fx, fy] of [[7.5, 10.4], [4.5, 11.4], [2.5, 12.4]]) { put(ex * (fx + 0.2), fy + 0.4, 0, 0.1, 0.95, 0.1, 15, 0, ex * 0.45, 0, PI / 2); put(ex * (fx + 0.62), fy + 0.98, 0, 0.08, 0.6, 0.08, 15, 0, ex * 0.95, 0, PI / 2); }
+      for (const ez of [-1, 1]) { put(ex * 7.58, 8.62, ez * 1.6, 0.12, 0.2, 4.95, 15, 0, ez * 0.857); put(ex * 8.5, 1.05, ez * 1.75, 2.6, 0.34, 0.34, 33, 0.63); put(ex * 9.85, 1.2, ez * 1.75, 0.34, 0.9, 0.34, 15); }
+      put(ex * 6.27, 3.3, 0, 0.08, 3.4, 1.7, 14); put(ex * 6.29, 5.2, 0, 0.1, 0.36, 2.2, 15); put(ex * 8.5, 0.65, 0, 2.0, 1.3, 3.1, 41); put(ex * 9.9, 0.3, 0, 1.0, 0.6, 3.1, 41); }
+    for (const ez of [-1, 1]) { put(0, 6.2, ez * 4.5, 15.4, 0.08, 2.5, 9, 0.05, ez * 0.5); put(0, 5.62, ez * 5.62, 15.4, 0.1, 0.28, 33, 0.63); }
+    for (const [px, pz] of [[-9.6, -6.2], [9.6, -6.2], [-9.6, 6.2], [9.6, 6.2], [0, -6.6], [0, 6.6], [-11.4, 0], [11.4, 0]]) { put(px, 0.35, pz, 0.8, 0.7, 0.8, 41); put(px, 1.15, pz, 0.5, 0.9, 0.16, 41); put(px, 1.7, pz, 0.3, 0.3, 0.12, 15); }
+    // From near to (putD): a bracket (คันทวย) under the eaves at every column, a moulded foot to each column; every window framed in gold under a
+    // pointed gilded hood; a gilded crest along each ridge; a red panel in the gold of the gables; a hooded doorway with gilded leaves at each
+    // end, the treads of its steps; a low balustrade round the terrace; a lantern on a post at each corner.
+    const D = F.putD;
+    for (let i = 0; i < 6; i++) for (const ez of [-1, 1]) { D(-6 + i * 2.4, 5.55, ez * 4.4, 0.12, 1.3, 0.12, 15, 0, ez * 0.7); D(-6 + i * 2.4, 1.5, ez * 3.9, 0.66, 0.4, 0.66, 41);
+      if (i < 5) { const wx = -4.8 + i * 2.4; for (const e of [-1, 1]) D(wx + e * 0.58, 3.6, ez * 3.35, 0.1, 2.8, 0.12, 15); D(wx, 5.55, ez * 3.35, 1.4, 0.7, 0.12, 15, 0, 0, 1); D(wx, 3.6, ez * 3.37, 0.05, 2.6, 0.05, 15); } }
+    D(0, 11.47, 0, 8.6, 0.14, 0.14, 15); D(0, 12.47, 0, 4.7, 0.14, 0.14, 15);
+    for (const ex of [-1, 1]) { D(ex * 5.9, 10.45, 0, 3.0, 0.12, 0.12, 15); D(ex * 7.57, 8.0, 0, 0.05, 1.5, 2.2, 14); D(ex * 6.34, 5.95, 0, 2.3, 1.0, 0.12, 15, 0, 0, 1, PI / 2);
+      for (const e of [-1, 1]) { D(ex * 6.33, 3.3, e * 0.43, 0.05, 3.0, 0.62, 15); D(ex * 6.3, 3.3, e * 1.0, 0.16, 3.5, 0.16, 15); }
+      for (let j = 0; j < 4; j++) D(ex * (7.7 + 0.55 * j), 1.28 - 0.3 * j, 0, 0.55, 0.06, 3.1, 2);
+      for (const ez of [-1, 1]) { D(ex * 7.68, 1.6, ez * 3.15, 0.14, 0.6, 3.0, 41); D(ex * 8.6, 3.0, ez * 5.3, 0.34, 0.45, 0.34, 10); F.tubeD([ex * 8.6, 0.7, ez * 5.3], 0.07, [ex * 8.6, 2.8, ez * 5.3], 0.05, 0); } }
+    for (const ez of [-1, 1]) { D(0, 1.6, ez * 4.68, 15.4, 0.6, 0.14, 41); D(0, 1.93, ez * 4.68, 15.5, 0.08, 0.2, 15); }
+    clear([F.x, F.z], F.yaw, 22, 13); };
+  // A chedi: a bell-shaped tower, whitewashed, on a square stepped base, ringed mouldings between base and bell, a gilded spire of rings
+  // tapering to a point. s: how big (1 = 10.5 m high).
+  const watChedi = (F, lx, lz, s) => { F.put(lx, 0.3 * s, lz, 7.6 * s, 0.6 * s, 7.6 * s, 41); F.put(lx, 0.85 * s, lz, 6.6 * s, 0.5 * s, 6.6 * s, 41);
+    F.chain([[0, 1.1, 0, 3.0], [0, 1.7, 0, 3.1], [0, 1.9, 0, 2.5], [0, 2.4, 0, 2.6], [0, 2.6, 0, 2.2], [0, 3.1, 0, 2.3], [0, 3.4, 0, 2.05], [0, 4.4, 0, 1.75], [0, 5.3, 0, 0.9], [0, 5.5, 0, 1.0], [0, 6.0, 0, 0.55]], 6, lx, 0, lz, s);
+    F.chain([[0, 6.0, 0, 0.62], [0, 6.3, 0, 0.4], [0, 6.5, 0, 0.52], [0, 6.8, 0, 0.33], [0, 7.0, 0, 0.44], [0, 7.3, 0, 0.27], [0, 7.5, 0, 0.36], [0, 7.8, 0, 0.2], [0, 8.2, 0, 0.26], [0, 10.6, 0, 0.03]], 7, lx, 0, lz, s);
+    // (from near to: a band of gold cloth tied round the bell, a little chedi on each corner of the base, a niche on each face)
+    F.chainD([[0, 3.55, 0, 2.08], [0, 3.8, 0, 2.03]], 7, lx, 0, lz, s);
+    for (const [ex, ez] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) F.chainD([[0, 1.1, 0, 0.42], [0, 1.6, 0, 0.36], [0, 2.0, 0, 0.16], [0, 2.9, 0, 0.01]].map((p) => [ex * 2.9, p[1], ez * 2.9, p[3]]), 6, lx, 0, lz, s);
+    for (const [ex, ez] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { F.putD(lx + ex * 3.2 * s, 1.7 * s, lz + ez * 3.2 * s, (ez ? 1.0 : 0.3) * s, 1.2 * s, (ex ? 1.0 : 0.3) * s, 15); }
+    const q = F.W(lx, lz); clear(q, F.yaw, 8 * s, 8 * s); };
+  // A Buddha image. H: its height without its base; mat: 7 gilded or 6 white. pose 0: seated in meditation (ปางสมาธิ, both hands in the lap);
+  // 1: seated, calling the earth to witness (ปางมารวิชัย, the right hand down over the knee); 2: standing, the right hand raised palm outward
+  // (ปางประทานอภัย); 3: walking (ปางลีลา, one arm swinging, the body swayed); 4: reclining on the right side, head on the hand (ปางไสยาสน์, H its length).
+  const watBuddha = (F, lx, lz, H, mat, pose) => { const SM = (P) => { if (P.length < 3) return P; const o = [], g = (i) => P[clamp(i, 0, P.length - 1)]; for (let i = 0; i + 1 < P.length; i++) { const a = g(i - 1), b = g(i), c2 = g(i + 1), d = g(i + 2); for (let t = 0; t < 3; t++) { const u = t / 3; o.push([0, 1, 2, 3].map((j) => j === 3 ? max(0.002, mix(b[3], c2[3], u) + 0.5 * u * (1 - u) * (b[3] - a[3] + c2[3] - d[3]) * 0.5) : 0.5 * (2 * b[j] + (c2[j] - a[j]) * u + (2 * a[j] - 5 * b[j] + 4 * c2[j] - d[j]) * u * u + (3 * b[j] - a[j] - 3 * c2[j] + d[j]) * u * u * u))); } } o.push(P[P.length - 1]); return o; };      // (a smooth curve through the points, three pieces to each span: the body's outline is rounded, not jointed)
+    // (The body's pieces - everything C is given in the image's own material - are not drawn as tubes but gathered in SG and sculpted into one skin.)
+    // (petal: a lotus petal is thin - three slender ribs side by side, spread to the width w at its belly and meeting at root and tip, of thickness r.)
+    const petal = (P, an, zs, w, r) => { const sx = sin(an), cz = cos(an), W = [0.25, 1, 0.7, 0], R = [0.8, 1, 0.85, 0.35]; for (const d of [-1, 0, 1]) C(P.map((p, i) => [sx * p[0] + cz * d * w * W[i], p[1], (cz * p[0] - sx * d * w * W[i]) * zs, r * R[i]])); };
+    // (CM: several strokes gathered in one chain - within a chain pieces meet in a crease instead of melting together, which keeps fingers and toes apart.)
+    const CM = (L) => { const ch = []; SG.push(ch); for (const P of L) { const Q = SM(P); for (let i = 0; i + 1 < Q.length; i++) ch.push(Q[i][0], Q[i][1], Q[i][2], Q[i][3], Q[i + 1][0], Q[i + 1][1], Q[i + 1][2], Q[i + 1][3]); } };
+    // (hand: from the wrist w, pointing along d, the thumb's side toward a, its length s; curl bends the fingers toward the palm. A flat palm of
+    // three ribs, four fingers of their own lengths and a thumb standing off from its heel; a small image has the fingers as one flat piece.)
+    const hand = (w, d, a, s, curl = 0) => { const ld = hypot(d[0], d[1], d[2]), la = hypot(a[0], a[1], a[2]); d = d.map((v) => v / ld); a = a.map((v) => v / la); const n = [d[1] * a[2] - d[2] * a[1], d[2] * a[0] - d[0] * a[2], d[0] * a[1] - d[1] * a[0]];
+      const P = (u, v, t, r) => [w[0] + (d[0] * u + a[0] * v + n[0] * t) * s, w[1] + (d[1] * u + a[1] * v + n[1] * t) * s, w[2] + (d[2] * u + a[2] * v + n[2] * t) * s, r * s];
+      CM([-0.17, 0, 0.17].map((v) => [P(0, v * 0.6, 0, 0.07), P(0.25, v, 0, 0.078), P(0.5, v, 0, 0.068)]));
+      if (!fine) { CM([-0.15, 0, 0.15].map((v) => [P(0.45, v, 0, 0.07), P(0.7, v, curl * 0.3, 0.066), P(0.9, v * 0.8, curl, 0.05)])); return; }
+      const FL = [0.33, 0.42, 0.46, 0.4], FV = [-0.171, -0.057, 0.057, 0.171], Lf = FV.map((v, i) => [P(0.46, v, 0, 0.058), P(0.5 + FL[i] * 0.5, v, curl * 0.3, 0.054), P(0.5 + FL[i], v, curl, 0.042)]);
+      Lf.push([P(0.06, 0.2, 0.02, 0.068), P(0.28, 0.34, 0.04, 0.06), P(0.5, 0.39, 0.05, 0.042)]); CM(Lf); };
+    // (foot: of a standing image - the instep sloping down from the ankle, a flat sole of two ribs, five toes; e: which foot, the great toe inward.)
+    const foot = (cx, cz, e) => { C([[cx, 0.052, cz, 0.036], [cx, 0.031, cz + 0.035, 0.026], [cx, 0.018, cz + 0.078, 0.016]]);
+      CM([-1, 1].map((g) => [[cx + g * 0.01, 0.015, cz - 0.02, 0.015], [cx + g * 0.016, 0.013, cz + 0.05, 0.013], [cx + g * 0.019, 0.011, cz + 0.09, 0.011]]));
+      if (fine) CM([0, 1, 2, 3, 4].map((t) => { const tx = cx - e * 0.0195 + e * t * 0.0096, r = t ? 0.005 - 0.0003 * t : 0.0064, z1 = cz + 0.127 - 0.0045 * t; return [[tx, 0.01, cz + 0.092, r], [tx, 0.009, (cz + 0.092 + z1) / 2, r], [tx, 0.007, z1, r * 0.8]]; })); };
+    const SG = [], C = (P, m = mat) => { if (m !== mat) { F.chain(SM(P), m, lx, y0, lz, H); return; } const Q = SM(P), ch = []; SG.push(ch); for (let i = 0; i + 1 < Q.length; i++) ch.push(Q[i][0], Q[i][1], Q[i][2], Q[i][3], Q[i + 1][0], Q[i + 1][1], Q[i + 1][2], Q[i + 1][3]); }, CD = (P, m = mat) => F.chainD(P, m, lx, y0, lz, H); let y0 = 0;      // (CD: what is only made out from near to - the face, the curls of the hair, fingers and toes, the folds of the robe, the petals of the lotus seat)
+    // (head: lie turns it over toward +x by that angle - 1.57 would lay it flat - for a reclining image.)
+    // The head is sculpted by itself, twice as finely as the body (HEADS: its pieces, in its own measure - the neck's foot at 0, the hair's top
+    // at 0.28, the flame's tip at 0.39): a full oval face on a rounded skull; the hair rising in a cone to the mound on the crown, the flame
+    // above it; arched brow ridges running into the bridge of a straight nose with its wings; heavy lids over lowered eyes, the lower lid
+    // and the cheek under each; lips, the corners lifted in the faint smile; a round chin; ears whose lobes hang nearly to the shoulders.
+    const fine = H > 5, pendM = [], head = (hx, hy, hz, k, lie = 0) => { const G = [], L = (P) => { const Q = SM(P), ch = []; G.push(ch); for (let i = 0; i + 1 < Q.length; i++) ch.push(Q[i][0], Q[i][1], Q[i][2], Q[i][3], Q[i + 1][0], Q[i + 1][1], Q[i + 1][2], Q[i + 1][3]); };
+      if (!SCULPT.has(fine ? 'head' : 'headc')) { L([[0, 0, 0, 0.062], [0, 0.035, 0, 0.058], [0, 0.06, 0, 0.082], [0, 0.11, 0, 0.098], [0, 0.16, 0, 0.099], [0, 0.2, 0, 0.09], [0, 0.235, 0, 0.068], [0, 0.262, 0, 0.044], [0, 0.28, 0, 0.02]]);
+        L([[0, 0.276, 0, 0.012], [0, 0.298, 0, 0.03], [0, 0.328, 0, 0.022], [0, 0.39, 0, 0.002]]); L([[0, 0.05, 0.03, 0.05], [0, 0.085, 0.036, 0.068], [0, 0.125, 0.034, 0.074], [0, 0.165, 0.024, 0.062]]); L([[0, 0.04, 0.06, 0.022], [0, 0.052, 0.068, 0.028], [0, 0.06, 0.07, 0.02]]);
+        L([[0, 0.158, 0.094, 0.008], [0, 0.125, 0.106, 0.011], [0, 0.104, 0.115, 0.015], [0, 0.1, 0.11, 0.008]]);
+        L([[-0.027, 0.081, 0.092, 0.003], [-0.011, 0.08, 0.102, 0.007], [0.011, 0.08, 0.102, 0.007], [0.027, 0.081, 0.092, 0.003]]); L([[-0.021, 0.07, 0.095, 0.003], [0, 0.066, 0.102, 0.008], [0.021, 0.07, 0.095, 0.003]]);
+        for (const e of [-1, 1]) { L([[e * 0.012, 0.1, 0.105, 0.009], [e * 0.017, 0.098, 0.099, 0.005]]); L([[e * 0.01, 0.166, 0.097, 0.004], [e * 0.045, 0.178, 0.091, 0.006], [e * 0.082, 0.166, 0.066, 0.003]]);
+          L([[e * 0.02, 0.147, 0.097, 0.005], [e * 0.044, 0.151, 0.094, 0.009], [e * 0.07, 0.147, 0.078, 0.004]]); L([[e * 0.022, 0.131, 0.097, 0.003], [e * 0.044, 0.128, 0.093, 0.005], [e * 0.068, 0.133, 0.078, 0.003]]); L([[e * 0.04, 0.105, 0.068, 0.03], [e * 0.05, 0.085, 0.058, 0.027]]);
+          L([[e * 0.1, 0.172, -0.006, 0.01], [e * 0.108, 0.135, -0.003, 0.022], [e * 0.107, 0.08, 0, 0.016], [e * 0.102, 0.015, 0, 0.014], [e * 0.099, -0.025, 0.002, 0.007]]); } }
+      pendM.push([fine ? sculpt('head', G, 0.0021, 0.004) : sculpt('headc', G, 0.006, 0.006), hx, hy, hz, k, lie]);
+      // (and only from near to: the line of each lowered eye, the mark between the brows, the folds of the neck, and the curls of the hair - small,
+      // close-set, in ten rings up the cone, the lowest drawn back from the brow to make the hairline)
+      const ca = cos(lie), sa = sin(lie), HD = (P, m = mat) => CD(P.map((p) => [hx + (p[0] * ca + p[1] * sa) * k, hy + (-p[0] * sa + p[1] * ca) * k, hz + p[2] * k, p[3] * k]), m);
+      if (H > 3) { for (const e of [-1, 1]) HD([[e * 0.027, 0.139, 0.0985, 0.0014], [e * 0.045, 0.1375, 0.097, 0.0018], [e * 0.063, 0.14, 0.085, 0.0012]], 1);
+        HD([[0, 0.184, 0.094, 0.004], [0, 0.185, 0.099, 0.005], [0, 0.186, 0.101, 0.001]]);
+        for (let r = 0; r < 3; r++) HD([[0, 0.004 + 0.012 * r, 0, 0.066], [0, 0.009 + 0.012 * r, 0, 0.069], [0, 0.014 + 0.012 * r, 0, 0.066]]);
+        const RR = [0.1, 0.101, 0.1, 0.097, 0.092, 0.084, 0.074, 0.062, 0.05, 0.037];
+        for (let r = 0; r < 10; r++) { const nq = 28 - r * 2; for (let q = 0; q < nq; q++) { const an = (q + 0.5 * r) / nq * TAU, yy = 0.158 + 0.0135 * r, rr = RR[r], sx = sin(an), cz2 = cos(an); if (cz2 > [0.3, 0.55, 0.8][r] ) continue;
+            HD([[sx * rr * 0.94, yy, cz2 * rr * 0.94, 0.0078], [sx * rr * 1.05, yy + 0.004, cz2 * rr * 1.05, 0.0068], [sx * rr * 1.085, yy + 0.007, cz2 * rr * 1.085, 0.002]]); } } } };
+    if (pose < 2) { const bh = 0.16 * H; F.put(lx, bh * 0.3, lz, 1.1 * H, bh * 0.6, 0.95 * H, 41); F.put(lx, bh * 0.8, lz, 0.96 * H, bh * 0.4, 0.82 * H, 41);
+      F.put(lx, bh * 0.6, lz, 1.115 * H, bh * 0.07, 0.965 * H, 15); F.put(lx, bh * 0.99, lz, 0.975 * H, bh * 0.07, 0.835 * H, 15); F.put(lx, bh * 0.3, lz, 1.105 * H, bh * 0.22, 0.955 * H, 14);      // (the throne: a gilded moulding round each tier, a red band round the lower)
+      if (H > 5) for (let q = 0; q < 14; q++) for (const e of [-1, 1]) { F.putD(lx + (q - 6.5) * 0.074 * H, bh * 0.8, lz + e * 0.412 * H, 0.03 * H, bh * 0.22, 0.01 * H, 15); if (q < 12) F.putD(lx + e * 0.482 * H, bh * 0.8, lz + (q - 5.5) * 0.066 * H, 0.01 * H, bh * 0.22, 0.03 * H, 15); }
+      // (gilded panels along the upper tier; then the cushion of the lotus seat, on which the image is raised)
+      F.chain([[0, bh, 0, 0.44 * H], [0, bh + 0.05 * H, 0, 0.4 * H], [0, bh + 0.07 * H, 0, 0.43 * H]], mat, lx, 0, lz, 1); y0 = bh + 0.06 * H;
+      // The figure, proportioned after the great seated images of Thailand (as at Wat Muang): from the seat to the tip of the flame is 1; the
+      // crossed legs are a broad low mass, 0.89 across the knees and 0.17 high - the widest thing in the figure, which is what makes it sit;
+      // the body rises from them broad-shouldered (0.48 across the arms) and narrow at the waist, upright; heavy arms hang a little out from
+      // it; a short neck; a large head (chin at 0.6, the hair rising in a cone to 0.875) under its flame.
+      C([[-0.445, 0.07, 0.07, 0.03], [-0.4, 0.08, 0.075, 0.085], [-0.16, 0.085, 0.15, 0.092], [0.16, 0.085, 0.15, 0.092], [0.4, 0.08, 0.075, 0.085], [0.445, 0.07, 0.07, 0.03]]);      // the legs: the front of them, knee to knee
+      C([[-0.34, 0.085, -0.03, 0.05], [-0.25, 0.095, -0.04, 0.115], [0.25, 0.095, -0.04, 0.115], [0.34, 0.085, -0.03, 0.05]]);      // and the hips behind
+      C([[0.39, 0.1, 0.09, 0.07], [0.14, 0.125, 0.165, 0.058], [-0.1, 0.13, 0.185, 0.048], [-0.2, 0.128, 0.19, 0.036], [-0.26, 0.122, 0.17, 0.016]]);      // the right shin lying over the left, its foot sole-up on the left thigh
+      C([[0, 0.1, 0, 0.15], [0, 0.25, 0, 0.122], [0, 0.38, 0, 0.145], [0, 0.48, 0, 0.13], [0, 0.535, 0, 0.07], [0, 0.6, 0, 0.062]]);      // the body, and the neck
+      for (const e of [-1, 1]) C([[e * 0.07, 0.1, 0, 0.12], [e * 0.062, 0.24, 0, 0.094], [e * 0.095, 0.38, 0.004, 0.114], [e * 0.13, 0.47, 0, 0.085], [e * 0.165, 0.505, 0, 0.05]]);      // (broader than deep: wide at the chest, drawn in at the waist)
+      for (const e of [-1, 1]) { C([[e * 0.175, 0.505, 0, 0.058], [e * 0.2, 0.49, 0, 0.066], [e * 0.228, 0.4, 0.005, 0.06], [e * 0.238, 0.31, 0.015, 0.054], [e * 0.24, 0.27, 0.03, 0.054]]);      // shoulder, upper arm, elbow
+        if (pose === 1 && e > 0) { C([[e * 0.24, 0.27, 0.03, 0.052], [e * 0.27, 0.2, 0.13, 0.044], [e * 0.3, 0.158, 0.218, 0.032]]); hand([0.3, 0.158, 0.226], [0, -1, -0.1], [-1, 0, 0], 0.155, -0.06); }      // the forearm down over the knee, the hand hanging on it, fingers to the ground
+        else { const hy = 0.186 + (pose === 0 && e > 0 ? 0.02 : 0); C([[e * 0.24, 0.27, 0.03, 0.052], [e * 0.2, 0.2, 0.13, 0.044], [e * 0.12, hy - 0.006, 0.2, 0.032]]); hand([e * 0.115, hy, 0.205], [-e, 0, 0.06], [0, 0, 1], 0.155, 0.04 * e); } }      // the forearm across the lap, the hand lying open in it
+      C([[-0.15, 0.5, 0.06, 0.028], [-0.13, 0.36, 0.115, 0.038], [-0.115, 0.2, 0.13, 0.034], [-0.11, 0.165, 0.14, 0.02]]);      // the folded cloth over the left shoulder, hanging to the waist (สังฆาฏิ)
+      C([[-0.185, 0.49, 0.04, 0.012], [-0.06, 0.4, 0.125, 0.014], [0.07, 0.33, 0.12, 0.014], [0.19, 0.3, 0.035, 0.012]]);      // the robe's edge, from the left shoulder across under the right arm: a ridge in the skin
+      C([[-0.42, 0.105, 0.11, 0.012], [-0.16, 0.13, 0.215, 0.013], [0.16, 0.13, 0.215, 0.013], [0.42, 0.105, 0.11, 0.012]]);      // and its hem, across the shins
+      head(0, 0.585, 0, 1.06);
+      // The lotus seat: a ring of small pointed petals set close together and turned up, and a ring turned down between them.
+      for (let q = 0; q < 44; q++) for (const dn of [0, 1]) { const an = (q + dn * 0.5) / 44 * TAU, sx = sin(an), cz2 = cos(an) * 0.91, P = dn ? [[0.45, -0.06, 0.014], [0.485, -0.072, 0.026], [0.51, -0.094, 0.019], [0.522, -0.116, 0.004]] : [[0.44, -0.045, 0.014], [0.475, -0.035, 0.027], [0.5, -0.012, 0.02], [0.512, 0.012, 0.004]];
+        petal(P, an, 0.91, 0.02, 0.0085); }
+      }
+    else if (pose < 4) { const bh = 0.06 * H, sw = pose === 3 ? 0.012 : 0; F.chain([[0, 0, 0, 0.21 * H], [0, bh * 0.45, 0, 0.18 * H], [0, bh * 0.55, 0, 0.2 * H], [0, bh, 0, 0.175 * H], [0, bh + 0.02 * H, 0, 0.155 * H]], mat, lx, 0, lz, 1); y0 = bh + 0.02 * H;
+      // The standing image, proportioned after a Thai one (as at Hat Yai): from the soles to the tip of the flame is 1. Tall and straight:
+      // the head small on it (chin at 0.77), shoulders 0.29 across the arms, the waist at 0.53, and from the waist down the robe a straight
+      // column to the ankles - the two legs showing through it, a flat pleat hanging down the middle of the front (ชายผ้าหน้านาง), a girdle at
+      // the waist - with the outer robe standing out behind in a wing at each side, widest at the hem. The right arm is bent up, the hand
+      // raised at the shoulder, palm outward (ปางประทานอภัย), or swings forward in walking (ปางลีลา); the left hangs straight at the side.
+      C([[sw * 2, 0.47, 0, 0.085], [sw, 0.53, 0, 0.074], [0, 0.62, 0, 0.085], [0, 0.7, 0, 0.078], [0, 0.735, 0, 0.045], [0, 0.775, 0, 0.038]]);      // the body and the neck
+      for (const e of [-1, 1]) { C([[e * 0.045 + sw * 2, 0.47, 0, 0.074], [e * 0.04 + sw, 0.53, 0, 0.06], [e * 0.06, 0.63, 0, 0.07], [e * 0.085, 0.7, 0, 0.054], [e * 0.1, 0.722, 0, 0.034]]);
+        C([[e * 0.045 + sw * 2, 0.47, 0, 0.062], [e * 0.045 + sw * 2, 0.3, e * sw * 2, 0.054], [e * 0.043 + sw, 0.1, e * sw * 4, 0.045], [e * 0.042, 0.04, e * sw * 4, 0.04]]);      // the legs, under the robe
+        foot(e * 0.044, e * sw * 4, e);
+        C([[e * 0.085, 0.44, -0.035, 0.026], [e * 0.092, 0.25, -0.035, 0.022], [e * 0.105, 0.06, -0.035, 0.018]]); C([[e * 0.112, 0.45, -0.035, 0.018], [e * 0.128, 0.25, -0.035, 0.016], [e * 0.148, 0.065, -0.035, 0.013], [e * 0.158, 0.045, -0.03, 0.008]]); }      // the robe's wing at each side
+      C([[sw * 2, 0.46, 0, 0.07], [sw, 0.25, 0, 0.055], [0, 0.06, 0, 0.05]]); C([[sw * 2, 0.48, 0.045, 0.03], [sw, 0.25, 0.05, 0.027], [0, 0.055, 0.046, 0.025]]);      // the robe between the legs, and the pleat down the front
+      C([[-0.085, 0.502, 0.03, 0.012], [0, 0.498, 0.082, 0.014], [0.085, 0.502, 0.03, 0.012]]); C([[0, 0.498, 0.09, 0.018], [0, 0.488, 0.094, 0.012]]);      // the girdle and its clasp
+      C([[-0.055, 0.737, 0.045, 0.016], [-0.05, 0.62, 0.076, 0.02], [-0.046, 0.52, 0.074, 0.017]]); C([[0.09, 0.722, 0.03, 0.01], [0.02, 0.66, 0.078, 0.011], [-0.05, 0.62, 0.08, 0.011]]);      // the cloth over the left shoulder; the robe's edge to it from the right
+      C([[-0.105, 0.725, 0, 0.036], [-0.13, 0.71, 0, 0.04], [-0.145, 0.6, 0, 0.035], [-0.15, 0.5, 0.005, 0.032], [-0.153, 0.4, 0.01, 0.027], [-0.155, 0.37, 0.013, 0.02]]); hand([-0.156, 0.368, 0.013], [0, -1, 0], [0, 0, 1], 0.09, -0.05);      // the left arm hanging, the hand open against the thigh
+      if (pose === 2) { C([[0.105, 0.725, 0, 0.036], [0.13, 0.71, 0, 0.04], [0.14, 0.63, 0.005, 0.036], [0.143, 0.55, 0.02, 0.034], [0.141, 0.6, 0.07, 0.03], [0.138, 0.66, 0.1, 0.025]]);      // the right arm bent up at the elbow
+        hand([0.138, 0.662, 0.103], [0, 1, 0.06], [-1, 0, 0], 0.1, 0.03); }
+      else { C([[0.105, 0.725, 0, 0.036], [0.13, 0.71, 0, 0.04], [0.146, 0.61, 0.02, 0.035], [0.152, 0.52, 0.05, 0.03], [0.154, 0.44, 0.085, 0.022]]); hand([0.155, 0.438, 0.086], [0, -1, 0.35], [0, 0, 1], 0.09, 0.05); }
+      head(0, 0.755, 0, 0.59);
+      // The lotus under the feet: small pointed petals set close together, a ring turned up round the top of the pedestal and a ring turned down between them.
+      if (H > 5) { for (let q = 0; q < 28; q++) for (const dn of [0, 1]) { const an = (q + dn * 0.5) / 28 * TAU, sx = sin(an), cz2 = cos(an), P = dn ? [[0.175, -0.026, 0.008], [0.2, -0.034, 0.016], [0.218, -0.048, 0.012], [0.228, -0.062, 0.003]] : [[0.16, -0.016, 0.008], [0.18, -0.01, 0.016], [0.197, 0.004, 0.012], [0.206, 0.018, 0.003]];
+          petal(P, an, 1, 0.0115, 0.0058); }
+      } }
+    else { const bh = 1.3; F.put(lx, bh / 2, lz, H * 1.08, bh, H * 0.34, 41); F.put(lx, bh + 0.15, lz, H * 1.04, 0.3, H * 0.31, 15); F.put(lx, bh * 0.55, lz, H * 1.085, bh * 0.3, H * 0.345, 14); y0 = bh + 0.3;
+      // The reclining image, proportioned after a Thai one (its length 1, head toward +x, lying on its right side, facing +z): the body is
+      // propped - the shoulders stand 0.22 high, one above the other, and the line of it falls away through the hip (0.2) and the knees
+      // (0.13) to the ankles, the two legs lying one on the other, the feet together at the end with their soles square to it. The right
+      // arm is folded under: elbow on the couch, forearm upright, the hand under the cheek, a bolster in the angle; the left arm lies along
+      // the upper side, hand on the thigh. The head is raised on that hand, tilted, its flame pointing up and away.
+      C([[0.245, 0.15, 0, 0.088], [0.08, 0.104, 0, 0.068], [-0.07, 0.1, 0, 0.082]]);      // the body's middle
+      C([[0.228, 0.2, 0, 0.06], [0.085, 0.132, 0, 0.048], [-0.07, 0.142, 0, 0.066]]); C([[0.24, 0.098, 0, 0.066], [0.08, 0.066, 0, 0.058], [-0.07, 0.062, 0, 0.066]]);      // its upper side - dipping at the waist, rising over the hip - and its under side
+      C([[-0.07, 0.12, 0, 0.062], [-0.26, 0.087, 0, 0.048], [-0.41, 0.07, 0, 0.036], [-0.468, 0.07, 0, 0.03]]); C([[-0.07, 0.06, 0, 0.06], [-0.26, 0.045, 0, 0.046], [-0.41, 0.036, 0, 0.035], [-0.468, 0.036, 0, 0.03]]);      // the upper leg and the under one
+      // The feet, as the body lies on its side: one upon the other at the end, the soles flat and upright facing it, heels to the back and the
+      // toes to the front in two rows, the great toes meeting in the middle. Each: an instep from the ankle, a sole of two ribs, five toes.
+      for (const up of [0, 1]) { const fy = up ? 0.077 : 0.034, g = up ? 1 : -1; C([[-0.468, fy, 0, 0.029], [-0.477, fy, 0.04, 0.022], [-0.485, fy, 0.082, 0.014]]);
+        CM([-1, 1].map((q) => [[-0.486, fy + q * 0.008, -0.028, 0.015], [-0.489, fy + q * 0.0105, 0.035, 0.013], [-0.49, fy + q * 0.0125, 0.088, 0.0105]]));
+        CM([0, 1, 2, 3, 4].map((t) => { const ty = fy - g * 0.0185 + g * t * 0.0091, r = t ? 0.0047 - 0.0002 * t : 0.006, z1 = 0.126 - 0.004 * t; return [[-0.491, ty, 0.09, r], [-0.492, ty, (0.09 + z1) / 2, r], [-0.493, ty, z1, r * 0.8]]; })); }
+      C([[0.215, 0.224, 0.03, 0.044], [0.05, 0.186, 0.062, 0.036], [-0.1, 0.178, 0.064, 0.03]]); hand([-0.1, 0.177, 0.066], [-1, -0.22, 0], [0, -0.8, 0.6], 0.088, -0.03);      // the left arm along the upper side, a little to the front, its hand on the thigh
+      C([[0.24, 0.11, 0.04, 0.046], [0.31, 0.05, 0.06, 0.042], [0.38, 0.022, 0.068, 0.04]]); C([[0.38, 0.022, 0.068, 0.038], [0.362, 0.09, 0.056, 0.032], [0.347, 0.15, 0.043, 0.024]]); hand([0.346, 0.158, 0.04], [0.875, 0.485, -0.1], [0, 0, 1], 0.088, 0.02);      // the right arm: down to the elbow on the couch, and the forearm up to the cheek
+      C([[0.24, 0.165, 0, 0.052], [0.27, 0.178, 0.004, 0.044], [0.295, 0.188, 0.008, 0.036]]);      // the neck
+      C([[0.265, 0.025, -0.035, 0.05], [0.3, 0.06, -0.035, 0.046], [0.33, 0.095, -0.035, 0.022]]);      // the bolster
+      // the robe, as ridges in the skin: the folded cloth from the upper shoulder down the chest; its edge across the chest to under the lower
+      // arm; two long folds down the front of the legs; the hem round the ankles
+      C([[0.222, 0.212, 0.056, 0.015], [0.13, 0.165, 0.076, 0.017], [0.04, 0.128, 0.076, 0.014]]); C([[0.198, 0.216, 0.05, 0.011], [0.2, 0.15, 0.088, 0.012], [0.22, 0.082, 0.072, 0.011]]);
+      C([[-0.06, 0.125, 0.064, 0.008], [-0.26, 0.09, 0.05, 0.008], [-0.43, 0.073, 0.038, 0.007]]); C([[-0.06, 0.062, 0.064, 0.008], [-0.26, 0.046, 0.05, 0.008], [-0.43, 0.038, 0.037, 0.007]]);
+      C([[-0.445, 0.018, 0.0, 0.011], [-0.445, 0.055, 0.042, 0.012], [-0.445, 0.098, 0.0, 0.011]]);
+      // (from near to: the couch's edge is a band of lotus petals, turned up over turned down, all round)
+      // (each petal thin, of three ribs like those of the lotus seats, and small, set close: 37 along each side and 11 across each end)
+      { const W = [0.25, 1, 0.7, 0], R = [0.8, 1, 0.85, 0.35], pet = (px, pz, ox, oz) => { for (const dn of [0, 1]) { const P = dn ? [[0, -0.042], [0.5, -0.056], [0.85, -0.07], [1, -0.084]] : [[0, -0.032], [0.5, -0.02], [0.85, -0.004], [1, 0.012]];
+            for (const d of [-1, 0, 1]) C(P.map((p, i) => [px + ox * p[0] * 0.03 - oz * d * 0.0085 * W[i], p[1], pz + oz * p[0] * 0.03 + ox * d * 0.0085 * W[i], 0.0052 * R[i]])); } };
+        for (let q = 0; q < 37; q++) for (const e of [-1, 1]) pet((q - 18) * 0.028, e * 0.146, 0, e); for (let q = 0; q < 11; q++) for (const e of [-1, 1]) pet(e * 0.511, (q - 5) * 0.027, e, 0); }
+      head(0.286, 0.182, 0.012, 0.48, 1.065); }
+    // (A great image is sculpted finely - a grid of 3.6 thousandths of its height, some 350 000 triangles; the small ones on the altars coarsely.)
+    pendM.push([fine ? sculpt('buddha' + pose, SG, pose >= 2 ? 0.003 : 0.0036, 0.007) : sculpt('buddhac' + pose, SG, 0.011, 0.012), 0, 0, 0, 1]);
+    for (const [Mh, ox, oy, oz2, sc, lie] of pendM) { const cy = cos(F.yaw), sy = sin(F.yaw), V = Mh.v, O = new Float32Array(V.length / 6 * 7), ca = cos(lie || 0), sa = sin(lie || 0);
+      for (let i = 0, o = 0; i < V.length; i += 6, o += 7) { const vx = V[i] * ca + V[i + 1] * sa, vy = -V[i] * sa + V[i + 1] * ca, nx2 = V[i + 3] * ca + V[i + 4] * sa, ny2 = -V[i + 3] * sa + V[i + 4] * ca, px = lx + (ox + vx * sc) * H, pz = lz + (oz2 + V[i + 2] * sc) * H;
+        O[o] = F.x + px * cy + pz * sy; O[o + 1] = F.y + y0 + (oy + vy * sc) * H; O[o + 2] = F.z - px * sy + pz * cy; O[o + 3] = nx2 * cy + V[i + 5] * sy; O[o + 4] = ny2; O[o + 5] = -nx2 * sy + V[i + 5] * cy; O[o + 6] = mat; }
+      meshP.push([O, Mh.i]); }
+    const q = F.W(lx, lz); clear(q, F.yaw, pose === 4 ? H * 1.1 : H * 1.1, pose === 4 ? H * 0.34 : H); };
   const swc = seaW(oz + CH / 2);
-  // Speed limit signs: wherever the limit changes there is one for each direction of travel, on the driver's left, facing the traffic that is about
-  // to come under it and showing the limit that begins there.
-  for (let zq = Math.ceil((oz - 8) / 4) * 4; zq < oz + CH + 8; zq += 4) {
-    const la = zlim(zq - 2), lb = zlim(zq + 2); if (la === lb || nearRiv(zq, 14)) continue;
-    for (const e of [-1, 1]) {          // e = -1: for traffic going up the road (+z), which meets lb; e = 1: for traffic coming down, which meets la
-      const a = atan2(roadX(zq + 1) - roadX(zq - 1), 2), so = 5.2 + svW(zq), x = roadX(zq) - e * so * cos(a), zz = zq + e * so * sin(a); if (!inside(x, zz)) continue;      // (so: out beyond a frontage road, beside an underpass)
-      const yaw = a + (e > 0 ? 0 : PI), c = cos(yaw), sn = sin(yaw), y = ground(x, zz);
-      boxes.push(x - 0.06 * sn, y + 1.2, zz - 0.06 * c, yaw, 0.07, 2.4, 0.07, 0, 34, 0, 2.4, 0, x, y + 2.4, zz, yaw, 0.75, 0.75, 0.04, 0, 37, 0, e < 0 ? lb : la, 0);
-    }
-  }
-  // Traffic lights (see tlOf in land.js), at a crossroads. For each direction: a stop line across its lane before the zebra crossing, and beyond the corner, on the
-  // driver's left, a steel post with an arm reaching out over the lane; one signal head hangs from the arm's end and a second is on the post.
-  for (let g = floor((oz - 60) / 360); g <= floor((oz + CH + 30) / 360); g++) {
-    const zs = tlOf(g); if (zs === null) continue; const off = ph(g, 521);
-    for (const e of [-1, 1]) {          // e = -1: for traffic going up the road (+z); e = 1: for traffic coming down
-      const zp = zs - e * 5, a = atan2(roadX(zp + 1) - roadX(zp - 1), 2), ca = cos(a), sa = sin(a), x = roadX(zp) - e * 5.0 * ca, zz = zp + e * 5.0 * sa;
-      if (inside(x, zz)) {
-        const yaw = a + (e > 0 ? 0 : PI), y = ground(x, zz), hx = roadX(zp) - e * 1.9 * ca, hz = zp + e * 1.9 * sa;
-        far.push(x, y, zz, 0.11, x, y + 5.9, zz, 0.08, -1, 4, x, y + 5.75, zz, 0.06, hx, y + 5.95, hz, 0.045, -1, 4);
-        // the post carries two heads on different faces and at different heights, as they are bolted on: the drivers' one (2.65-3.75 m) on the side the
-        // traffic comes from, facing it; the one for people crossing (1.67-2.33 m) below it on the road side, facing the far kerb
-        boxes.push(hx, y + 5.3, hz, yaw, 0.38, 1.1, 0.26, 0, 45, off, 1.1, 0, x + e * 0.3 * sa, y + 3.2, zz + e * 0.3 * ca, yaw, 0.38, 1.1, 0.26, 0, 45, off, 1.1, 0);
-        boxes.push(x - e * 0.3 * ca, y + 2.0, zz + e * 0.3 * sa, a + e * PI / 2, 0.3, 0.66, 0.2, 0, 46, off, 0.66, 0);
-      }
-      // the side street: its own signal head on a short post at the far corner (green inside the main road's red)
-      const a0 = atan2(roadX(zs + 1) - roadX(zs - 1), 2), jx = roadX(zs);
-      if (inside(jx, zs)) {
-        const yw = e < 0 ? a0 : a0 + PI, cy = cos(yw), sy = sin(yw), fx = cy, fz = -sy, lx2 = -sy, lz2 = -cy;      // the way traffic out of that side street goes (f) and its left (l)
-        const px = jx + fx * 5.4 + lx2 * 4.9, pz = zs + fz * 5.4 + lz2 * 4.9, py = ground(px, pz);
-        far.push(px, py, pz, 0.07, px, py + 3.7, pz, 0.055, -1, 4); boxes.push(px - fx * 0.22, py + 3.1, pz - fz * 0.22, yw - PI / 2, 0.38, 1.1, 0.26, 0, 45, 1 + off, 1.1, 0);
-      }
-      const zl = zs + e * 8.7, a2 = atan2(roadX(zl + 1) - roadX(zl - 1), 2), lx = roadX(zl) - e * 1.8 * cos(a2), lz = zl + e * 1.8 * sin(a2);
-      if (inside(lx, lz)) boxes.push(lx, surf(lx, lz) + 0.012, lz, a2, 3.3, 0.02, 0.45, 0, 19, 0, 0.02, 0);
-    }
-  }
-  // Nothing stands across the road where a town begins. What tells the driver is at the roadside, on the left as you come in: first the
-  // speed limit (50, a white disc ringed in red), then the green board that says a built-up area begins, on two steel posts.
-  for (let s0 = floor(oz / SEG), s = s0 - 2; s <= s0 + 2; s++) {
-    const sp = townSpan(s); if (!sp) continue;
-    for (const e of [-1, 1]) {
-      const z0 = (s + 0.5 + e * ((e < 0 ? sp[0] : sp[1]) - 0.045)) * SEG; if (townW(z0 + e * 80) > 0.5) continue;      // (two towns grown together have no edge here)
-      for (const [dz, off, kind] of [[30, 6.8, 0]]) {          // (the 50 sign is put up with all the other limit signs, below)
-        const z = z0 + e * dz, a = atan2(roadX(z + 1) - roadX(z - 1), 2), x = roadX(z) - e * off * cos(a), zz = z + e * off * sin(a); if (!inside(x, zz) || nearRiv(z, 14)) continue;
-        const yaw = a + (e > 0 ? 0 : PI), c = cos(yaw), sn = sin(yaw), y = ground(x, zz);            // turned to face the traffic coming in
-        const put = (lx, ly, lz, sx, sy, sz, mat, seed = 0, h = sy) => boxes.push(x + lx * c + lz * sn, y + ly, zz - lx * sn + lz * c, yaw, sx, sy, sz, 0, mat, seed, h, 0);
-        if (kind === 0) { for (const d of [-1, 1]) put(d, 1.3, -0.08, 0.09, 2.6, 0.09, 34); put(0, 2.25, 0, 2.6, 1.1, 0.06, 23, 3 + 8 + 0.63, -1.1); }      // (green, white letters, as guide signs are; it reads เขตชุมชน, 'built-up area': the ninth of the road words in render.js - left to chance it read วัด, 'temple', where there is none)
-        else { put(0, 1.2, -0.06, 0.07, 2.4, 0.07, 34); put(0, 2.4, 0, 0.75, 0.75, 0.04, 37, 0, 50); }
-      }
-    }
-  }
   if (twc > 0.2 || swc > 0.3) {
     if (twc > 0.2) {
     // Rows of shophouses (ตึกแถว) along both sides of the street. Proportions as they are really built: a unit 4 m wide and
@@ -118,10 +368,11 @@ function buildChunk(cx, cz) {
     // (A unit belongs to the chunk its middle stands in, and where the road slants that middle lies up to 10 m along z from the unit's place on the
     // road: so the units of the next 28 m either way are gone through as well. Without this, buildings went missing at chunk borders.)
     for (let k = Math.ceil((oz - 28) / UW - 0.5); (k + 0.5) * UW < oz + CH + 28; k++) {
-      const z = (k + 0.5) * UW, um = ((k % 9) + 9) % 9; if (townW(z) < 0.5 || um === 8 || nearRiv(z, 9)) continue; const tseg = twS;
+      const z = (k + 0.5) * UW, um = ((k % 9) + 9) % 9; if (townW(z) < 0.5 || (um === 8 && !laneSd(floor(k / 9))) || nearRiv(z, 9)) continue; const tseg = twS;      // (slot 8 is the lane's - but where it goes off on one side only, the other side has a lot there instead: see below)
       if ((um === 7 && xroad(floor(k / 9))) || (um === 0 && xroad(floor(k / 9) - 1))) continue;      // the corners of a crossroads are left open
       const a = atan2(roadX(z + 1) - roadX(z - 1), 2), blk = floor(k / 9);
       for (const side of [1, -1]) {
+        if (um === 8 && laneSd(blk) === side) continue;      // (the lane's own side)
         // Every town has its own character (tch: old market town ... newer concrete town), and every block of the street is drawn by lot:
         // a row of shophouses of its own length and setback, or an open square with trees, a single large shop, a market, a temple, a filling station.
         const seg = tseg, tch = ph(seg, 300), bq = blk * 2 + (side > 0 ? 1 : 0), bt = ph(bq, 310 + seg), len = 4 + floor(ph(bq, 320 + seg) * 5), sb = 8 + floor(ph(bq, 330 + seg) * 3) * 1.3 + (udOf(blk * 36 + 18) && abs(blk * 36 + 18 - UD.zc) < 130 ? SVW : 0);      // (back beyond the frontage road, beside an underpass)
@@ -161,9 +412,7 @@ function buildChunk(cx, cz) {
             const conv = store, Wt = 20 + floor(s1 * 3) * 3, small = conv && ph(bq, 346 + seg) < 0.5, Wb = conv ? (small ? 11 : 20) : Wt, Hb = conv ? (small ? 3.7 : 5.1) : s2 < 0.5 ? 4.6 : 8;
             if (conv) {                // the parking in front of either kind of convenience store: bays marked in yellow, a couple of motorcycles
               for (let i = 0; i <= 5; i++) put(X - 5 + i * 2.4, 0.325, 7.0, 0.11, 0.02, 2.6, 33, 0.3);
-              for (let i = 0; i < 2; i++) if (ph(bq, 347 + i) < 0.7) { const lx = X + Wb / 2 - 0.9 - i * 0.8, lz = 5.9, bc = [0.1, 0.48, 0.9][floor(ph(bq, 349 + i) * 2.99)];
-                put(lx, 0.74, lz - 0.05, 0.2, 0.26, 0.85, 33, bc); put(lx, 0.93, lz - 0.3, 0.24, 0.08, 0.7, 3); put(lx, 0.95, lz + 0.4, 0.22, 0.6, 0.06, 33, bc, -0.3); put(lx, 1.28, lz + 0.34, 0.62, 0.04, 0.04, 3);
-                for (const wz of [0.62, -0.62]) put(lx, 0.57, lz + wz, 0.09, 0.56, 0.56, 39, 0); }
+              for (let i = 0; i < 3; i++) if (ph(bq, 347 + i) < 0.7) { const lx = X + Wb / 2 - 0.9 - i * 0.85, s2 = ph(bq, 349 + i), Wc = (px, pz) => [cx + px * c + pz * sn, cz - px * sn + pz * c]; if (s2 > 0.8) bicycle(Wc, yaw, y + 0.29, lx, 5.9, s2); else mbike(Wc, yaw, y + 0.29, lx, 5.9, s2); }
             }
             if (conv) {                // The shop itself is a real room, not a picture on the glass: floor, walls, roof and a lit ceiling, and inside it rows of low
               // white shelves end-on to the street, a wall of drinks chillers across the back, and the counter by the door. The front has its frames
@@ -213,14 +462,9 @@ function buildChunk(cx, cz) {
           } else if (kind === 4) {     // the temple: a white wall and roofed gate, the hall with its stepped roofs and gilded finials, a white chedi
             put(X - 9.5, 0.75, 5.5, 13, 1.3, 0.3, 41); put(X + 9.5, 0.75, 5.5, 13, 1.3, 0.3, 41);
             for (const gx of [-2.6, 2.6]) put(X + gx, 1.6, 5.5, 0.7, 3.0, 0.7, 41); put(X, 3.9, 5.5, 6.6, 1.9, 2.4, 9, 0.05, 0, 1); put(X, 5.2, 5.5, 0.1, 0.8, 0.1, 15);
-            const hx = X - 6;
-            put(hx, 0.7, -2, 15.5, 1.2, 9.5, 41); put(hx, 4.0, -2, 12.5, 5.4, 6.6, 41);
-            for (let i = 0; i < 6; i++) { put(hx - 6 + i * 2.4, 3.7, 1.9, 0.5, 4.8, 0.5, 41); put(hx - 6 + i * 2.4, 3.7, -5.9, 0.5, 4.8, 0.5, 41); if (i < 5) put(hx - 4.8 + i * 2.4, 3.6, 1.32, 1.0, 2.6, 0.08, 14); }
-            put(hx, 9.05, -2, 9.0, 4.7, 7.6, 9, 0.05, 0, 1);                                                         // the high middle of the roof
-            for (const ex of [-1, 1]) { put(hx + ex * 5.9, 8.55, -2, 3.2, 3.7, 6.4, 9, 0.05, 0, 1); put(hx + ex * 7.53, 8.45, -2, 0.06, 3.3, 5.6, 15, 0, 0, 1);      // a lower length at each end, its gable filled with gold
-              for (const [fx, fy] of [[7.5, 10.4], [4.5, 11.4]]) { let q = Wd(hx + ex * (fx + 0.2), -2); boxes.push(q[0], y + fy + 0.4, q[1], yaw + PI / 2, 0.1, 0.95, 0.1, ex * 0.45, 15, 0, 0, 0); q = Wd(hx + ex * (fx + 0.62), -2); boxes.push(q[0], y + fy + 0.98, q[1], yaw + PI / 2, 0.08, 0.6, 0.08, ex * 0.95, 15, 0, 0, 0); }      // the finial (ช่อฟ้า) leans out from the ridge end and curls up
-              for (const ez of [-1, 1]) put(hx + ex * 7.58, 8.62, -2 + ez * 1.6, 0.12, 0.2, 4.95, 15, 0, ez * 0.857); }      // gilded bargeboards down the gable's two edges                                                    // finials at the ridge ends
-            for (const ez of [-1, 1]) { put(hx, 6.2, -2 + ez * 4.5, 15.4, 0.08, 2.5, 9, 0.05, ez * 0.5); put(hx, 5.62, -2 + ez * 5.62, 15.4, 0.1, 0.28, 33, 0.63); }      // the skirt of the roof over the colonnade, its edge in green
+            // (the hall, and the images: built as the country temples' are - watHall, watBuddha above)
+            { const q = Wd(X - 5.5, -2); watFeet.push(q[0], q[1], yaw); }      // (where the hall stands, whoever builds it: no house of the lanes behind is built into it - see watNear)
+            if (own) { const q = Wd(X - 5.5, -2), TF = frame(cx, y, cz, yaw); watSpot = [q[0], q[1]]; watRound = true; watHall(frame(q[0], y, q[1], yaw)); watBuddha(TF, X + 15.3, -5.2, 3.2, 7, ph(bq, 470) < 0.5 ? 1 : 0); put(X + 15.3, 0.45, -3.0, 0.8, 0.9, 0.8, 15); }
             { const q = Wd(X + 9, -2); far.push(q[0], y, q[1], 3.2, q[0], y + 1.4, q[1], 3.0, -1, 6, q[0], y + 1.4, q[1], 2.2, q[0], y + 2.5, q[1], 2.55, -1, 6, q[0], y + 2.5, q[1], 2.55, q[0], y + 3.6, q[1], 2.0, -1, 6, q[0], y + 3.6, q[1], 2.0, q[0], y + 4.6, q[1], 0.9, -1, 6, q[0], y + 4.6, q[1], 0.9, q[0], y + 5.6, q[1], 0.5, -1, 6, q[0], y + 5.6, q[1], 0.42, q[0], y + 10.5, q[1], 0.04, -1, 7); }
             tree(X + 3, 0, 0.9, s1); tree(X + 14, 3, 0.8, s2); tree(X - 15, 3.5, 0.7, ph(bq, 450));
           } else {                     // the filling station: a flat canopy on four columns over the pumps, the kiosk behind, a price board by the road
@@ -233,7 +477,7 @@ function buildChunk(cx, cz) {
           continue;
         }
         if (um >= len) {               // the row stops short: the gap is a yard with a tree, or a food cart under an umbrella
-          if (um === len) { if (ph(bq, 460) < 0.6) tree(1, 1, 0.7 + ph(bq, 461) * 0.4, ph(bq, 462)); else { put(0, 0.85, 4.6, 1.6, 0.9, 0.8, 0, 0.3); put(0, 1.5, 4.6, 0.05, 1.6, 0.05, 19); put(0, 2.3, 4.6, 2.1, 0.06, 2.1, 29, ph(bq, 463)); } }
+          if (um === len || um === 8) { if (ph(bq, 460) < 0.6) tree(1, 1, 0.7 + ph(bq, 461) * 0.4, ph(bq, 462)); else { put(0, 0.85, 4.6, 1.6, 0.9, 0.8, 0, 0.3); put(0, 1.5, 4.6, 0.05, 1.6, 0.05, 19); put(0, 2.3, 4.6, 2.1, 0.06, 2.1, 29, ph(bq, 463)); } }
           continue;
         }
         if (tch > 0.25 && (um === 1 || um === 5) && ph(k, side + 470) < 0.55) tree(0, fwd - 7.1 - svW(z), 0.5 + ph(k, side + 471) * 0.2, ph(k, side + 472));      // trees along the footpath
@@ -250,13 +494,22 @@ function buildChunk(cx, cz) {
         const wc = wood || u(141) < 0.38 ? sd : bs + (sd - 0.5) * 0.012;      // (the row's colour, nudged so that each unit still lights its own windows and wears its own stains)      // the wall's colour: the row's, or (four units in ten, and all timber ones) this unit's own
         const sk0 = u(60) < 0.22 ? 0 : 1 + floor(u(61) * 4.999), sk = sk0 === 3 && u(140) > 0.2 ? 1 : sk0, wm = wood ? 16 : 18;
         const cyl = (lx, ly, lz, r, lx1, ly1, lz1, r1, m) => { const p0 = Wd(lx, lz), p1 = Wd(lx1, lz1); far.push(p0[0], y + ly, p0[1], r, p1[0], y + ly1, p1[1], r1, -1, m); };
-        const bike = (lx, lz, s2) => { const bm = s2 < 0.1 ? 3 : 33, bc = s2 < 0.45 ? 0.1 : s2 < 0.75 ? 0.48 : 0.78;      // black, red, blue or white
-          put(lx, 0.74, lz - 0.05, 0.2, 0.26, 0.85, bm, bc); put(lx, 0.93, lz - 0.3, 0.24, 0.08, 0.7, 3); put(lx, 0.95, lz + 0.4, 0.22, 0.6, 0.06, bm, bc, -0.3); put(lx, 1.28, lz + 0.34, 0.62, 0.04, 0.04, 3); put(lx, 1.15, lz + 0.5, 0.14, 0.12, 0.07, 19); put(lx, 1.02, lz + 0.64, 0.3, 0.2, 0.24, 3);
-          for (const wz of [0.62, -0.62]) put(lx, 0.57, lz + wz, 0.09, 0.56, 0.56, 39, 0); };
+        // (parked two-wheelers: mostly motorcycles, now and then a bicycle - see mbike and bicycle above)
+        const Wtw = (lx, lz) => [cx + lx * c + lz * sn, cz - lx * sn + lz * c], bike = (lx, lz, s2) => { if ((s2 * 31.7) % 1 < 0.22) bicycle(Wtw, yaw, y + 0.29, lx, lz, s2); else mbike(Wtw, yaw, y + 0.29, lx, lz, s2); };
         // a pickup truck drawn up before a shut shop where the row stands back from the footpath: white, silver or black
-        const truck = (lx, lz, s2) => { const tm = s2 < 0.5 ? 33 : s2 < 0.8 ? 34 : 3;
-          put(lx, 0.95, lz, 5.1, 0.62, 1.78, tm, 0.78); put(lx + 0.75, 1.55, lz, 1.9, 0.62, 1.66, tm, 0.78); put(lx + 0.75, 1.6, lz, 1.98, 0.42, 1.74, 17, 0.2); put(lx - 1.55, 1.27, lz, 1.9, 0.06, 1.5, 3);
-          for (const wx of [-1.6, 1.6]) for (const wz of [-0.8, 0.8]) put(lx + wx, 0.62, lz + wz, 0.64, 0.64, 0.22, 39, 1); };
+        // The pickup: two kinds. A Suzuki Carry, the model "Carry Pickup | Suzuki | Game ready" by by__Rx (sketchfab.com/by__Rx, CC BY 4.0), its
+        // colours taken from its textures onto its 23 000 triangles (assets/pickup.bin), white all over, its wheels black, its windows dark, headlamps clear and tail lamps red; or, one in three, a
+        // Ford Ranger, the model "Ford Ranger Next-Gen 2023 Sport" by Asadawut.Kaewma (sketchfab.com/Asadawut.Kaewma, CC BY 4.0), cut down
+        // from 790 000 triangles to some 29 000 (assets/ranger.bin; beyond 75 m a copy of 16 000), its maker's badges left off. Painted white most often, else silver, black,
+        // dark blue, red or sky blue; nose toward +x along the kerb. Solid: the car stops at it.
+        const truck = (lx, lz, s2) => { const k = [3, 3, 3, 3, 3, 3, 5, 5, 2, 4, 0, 1][floor(s2 * 12) % 12], q = Wtw(lx, lz), yt = y + 0.3, big = (s2 * 7.31) % 1 < 0.34, M = twoW(Wtw, yaw + PI / 2, yt, lx, lz, 0).M;
+          // (the shops' units are narrower than a Ranger is long: one is parked only where the last stands clear of it, its length and a metre's gap)
+          const len = big ? 5.3 : 3.4; for (let i = 0; i < trkAt.length; i += 3) if (hypot(q[0] - trkAt[i], q[1] - trkAt[i + 1]) < (len + trkAt[i + 2]) / 2 + 1) return; trkAt.push(q[0], q[1], len);
+          // (made only once the whole chunk is built, and only if nothing stands where it would: see trkPend)
+          trkPend.push([q[0], q[1], yaw + PI / 2, big ? 1.05 : 0.9, len / 2, yt, () => {
+          if (big) { const mt = (cl) => cl === 0 ? 40 + k : cl === 12 ? 50 + k : SCMAT[cl]; M(assetMesh('ranger'), mt); M(assetMesh('rangerLo'), mt, 0, 2); xcol.push(q[0], q[1], yaw + PI / 2, 0.95, 2.65, yt, yt + 1.85); }
+          else { M(assetMesh('pickup'), (cd) => cd >= 32768 ? cd + 32768 * 3 : cd, 0, 0);      // (a Carry is always white: wheels black, windows dark, headlamps clear, tail lamps red)
+            xcol.push(q[0], q[1], yaw + PI / 2, 0.85, 1.7, yt, yt + 1.6); } }]); };
         const table = (lx, lz, s2) => { put(lx, 1.04, lz, 0.75, 0.05, 0.75, 34); put(lx, 0.68, lz, 0.06, 0.7, 0.06, 34); for (const d of [-0.62, 0.62]) put(lx + d, 0.53, lz, 0.3, 0.46, 0.3, 33, s2); };
         put(0, (Hh + GF) / 2 + par * 0.01, par * 0.015, Ww, Hh - GF + par * 0.02, DEP - par * 0.03, wood ? 16 : 6, wc);                            // the floors over the shop
         put(0, GF / 2, -SD / 2 + par * 0.015, Ww, GF, DEP - SD - par * 0.03, wm, wc);                                    // behind the shop: store room, kitchen, stair
@@ -338,10 +591,17 @@ function buildChunk(cx, cz) {
     // in pieces 2.5 m long that stop clear of the lanes' mouths and of the bridge
     for (let k = Math.ceil(oz / 2.5 - 0.5); (k + 0.5) * 2.5 < oz + CH; k++) {
       const z = (k + 0.5) * 2.5; if (townW(z) < 0.5 || nearRiv(z, 12)) continue;
-      for (const side of [1, -1]) { const kp = (zz) => svSide(zz, side, 3.88 + svW(zz)), [x, zk] = kp(z); if (!inside(x, zk)) continue;      // (beside an underpass, the frontage road's outer kerb)
+      // (Beside an underpass, the frontage road's outer kerb - set out by exactly the rule the ground's kerb paint follows (rq in terrain.wgsl): at
+      // the same z, out along x by the distance divided by how far it is measured square there. Set out by svSide - along the square from the
+      // road, which moves it along z too - it parted from its paint where the measure turns from along x to square, the painted kerb on the road.)
+      for (const side of [1, -1]) { const kp = (zz) => { const w = svQ(zz), sl = roadSl(zz), ca = 1 / Math.sqrt(1 + sl * sl); return [roadX(zz) + side * (3.88 + svW(zz)) / mix(1, ca, w), zz]; }, [x, zk] = kp(z); if (!inside(x, zk)) continue;
         const p0 = kp(z - 1), p1 = kp(z + 1), a = atan2(p1[0] - p0[0], p1[1] - p0[1]), len = 1.25 * hypot(p1[0] - p0[0], p1[1] - p0[1]) + 0.04;
-        if (soiD(x, zk) > 2.15 + len / 2) boxes.push(x, roadYs(z) + 0.05, zk, a, 0.25, 0.2, len, 0, 40, 0, 0.2, 0);
-        else for (let j = 0; j < 4; j++) { const zq = z + (j - 1.5) * 0.625, q = kp(zq); if (soiD(q[0], q[1]) > 2.15 + len / 8) boxes.push(q[0], roadYs(zq) + 0.05, q[1], a, 0.25, 0.2, len / 4, 0, 40, 0, 0.2, 0); } }
+        // (in four short pieces, each laid along its own stretch of the line: by a lane's mouth, where they stop short of it; and all along an
+        // underpass, where the line bends - there whole 2.5 m stones, made long enough to close their joints, stuck out at each end in a saw-tooth)
+        // (each tilted to the street's slope along it: laid level, on a climbing street they went up in steps)
+        if (soiD(x, zk) > 2.15 + len / 2 && svQ(z) <= 0) boxes.push(x, (roadYs(z - 1) + roadYs(z + 1)) / 2 + 0.05, zk, a, 0.25, 0.2, len, -atan2(roadYs(z + 1) - roadYs(z - 1), hypot(p1[0] - p0[0], p1[1] - p0[1])), 40, 0, 0.2, 0);
+        else for (let j = 0; j < 4; j++) { const zq = z + (j - 1.5) * 0.625, q = kp(zq), qa = kp(zq - 0.3125), qb = kp(zq + 0.3125), aq = atan2(qb[0] - qa[0], qb[1] - qa[1]), lq = hypot(qb[0] - qa[0], qb[1] - qa[1]) + 0.02;
+          if (soiD(q[0], q[1]) > 2.15 + lq / 2) { const ya = roadYs(zq - 0.3125), yb = roadYs(zq + 0.3125); boxes.push(q[0], (ya + yb) / 2 + 0.05, q[1], aq, 0.25, 0.2, lq, -atan2(yb - ya, lq - 0.02), 40, 0, 0.2, 0); } } }
     }
     // the tangle of cables every Thai street has: a thick bundle strung along the shopfronts on slim posts 20 m apart. No post stands in the
     // canal: there the cables run on in one span of 40 m to the post beyond. They end at a post, never in mid-air.
@@ -363,9 +623,11 @@ function buildChunk(cx, cz) {
       const zl = b * 36 + 34; if (townW(zl) < 0.5 || nearRiv(zl, 6) || laneRiv(b)) continue;
       const seg = twS, sl = (roadX(zl + 1) - roadX(zl - 1)) / 2, ca = 1 / sqrt(1 + sl * sl), sa = sl * ca, ox0 = roadX(zl);
       for (const side of [1, -1]) for (let i = 0; i < 8; i++) for (const ls of [1, -1]) {
+        if (laneSd(b) && laneSd(b) !== side) continue;      // (a lane that goes off on the other side only has no houses on this)
         const t = side * (32.5 + i * 17), x = ox0 + t * ca + ls * 11 * sa, z = zl - t * sa + ls * 11 * ca; const own = inside(x, z); if ((!own && !(x >= ox - 12 && x < ox + CH + 12 && z >= oz - 12 && z < oz + CH + 12)) || townW(z) < 0.45 || nearRiv(z, 16) || abs(rdist(x, z)) < 29 || abs(t) + 8.5 > laneLen(zl)) continue;      // own: the house is this chunk's; a neighbour's lot is gone through too, for the trees of it that stand on this side
         let ok = true; for (const b2 of [b - 1, b + 1]) { const z2 = b2 * 36 + 34, s2 = (roadX(z2 + 1) - roadX(z2 - 1)) / 2; if (abs(((x - roadX(z2)) * s2 + z - z2) / sqrt(1 + s2 * s2)) < 20) ok = false; }
         if (!ok) continue;                                     // where the road bends the lanes close up: no room for a house
+        if (watNear(x, z)) continue;
         const hq = b * 64 + i * 4 + (side > 0 ? 2 : 0) + (ls > 0 ? 1 : 0), u = ph(hq, 500 + seg), h = (j) => ph(hq, 510 + j + seg), yaw = atan2(-ls * sa, -ls * ca), c = cos(yaw), sn = sin(yaw), y = ground(x, z) - 0.05;
         const W2 = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c], tree = (T, lx, lz, sc, thin = 1) => { const q = W2(lx, lz); if (inside(q[0], q[1])) plant(T, q[0], q[1], h(lx + 20) * 6, sc, thin); };
         const put = (lx, ly, lz, sx, sy, sz, mat, seed = 0) => { const dn = ly - sy / 2 < 0.1 && sy > 0.7 && mat === 18 ? 1.3 : 0;      // (a wall or a post that stands on the ground goes on down into it: at the back of a lot the land steps to the next lane's level, and nothing may show daylight under it)
@@ -427,7 +689,7 @@ function buildChunk(cx, cz) {
       // (each length runs exactly from one end point to the next, measured along its own slope, so that the tops of neighbours meet in one line with
       // neither a step nor an overlap: a seam shows as soon as two lengths differ in height or lie one over the other)
       const hl2 = hypot(x1 - x0, sl), len = hypot(hl2, y1 - y0) + 0.004, yw = atan2(x1 - x0, sl), tl = -atan2(y1 - y0, hl2), c = cos(yw), sn = sin(yw);
-      boxes.push(mx, my - 0.47, mz, yw, 10.7, 1.0, len, tl, 30, 0, 1.0, 0);
+      { const D = deckBox(x0, y0, z0, x1, y1, z1, 1.0, 10.7); boxes.push(D[0], D[1], D[2], yw, 10.7, 1.0, D[3], tl, 30, 0, 1.0, 0); }
       for (const sd of [-1, 1]) {
         const px = mx + sd * 5.35 * c, pz = mz - sd * 5.35 * sn;
         boxes.push(px, my + 1.85, pz, yw, 0.6, 3.9, len, tl, 48, 0, 3.9, IN);
@@ -463,10 +725,12 @@ function buildChunk(cx, cz) {
   // The underpass (in town, at a crossroads): retaining walls down both sides of the cutting, as deep as the road is below the street and a parapet
   // higher; beyond each parapet a frontage road at street level (svW in land.js); over the middle a concrete slab 32 m long carrying the cross street and
   // the crossings of the frontage roads, with a rail along each edge of the cutting and lamps underneath.
-  if ((udOf(oz + CH / 2) || udOf(oz - 40) || udOf(oz + CH + 40)) && abs(oz + CH / 2 - UD.zc) < 100 + CH) {
-    const zc = UD.zc;
+  // (every underpass whose walls reach into the chunk - two can be close enough for both to; each length of wall built for the one nearest it)
+  const udHere = []; for (let g = floor((oz - 140 - 34) / 360) - 1; g <= floor((oz + CH + 140 - 34) / 360) + 1; g++) { const v = udG(g); if (v && abs(oz + CH / 2 - v) < 100 + CH) udHere.push(v); }
+  for (const zc of udHere) {
     for (let j = -20; j < 20; j++) {
       const z0 = zc + j * 5, z1 = z0 + 5, zm = z0 + 2.5, dp = udip(zm); if (dp < 0.003) continue;
+      if (!udOf(zm) || UD.zc !== zc) continue;
       const x0 = roadX(z0), x1 = roadX(z1), mx = (x0 + x1) / 2, my = (roadY(z0) + roadY(z1)) / 2; if (!inside(mx, zm)) continue;
       // (Where the cross street goes over - the two lengths either side of the middle, 10 m - the walls stop at the street's level, under the slab's
       // top: carried up into a parapet there as everywhere else, they stood as a wall across the street on both sides of the slab.)
@@ -475,9 +739,12 @@ function buildChunk(cx, cz) {
       const tr = -atan2(roadY(z1) - roadY(z0), len);
       // (The frontage road's surface starts where the road first begins to sink, not where the walls do, and its outermost length dips 10 cm into
       // the ground at its far end: begun level, with the walls, its square end stood a hand high across the lane - a step in the road.)
-      const ya = roadYs(z0) - (udip(z0) < 0.02 ? 0.1 : 0), yb = roadYs(z1) - (udip(z1) < 0.02 ? 0.1 : 0), ys = (ya + yb) / 2, ts = -atan2(yb - ya, len);
-      for (const sd of [-1, 1]) boxes.push(mx + sd * 7.9 * c, ys - 0.16, zm - sd * 7.9 * sn, yw, 5.4, 0.36, len + 0.1 + 11 * abs(Math.atan(roadSl(z1)) - Math.atan(roadSl(z0))), ts, 49, sd, 0.36, 0);      // (longer where the road bends: on the outside of the bend the lengths would otherwise gape apart in wedges)      // (5.2 to 10.6 m out: the lane, its kerb line and the near strip of the footpath - the seed says which side it is on)          // the frontage road beyond the parapet, level with the street (the ground under it is still on its way up)
-      if (dp < 0.2) continue;                                        // (no walls yet where the road is not yet a hand deep)
+      // (Only beside the walls - where the road is 20 cm down and more. Before that the frontage road is the ground's own asphalt, kept at the
+      // street's level (land.js); and the first slab's near end is sunk 10 cm into it, so that no square end stands across the lane.)
+      if (dp < 0.2) continue;
+      const first = udip(zm - 5) < 0.2, last = udip(zm + 5) < 0.2;
+      const ya = roadYs(z0) - (first ? 0.12 : 0), yb = roadYs(z1) - (last ? 0.12 : 0), ys = (ya + yb) / 2, ts = -atan2(yb - ya, len);
+      for (const sd of [-1, 1]) boxes.push(mx + sd * 7.175 * c, ys - 0.16, zm - sd * 7.175 * sn, yw, 3.95, 0.36, len + 0.1 + 11 * abs(Math.atan(roadSl(z1)) - Math.atan(roadSl(z0))), ts, 49, sd, 0.36, 0);      // (longer where the road bends: on the outside of the bend the lengths would otherwise gape apart in wedges)      // (5.2 to 10.6 m out: the lane, its kerb line and the near strip of the footpath - the seed says which side it is on)          // the frontage road beyond the parapet, level with the street (the ground under it is still on its way up)
       for (const sd of [-1, 1]) boxes.push(mx + sd * 4.85 * c, my + H / 2 - 0.45, zm - sd * 4.85 * sn, yw, 0.7, H, len, tl, 2, 0, H, 0,
         mx + sd * 4.2 * c, my + 0.2, zm - sd * 4.2 * sn, yw, 0.9, 0.55, len, tr, 2, 0, 0.55, 0);          // the wall, and a kerb along its foot (the ground's mesh is too coarse to meet the wall cleanly)
     }
@@ -529,7 +796,7 @@ function buildChunk(cx, cz) {
         const y0 = yD(z0) - (j < 0 ? 0.06 : 0), y1 = yD(z1) - (j > 61 ? 0.06 : 0), mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
         if (!inside(mx, mz)) continue;
         const hl2 = hypot(x1 - x0, z1 - z0), len = hypot(hl2, y1 - y0) + 0.004, yw = atan2(x1 - x0, z1 - z0), tl = -atan2(y1 - y0, hl2), c = cos(yw), sn = sin(yw);
-        boxes.push(mx, my - 0.67, mz, yw, 10.4, 1.4, len, tl, 30, 0, 1.4, 0);
+        { const D = deckBox(x0, y0, z0, x1, y1, z1, 1.4, 10.4); boxes.push(D[0], D[1], D[2], yw, 10.4, 1.4, D[3], tl, 30, 0, 1.4, 0); }
         for (const sd of [-1, 1]) {
           const px = mx + sd * 4.9 * c, pz = mz - sd * 4.9 * sn;
           boxes.push(px, my + 0.2, pz, yw, 0.3, 0.34, len, tl, 2, 0, 0.34, 0, px, my + 1.05, pz, yw, 0.1, 0.1, len, tl, 34, 0, 0.1, 0, px, my + 0.66, pz, yw, 0.06, 0.06, len, tl, 34, 0, 0.06, 0);
@@ -568,7 +835,7 @@ function buildChunk(cx, cz) {
       const z0 = zb - Lb / 2 + j * sl, z1 = z0 + sl, x0 = roadX(z0), x1 = roadX(z1), y0 = roadY(z0), y1 = roadY(z1), mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
       if (!inside(mx, mz)) continue;
       const len = hypot(x1 - x0, sl), yw = atan2(x1 - x0, sl), tl = -atan2(y1 - y0, len), c = cos(yw), sn = sin(yw);
-      boxes.push(mx, my - 0.47, mz, yw, 9.4, 1.0, len + 0.06, tl, 30, 0, 1.0, 0);
+      { const D = deckBox(x0, y0, z0, x1, y1, z1, 1.0, 9.4); boxes.push(D[0], D[1], D[2], yw, 9.4, 1.0, D[3] + 0.03, tl, 30, 0, 1.0, 0); }
       for (const sd of [-1, 1]) {
         const px = mx + sd * 4.5 * c, pz = mz - sd * 4.5 * sn;
         boxes.push(px, my + 0.16, pz, yw, 0.36, 0.26, len + 0.06, tl, 19, 0, 0.26, 0, px, my + 0.62, pz, yw, 0.14, 0.12, len + 0.06, tl, 19, 0, 0.12, 0, px, my + 1.0, pz, yw, 0.22, 0.16, len + 0.06, tl, 19, 0, 0.16, 0);
@@ -670,7 +937,8 @@ function buildChunk(cx, cz) {
   const plainRow = hwc < 0.4 && twc < 0.15 && swc < 0.1 && snc < 0.1 && flwW(oz + CH / 2) < 0.05;      // (no houses where the flower fields come up to the road)
   const plainHouse = (qx) => { const H = rng(ph(qx, cz + 7717) * 4294967296), ok = H() < 0.34, z0 = Math.round((oz + 8 + H() * (CH - 16)) / GS) * GS, side = H() < 0.5 ? 1 : -1; let z = z0;
     // (on the side the power line runs down, the mouth of the drive is kept 4 m clear of the poles - one every 40 m - and of the kilometre stone)
-    if (side > 0) { const p = Math.round(z / 40) * 40; if (abs(z - p) < 4) z = p + (z >= p ? 4 : -4); const s = Math.round((z - 3) / 1000) * 1000 + 3; if (abs(z - s) < 4) z = s + 5; }
+    if (side > 0) { const p0 = Math.round(z / 40) * 40, p = rp(p0, 5.6)[1]; if (abs(z - p) < 4.5) z = Math.round((p + (z >= p ? 4.5 : -4.5)) / GS + (z >= p ? 0.5 : -0.5)) * GS;      // (measured where the pole really stands: on a bend square off the road it is carried along z)
+      const s = Math.round((z - 3) / 1000) * 1000 + 3; if (abs(z - s) < 4) z = s + 5; }
     const x = roadX(z) + side * (17 + H() * 13);
     return ok && plainRow && x > qx * CH + 11 && x < qx * CH + CH - 11 && !(rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 48) && ism(x, z) < -50 ? [x, z, side] : null; };      // (and not in the sea, nor on the shore of the island crossing)
   // (a path is a straight run from a to b; what is marked is the distance to it, the least where several meet)
@@ -680,7 +948,8 @@ function buildChunk(cx, cz) {
         hwet[k] = min(hwet[k], -(0.05 + 0.4 * (1 - dl / 4))); if (i > 0 && i <= N && j > 0 && j <= N) v[((j - 1) * N + i - 1) * 7 + 6] = hwet[k]; } } };
   const drive = (h) => pathSeg(roadX(h[1]) + h[2] * 3.9, h[1], h[0] - h[2] * 3, h[1]);
   const myHouse = plainHouse(cx), drives = [];      // drives: [z, side] of every drive that reaches this chunk; onDrive: is this place at the road's edge in the mouth of one (no post stands there)
-  const onDrive = (z, sd) => { for (const d of drives) if (d[1] * sd > 0 && abs(z - d[0]) < 2.8) return true; return false; };
+  // (a drive's mouth is 2.8 m each way of its middle; a temple's way, with its verges and its rows of trees, 7.5 m - its third number; m: more room still)
+  const onDrive = (z, sd, m = 0) => { for (const d of drives) if (d[1] * sd > 0 && abs(z - d[0]) < (d[2] || 2.8) + m) return true; return false; };
   for (const q of [cx - 1, cx + 1]) { const h = plainHouse(q); if (h && !isOf(h[1])) { drive(h); drives.push([h[1], h[2]]); homes.push(h[1], h[2]);      // (and its length is kept clear of trees and of the roadside fence here too)
     const d0 = abs(h[0] - roadX(h[1])), sn = -h[2]; clear([h[0] + (3 + d0 - 4.6) / 2 * sn, h[1]], -h[2] * PI / 2, 4.4, d0 - 7.6); } }      // (on the island crossing a house may yet be left out, below: there only its own chunk paints the drive)
   // The fishing village on the island has its paths too: each house of the row by the road its own, straight out to the road; behind that row a
@@ -690,6 +959,91 @@ function buildChunk(cx, cz) {
       if (front) drives.push([z, 1]); else zb = max(zb, z); }
     if (zb > z0) { for (let z = z0; z < zb; z += 6) { const z1 = min(z + 6, zb); pathSeg(lx(z), z, lx(z1), z1); clear([lx((z + z1) / 2), (z + z1) / 2], 0, 3.2, z1 - z); }
       pathSeg(roadX(z0) + 3.9, z0, lx(z0), z0); clear([roadX(z0) + 20.7, z0], -PI / 2, 3.2, 33.6); drives.push([z0, 1]); } }
+  // A temple in the country (watOf in land.js). Every chunk it reaches marks its ground - swept earth all over the compound (-0.48 in the grid's
+  // mark: bare, nothing grows, no paddy is painted there) and an earth track from the road to its gate - and keeps its own trees off the
+  // buildings; the chunk its middle stands in builds it. Within the wall: the ordination hall, gable to the road; an open preaching hall; a
+  // bell tower; a chedi; monks' houses on stilts at the back; flagpoles at the gate; and its great image at the far end, raised to be seen from
+  // the road over wall and trees - a seated, standing or reclining Buddha, or a great chedi. On a hill the image stands on a higher plinth.
+  for (const sg of new Set([floor(oz / SEG), floor((oz + CH) / SEG)])) { const T = watOf(sg); if (!T) continue; const ty = watY(T), rxT = roadX(T.z), xm = ox + CH / 2; if (T.dead || xm < min(rxT, T.x) - CH / 2 - 62 || xm > max(rxT, T.x) + CH / 2 + 62 || abs(T.z - (oz + CH / 2)) > CH / 2 + 46) continue;      // (every chunk from the road to the temple: its track crosses them all)
+    for (let j = 0; j < M; j++) { const pz = oz + (j - 1) * GS; if (abs(pz - T.z) > 26) continue; for (let i = 0; i < M; i++) { const px = ox + (i - 1) * GS; if (abs(px - T.x) > 31) continue; const q = j * M + i; hwet[q] = -0.48; if (i > 0 && i <= N && j > 0 && j <= N) v[((j - 1) * N + i - 1) * 7 + 6] = -0.48; } }
+    pathSeg(roadX(T.z) + T.side * 3.9, T.z, T.x - T.side * 30, T.z); drives.push([T.z, T.side, 7.5]);
+    // (Some are reached by a made road, not an earth track: asphalt laid in lengths of 2 m - the ground's own grid - along the bank, following
+    // its rise; each is a deep block sunk in the ground with only its top 2.5 cm proud, so none stands clear of it. It never lies on the main
+    // road: its first 6 m are 23 strips 20 cm wide (so that its end is a clean line along a road that runs askew, not a flight of steps), each beginning where the road's own asphalt ends at its place - the road may curve and
+    // tilt there - and each following the ground under itself.)
+    if (T.paved) { const xr = roadX(T.z), slab = (x0, x1, z, w) => { const xm = (x0 + x1) / 2; if (!inside(xm, z)) return; const ya = ground(x0, z), yb = ground(x1, z), d = abs(x1 - x0);
+        boxes.push(xm, (ya + yb) / 2 - 0.275, z, T.side * PI / 2, w, 0.6, hypot(d, yb - ya) + 0.04, -atan2(yb - ya, d), 52, 0, 0.12, 0); };
+      // (the strips are only as long as the road's edge is askew across the way's width, and 2 m more for its tilt: beyond that one slab the whole width)
+      let ext = 0; for (let q = 0; q < 23; q++) ext = max(ext, abs(roadX(T.z + (q - 11) * 0.2) - xr)); const aS = 3.6 + ext + 2;
+      for (let q = 0; q < 23; q++) { const zq = T.z + (q - 11) * 0.2, x0 = roadX(zq) + T.side * 3.6, x1 = xr + T.side * aS; slab(x0, (x0 + x1) / 2, zq, 0.2); slab((x0 + x1) / 2, x1, zq, 0.2); }
+      const xa = xr + T.side * aS, L = abs(T.x - T.side * 28.5 - xa), n = Math.ceil(L / 2), d = L / n; for (let i = 0; i < n; i++) slab(xa + T.side * i * d, xa + T.side * (i + 1) * d, T.z, 4.6); }
+    clear([(roadX(T.z) + T.x) / 2, T.z], T.yaw, 19, abs(T.x - roadX(T.z)));
+    // The way to a temple is made, not just laid across the fields: it has a grass verge 5 m wide down each side (the ground there is marked
+    // -0.03 - grass, and no crop: see terrain.wgsl and growGrass), raised with it on the same bank, and a row of trees along each verge, one
+    // every 6.5 m (their heads meet along the row), the two rows facing - an avenue from the road to the gate. Slender trees among the flowers, shade trees elsewhere.
+    { const xa = rxT + T.side * 4.5, xb = T.x - T.side * 29, lo = min(xa, xb), hi = max(xa, xb);
+      for (let j = 0; j < M; j++) { const pz = oz + (j - 1) * GS; if (abs(pz - T.z) > 9.1) continue; for (let i = 0; i < M; i++) { const px = ox + (i - 1) * GS, q = j * M + i; if (px < lo || px > hi || hwet[q] !== 0) continue; hwet[q] = -0.03; if (i > 0 && i <= N && j > 0 && j <= N) v[((j - 1) * N + i - 1) * 7 + 6] = -0.03; } }
+      const L = abs(T.x - rxT), fl = flwS(T.s); for (let a = 12; a < L - 32; a += 6.5) for (const e of [-1, 1]) { const x = rxT + T.side * a, z = T.z + e * 5.4, h = ph(floor(a) * 7 + e, T.s + 8900); if (!inside(x, z)) continue;
+          pend.push([fl ? TREES[19 + (h < 0.5 ? 1 : 0)] : TREES[BL[floor(h * 3)]], x, z, h * 40, fl ? 1.5 + 0.25 * h : T.hill ? 0.95 + 0.15 * h : 0.78 + 0.16 * h, 1, true, undefined, true, undefined, true]); } }
+    clear([T.x, T.z], T.yaw, 48, 58);      // (no wild tree inside the wall: the temple plants its own, below)
+    // (and on a hill, where the woods would hide it, the land between the road and the temple is open for 35 m either side of the track -
+    // cleared ground, as a temple keeps its approach: its image is meant to be seen from the road)
+    if (T.hill) clear([(rxT + T.x) / 2, T.z], T.yaw, 70, abs(T.x - rxT) + 10);
+    if (!inside(T.x, T.z)) continue; reach = max(reach, 60); watRound = true;
+    const F = frame(T.x, ty, T.z, T.yaw), put = F.put, hw = (m) => ph(T.s * 31 + m, 8800), gold = hw(1) < 0.72 ? 7 : 6;
+    for (const e of [-1, 1]) { put(e * 13.1, 0.8, 28, 19.8, 1.6, 0.35, 41); put(e * 13.1, 1.68, 28, 20.0, 0.16, 0.55, 9, 0.05); put(e * 23, 0.8, 0, 0.35, 1.6, 56, 41); put(e * 2.9, 2.0, 28, 0.9, 4.0, 0.9, 41); put(e * 2.9, 4.2, 28, 1.2, 0.4, 1.2, 15);
+      put(e * 4.6, 0.6, 29.2, 0.9, 1.2, 1.4, 41); put(e * 4.6, 1.5, 29.3, 0.6, 0.7, 0.7, 15);      // a guardian lion on its block, each side of the gate
+      { const q = F.W(e * 6.2, 30); far.push(q[0], ty, q[1], 0.05, q[0], ty + 7.5, q[1], 0.035, -1, 0); 
+        // (the flag is cloth, made as the town's is: six strips, each 20 cm, hung out from the pole by its own distance from it - the seed - which the
+        // vertex stage uses to stream it downwind and wave it; a single board through the pole stood stiff in any wind)
+        for (let i = 0; i < 6; i++) { const d = (i + 0.5) * 0.2; boxes.push(q[0] + cos(T.yaw) * d, ty + 6.95, q[1] - sin(T.yaw) * d, T.yaw, 0.2, 0.8, 0.02, 0, 38, d, 0.8, 0); } } }
+    put(0, 0.8, -28, 46, 1.6, 0.35, 41); put(0, 5.0, 28, 7.6, 2.2, 2.8, 9, 0.05, 0, 1); put(0, 5.9, 28, 4.4, 2.0, 2.2, 9, 0.05, 0, 1); put(0, 7.2, 28, 0.12, 1.0, 0.12, 15); put(0, 3.55, 28.5, 3.2, 0.75, 0.06, 23, 3 + 2 + 0.63, 0, 0, 0, -0.75);
+    watHall(F.sub(-10, 8, PI / 2));
+    { const S = F.sub(13, 6, PI / 2), p = S.put; p(0, 0.3, 0, 11, 0.6, 7.6, 41); for (let i = 0; i < 4; i++) for (const ez of [-1, 1]) p(-4.5 + i * 3, 2.3, ez * 3.1, 0.34, 3.4, 0.34, 41);      // the open hall (ศาลาการเปรียญ)
+      p(0, 5.2, 0, 8.0, 2.8, 7.4, 9, 0.3, 0, 1); for (const ex of [-1, 1]) { p(ex * 4.9, 4.9, 0, 2.2, 2.2, 6.4, 9, 0.3, 0, 1); p(ex * 6.02, 4.9, 0, 0.06, 2.0, 5.6, 15, 0, 0, 1); p(ex * 6.2, 6.2, 0, 0.1, 0.8, 0.1, 15, 0, ex * 0.5, 0, PI / 2); } for (const ez of [-1, 1]) p(0, 4.0, ez * 4.2, 11.4, 0.08, 1.6, 9, 0.3, ez * 0.45);
+      p(-3.6, 1.1, 0, 1.6, 1.0, 1.6, 15); clear([S.x, S.z], S.yaw, 13, 10); }
+    { const S = F.sub(-18.5, 23.4, 0), p = S.put; p(0, 0.3, 0, 3.6, 0.6, 3.6, 41); for (const ex of [-1, 1]) for (const ez of [-1, 1]) p(ex * 1.25, 3.7, ez * 1.25, 0.32, 6.2, 0.32, 41); p(0, 3.5, 0, 3.0, 0.22, 3.0, 41); p(0, 6.7, 0, 3.4, 0.22, 3.4, 41);      // the bell tower
+      p(0, 7.8, 0, 4.2, 1.9, 4.2, 9, 0.05, 0, 1); p(0, 7.8, 0, 4.2, 1.9, 4.2, 9, 0.05, 0, 1, PI / 2); S.chain([[0, 8.6, 0, 0.3], [0, 9.2, 0, 0.16], [0, 10.6, 0, 0.02]], 7); S.chain([[0, 5.9, 0, 0.14], [0, 5.5, 0, 0.3], [0, 4.9, 0, 0.42], [0, 4.85, 0, 0.46]], 7); clear([S.x, S.z], S.yaw, 5, 5); }
+    { const q = F.W(15.5, 21); stamp(HOUSE, q[0], ty - 0.05, q[1], T.yaw - PI / 2, hw(20), hw(30)); clear(q, T.yaw, 12, 12); }      // the monks' house, by the gate
+    // (On a hill the image is raised on a tall terrace and is larger: the woods there stand 10 to 17 m high, and from the road it has to show over them.)
+    // Everything has its own ground (they were set down by fixed places once, whatever the size of the image, and stood in one another): the hall
+    // on the left of the way in, the open hall on the right, the monks' house and the bell tower by the gate; the whole back of the court is the
+    // image's. Its size is drawn by lot within what the court (or, on a hill, its terrace) holds; wI is half its breadth, zf where its front
+    // comes to - and what stands before it and beside it is placed from those.
+    // A standing image stands high even on the plain, as the great ones do: on a terrace of two tiers (on a hill every image has one, taller).
+    // The terrace: grey stone below, each tier edged with a white balustrade - a rail on small posts between square piers - and at every corner
+    // of both tiers a gilded bell-shaped finial on a pier; a flight of steps up the front of each tier, the upper between low side walls.
+    const lift = T.hill ? 11 : T.kind === 1 ? 5.5 : 0, B = lift ? F.sub(0, -17, 0, lift) : F.sub(0, -17, 0), TW = T.hill ? 24 : 13, TD = T.hill ? 18 : 13;
+    const HI = T.kind === 0 ? (T.hill ? 17 + 3 * hw(42) : 13 + 5 * hw(42)) : T.kind === 1 ? (19 + 6 * hw(42)) * (T.hill ? 1.3 : 1) : T.kind === 2 ? 24 + 6 * hw(42) : T.hill ? 2.6 + 0.4 * hw(40) : 2.3 + 0.5 * hw(40);
+    const wI = lift ? TW / 2 + 2 : [0.55, 0.25, 0.54, 3.8][T.kind] * HI, zf = lift ? -17 + TD / 2 + 2 + 5 : -17 + [0.5, 0.27, 0.17, 3.9][T.kind] * HI, zA = zf + 1.6;
+    if (lift) { const h1 = lift * 0.6, zF = -17 + TD / 2 + 2;
+      put(0, lift / 2, -17, TW, lift, TD, 2); put(0, h1 / 2, -17, TW + 4, h1, TD + 4, 2); put(0, h1 + 0.05, -17, TW + 4.3, 0.22, TD + 4.3, 41); put(0, lift + 0.05, -17, TW + 0.3, 0.22, TD + 0.3, 41);
+      for (let i = 0; i < 8; i++) { const hs = (i + 1) * h1 / 8; put(0, hs / 2, zF + (8 - i) * 0.6 - 0.3, 5, hs, 0.6, 41); }      // the lower flight
+      for (let i = 0; i < 5; i++) { const hs = h1 + (i + 1) * (lift - h1) / 5; put(0, (h1 + hs) / 2, zF - 2 + (5 - i) * 0.4 - 0.2, 3.6, hs - h1, 0.4, 41); }      // the upper one, across the lower tier's walk
+      for (const [w, d, yb, gap] of [[TW + 4, TD + 4, h1, 5.4], [TW, TD, lift, 4]]) { const hx2 = w / 2 - 0.25, hz2 = d / 2 - 0.25;
+        for (const [ex, ez] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { put(ex * hx2, yb + 0.75, -17 + ez * hz2, 0.6, 1.3, 0.6, 41); F.chain([[0, yb + 1.4, 0, 0.36], [0, yb + 1.75, 0, 0.5], [0, yb + 2.2, 0, 0.44], [0, yb + 2.55, 0, 0.16], [0, yb + 3.3, 0, 0.02]].map((p) => [ex * hx2, p[1], -17 + ez * hz2, p[3]]), 7); }
+        for (const ez of [-1, 1]) for (const e of [-1, 1]) { const x0 = ez > 0 ? gap / 2 : 0, len = hx2 - x0 - 0.3; if (len <= 0) continue; put(e * (x0 + len / 2 + (ez > 0 ? 0 : 0)), yb + 0.95, -17 + ez * hz2, len, 0.14, 0.2, 41); put(e * (x0 + len / 2), yb + 0.2, -17 + ez * hz2, len, 0.14, 0.24, 41);
+            if (ez > 0) put(e * x0, yb + 0.6, -17 + ez * hz2, 0.4, 1.1, 0.4, 41); for (let q = 0.5; q < len; q += 0.55) F.putD(e * (x0 + q), yb + 0.57, -17 + ez * hz2, 0.12, 0.62, 0.12, 41); }
+        for (const ex of [-1, 1]) { put(ex * hx2, yb + 0.95, -17, 0.2, 0.14, d - 1.1, 41); put(ex * hx2, yb + 0.2, -17, 0.24, 0.14, d - 1.1, 41); for (let q = -hz2 + 0.8; q < hz2 - 0.5; q += 0.55) F.putD(ex * hx2, yb + 0.57, -17 + q, 0.12, 0.62, 0.12, 41); } } }
+    if (T.kind === 3) { watChedi(B, 0, 0, HI); if (!lift) for (const e of [-1, 1]) watChedi(F, e * (wI + 2.6), zf - 2, 0.5); }
+    else { const pose = T.kind === 0 ? (hw(41) < 0.5 ? 1 : 0) : T.kind === 1 ? (hw(41) < 0.6 ? 2 : 3) : 4; watBuddha(B, 0, 0, HI, gold, pose); if (!lift && wI + 4.2 < 19.5) watChedi(F, wI + 4.2, -17, 0.75); }
+    // (in front of the image: a low altar with a smaller gilded image seated on it, and an incense urn)
+    if (T.kind !== 3) { watBuddha(F, 0, zA, 1.6, 7, 1); put(0, 0.5, zA + 1.6, 0.9, 1.0, 0.9, 15); }
+    for (const [lx, lz, kt, sc] of [[20, 15, 19, 1.3], [-20, 3, 20, 1.3], [-4.6, 23.6, 19, 1.2], [5, 24.6, 20, 1.2], [4.8, 3, 19, 1.1], [-20.5, -25, 20, 1.3], [20.5, -25, 19, 1.3]]) { const q = F.W(lx, lz); if (inside(q[0], q[1])) pend.push([TREES[kt], q[0], q[1], hw(60 + lx) * 6, sc, 1, true, undefined, true, undefined, true]); }
+    // From near to (putD): a paved way from the gate past the hall to the image; posts with gilded lotus caps along the wall; before the
+    // image an urn for incense on its stand, racks of candles, offering boxes; stone benches under the trees; potted shrubs along the way; a
+    // rack of small bells to be rung in passing; yellow flags of the faith on short poles.
+    { const D = F.putD, zi = T.kind === 3 ? zf + 0.5 : zA + 2.0; for (let lz2 = 26.5; lz2 > zi; lz2 -= 3) { D(0, 0.03, lz2, 3.0, 0.06, 2.92, 2); if (lz2 < 25 && lz2 > zi + 2 && (floor(lz2) & 1)) for (const e of [-1, 1]) { F.chainD([[e * 2.1, 0, lz2, 0.17], [e * 2.1, 0.42, lz2, 0.27], [e * 2.1, 0.46, lz2, 0.3], [e * 2.1, 0.47, lz2, 0.2]], 3); const q = F.W(e * 2.1, lz2); if (inside(q[0], q[1])) pend.push([TREES[9], q[0], q[1], lz2 * 3 + e, 0.34, 2, true, undefined, true, undefined, true]); } }      // a clay pot with a flowering shrub in it
+      for (let i = 0; i < 13; i++) { const p = -27 + i * 4.5; for (const e of [-1, 1]) { D(e * 23, 1.0, p, 0.5, 2.0, 0.5, 41); D(e * 23, 2.15, p, 0.34, 0.3, 0.34, 15); } if (i < 11 && abs(-22.5 + i * 4.5) > 4) { D(-22.5 + i * 4.5, 1.0, 28, 0.5, 2.0, 0.5, 41); D(-22.5 + i * 4.5, 2.15, 28, 0.34, 0.3, 0.34, 15); } }
+      F.chainD([[0, 0, zi + 2.2, 0.28], [0, 0.5, zi + 2.2, 0.16], [0, 0.75, zi + 2.2, 0.42], [0, 1.05, zi + 2.2, 0.5], [0, 1.1, zi + 2.2, 0.44]], 7); for (let q = 0; q < 7; q++) F.tubeD([(q - 3) * 0.09, 1.08, zi + 2.2 + ((q * 37) % 5 - 2) * 0.06], 0.006, [(q - 3) * 0.1, 1.5, zi + 2.2 + ((q * 37) % 5 - 2) * 0.07], 0.005, 9);
+      for (const e of [-1, 1]) { D(e * 2.0, 0.55, zi + 1.6, 0.5, 1.1, 0.5, 14); D(e * 2.0, 1.13, zi + 1.6, 0.56, 0.08, 0.56, 15); D(e * 3.4, 0.9, zi + 2.4, 1.6, 0.06, 0.5, 34); for (const g of [-0.7, 0.7]) D(e * 3.4 + g, 0.45, zi + 2.4, 0.06, 0.9, 0.06, 34); for (let q = 0; q < 6; q++) F.tubeD([e * 3.4 - 0.6 + q * 0.24, 0.93, zi + 2.4], 0.012, [e * 3.4 - 0.6 + q * 0.24, 1.15, zi + 2.4], 0.01, 6); }
+      for (const [bx, bz, ya] of [[6.4, 3, PI / 2], [-20.3, 8, PI / 2], [20.4, 10, PI / 2]]) { D(bx, 0.45, bz, 1.9, 0.1, 0.55, 2, 0, 0, 0, ya); for (const g of [-0.7, 0.7]) D(bx + (ya ? 0 : g), 0.2, bz + (ya ? g : 0), 0.14, 0.4, 0.4, 2, 0, 0, 0, ya); }
+      { const R = F.sub(4.4, 19.2, PI / 2); for (const g of [-2, 2]) R.tubeD([g, 0, 0], 0.06, [g, 2.2, 0], 0.05, 0); R.tubeD([-2.1, 2.1, 0], 0.04, [2.1, 2.1, 0], 0.04, 0); for (let q = 0; q < 7; q++) R.chainD([[-1.65 + q * 0.55, 2.06, 0, 0.03], [-1.65 + q * 0.55, 1.95, 0, 0.09], [-1.65 + q * 0.55, 1.72, 0, 0.14], [-1.65 + q * 0.55, 1.7, 0, 0.15]], 7); }
+      for (const [fx, fz] of [[-21, 26], [21, 26], [-21, 10], [21, 10], [-21, -8], [21, -8]]) { F.tubeD([fx, 0, fz], 0.035, [fx, 3.6, fz], 0.025, 0); D(fx + 0.36, 3.25, fz, 0.7, 0.45, 0.02, 33, 0.3); } }
+    // the board by the road that says a temple is this way
+    // (the sign stands 5.5 m up the road from the way's middle, measured along z - not square off the road, which on a skew road would carry it into the way)
+    { const zs = T.z + 5.5, q = [roadX(zs) + T.side * 5.6, zs], yb = ground(q[0], q[1]), yw = atan2(roadSl(zs), 1); for (const d of [-0.9, 0.9]) far.push(q[0] + d * sin(yw), yb, q[1] + d * cos(yw), 0.045, q[0] + d * sin(yw), yb + 2.9, q[1] + d * cos(yw), 0.045, -1, 0); boxes.push(q[0], yb + 2.4, q[1], yw + PI / 2, 2.3, 0.9, 0.06, 0, 23, 3 + 2 + 0.63, -0.9, 0); }
+  }
   if (R() < 0.34 && plainRow) { R(); R(); R(); }      // (the lots that used to place the house: still drawn, so that everything after them falls as it did)
   if (myHouse) {
     const z = myHouse[1], side = myHouse[2], x = myHouse[0];
@@ -724,7 +1078,7 @@ function buildChunk(cx, cz) {
       if (fk === 0) { side2(-10, -7, 10, -7); side2(-10, -7, -10, 9); side2(10, -7, 10, 9); side2(-10, 9, -1.6, 9); side2(1.6, 9, 10, 9); }
       else {
         wallSide(-10, -7, 10, -7); wallSide(-10, -7, -10, 9); wallSide(10, -7, 10, 9); wallSide(-10, 9, -1.9, 9); wallSide(1.9, 9, 10, 9);
-        const [gx, gz] = L2W(0.35, 9.14), gy = ground(gx, gz); boxes.push(gx, gy + 0.9, gz, yaw, 3.9, 1.7, 0.05, 0, 27, gs, 1.7, 0);       // the sliding gate, on its track
+        const [gx, gz] = L2W(4.2, 9.2), gy = ground(gx, gz); boxes.push(gx, gy + 0.9, gz, yaw, 3.9, 1.7, 0.05, 0, 27, gs, 1.7, 0);       // the sliding gate, on its track - run back open behind the wall, for the drive goes through
         const [tx, tz] = L2W(1.2, 9.14); boxes.push(tx, ground(tx, tz) + 0.02, tz, yaw, 7.4, 0.04, 0.08, 0, 12, 0, 0, 0);
       }
       { const [sx, sz] = L2W(7.6, 6.9); stamp(old ? SHRINE_A : SHRINE_B, sx, ground(sx, sz) - 0.05, sz, yaw, old ? 0.2 : 0, 0); }
@@ -750,9 +1104,11 @@ function buildChunk(cx, cz) {
   for (let k = Math.ceil(oz / 8.5) - 2; k * 8.5 < oz + CH + 17; k++) for (const sd of [-1, 1]) {
     const z0 = k * 8.5 + ph(k, 300 + sd) * 4, c = chyAt(z0); if (!c || townW(z0) > 0.05 || nearRiv(z0, 14) || (tunOf(z0) && abs(z0 - TN.zc) < TN.hl + 6)) continue;      // (none over a tunnel or in its mouth)
     const q = z0 / SEG - floor(z0 / SEG); if (ph(k, 310 + sd) > sm(0, 0.07, q) * sm(1, 0.93, q) * 0.95) continue;      // thinning out toward the ends of the stretch, and a gap here and there
-    const offA = 6.3 + ph(k, 320 + sd) * 0.9, [x, z] = rp(z0, sd * offA); if (!inside(x, z) || abs(rdist(x, z)) < 5.6) continue;
+    const offA = 6.3 + ph(k, 320 + sd) * 0.9, [x, z] = rp(z0, sd * offA); if (!inside(x, z) || abs(rdist(x, z)) < 5.6 || onDrive(z, sd, 1.5)) continue;      // (none in a drive's mouth)
     const TA = TREES[14 + (ph(k, 330 + sd) < 0.5 ? 1 : 0)], turnA = ph(k, 340 + sd) * TAU, scA = 1.08 + ph(k, 350 + sd) * 0.27;
-    plant(TA, x, z, turnA, scA, 2, true, undefined, true);      // (the last: it stays where it is put - its arch, below, is built from that place)
+    // (The arch and the petals belong to the tree: they are made only if the tree itself is planted - a tree may yet be refused, for a house or
+    // water or an underpass where it stands, and its boughs were left hanging in the air with no trunk under them.)
+    const arch = () => {
     // Where the trunk really is at a given height (it leans and wanders: the first eight lengths of the tree are its trunk), so that a bough of
     // the arch can spring from the trunk itself: begun on the upright line through the tree's foot, it hung in the air beside the trunk.
     const trunkAt = (h) => { const S = TA.segs, hs = h / scA, cT = cos(turnA), sT = sin(turnA); let px = 0, pz = 0;
@@ -778,6 +1134,20 @@ function buildChunk(cx, cz) {
       const a = ph(k * 16 + j, 360 + sd) * TAU, r = ph(k * 16 + j, 370 + sd) * 6.5, px = x + cos(a) * r, pz = z + sin(a) * r, gy = surf(px, pz), hh = 2.5 + ph(k * 16 + j, 380 + sd) * 4.5;
       leaves.push(px, gy + hh, pz, 0.085, ph(k * 16 + j, 390 + sd), hh, 0.032, 0, 11, ph(k * 16 + j, 400 + sd), 1, 0);
     }
+    };
+    plant(TA, x, z, turnA, scA, 2, true, undefined, true, arch);      // (true: it stays where it is put - its arch is built from that place)
+  }
+  // The golden shower road (ราชพฤกษ์): a tree every nine metres or so down both sides, well back on the verge, thinning toward the ends of the
+  // stretch; none in a town, by a river, nor in the mouth of a drive.
+  for (let k = Math.ceil(oz / 9) - 2; k * 9 < oz + CH + 18; k++) for (const sd of [-1, 1]) {
+    const z0 = k * 9 + ph(k, 500 + sd) * 3; if (!kunAt(z0) || townW(z0) > 0.05 || nearRiv(z0, 14)) continue;
+    const q = z0 / SEG - floor(z0 / SEG); if (ph(k, 510 + sd) > sm(0, 0.06, q) * sm(1, 0.94, q) * 0.93) continue;
+    const [x, z] = rp(z0, sd * (7 + ph(k, 520 + sd) * 1.2)); if (!inside(x, z) || onDrive(z, sd, 1.5)) continue;
+    // (and petals coming down round it, as round the cherries - only if the tree is planted, and where it stands once planted: a[1], a[2])
+    const a = [TREES[21 + (ph(k, 530 + sd) < 0.5 ? 1 : 0)], x, z, ph(k, 540 + sd) * TAU, 0.95 + ph(k, 550 + sd) * 0.25, 2];
+    a[9] = () => { for (let j = 0; j < 14; j++) { const n = k * 16 + j, an = ph(n, 560 + sd) * TAU, r = ph(n, 570 + sd) * 5.5, px = a[1] + cos(an) * r, pz = a[2] + sin(an) * r, hh = 2.5 + ph(n, 580 + sd) * 4;
+      leaves.push(px, surf(px, pz) + hh, pz, 0.08, ph(n, 590 + sd), hh, 0.03, 1, 11, ph(n, 600 + sd), 1, 0); } };
+    pend.push(a);
   }
   for (let t = 0; t < 10 * hwc * (1 - twc); t++) {
     const x = ox + R() * CH, z = oz + R() * CH, d = abs(rdist(x, z)), u = R(), sz = R(), turn = R() * TAU;
@@ -786,7 +1156,7 @@ function buildChunk(cx, cz) {
   }
   // and now and then a warning sign: wild animals cross here
   if (hwc > 0.6 && twc < 0.1) for (let k = Math.ceil(oz / 320) - 1; k * 320 < oz + CH + 320; k++) {
-    const [x, z] = rp(k * 320 + 11, -4.9); if (!inside(x, z)) continue;
+    const zs = k * 320 + 11, [x, z] = rp(zs, -(4.9 + 2.1 * hpT(zs))); if (!inside(x, z)) continue;      // (on switchbacks just behind the rail)
     const y = ground(x, z);
     far.push(x, y - 0.2, z, 0.035, x, y + 2.1, z, 0.035, -1, 0);
     boxes.push(x, y + 2.25, z, PI / 2, 0.03, 0.72, 0.72, PI / 4, 5, hpW(z) > 0 || hpW(z + 160) > 0 ? 0.5 : 0, 0, 0);     // before the switchbacks: winding road
@@ -855,30 +1225,120 @@ function buildChunk(cx, cz) {
   }
   if (twc < 0.2) {
     // stretches of barbed-wire fence on concrete posts along the field side, shrubs growing through it
+    // (fenceAt: is there a span of it from z to z + 3 - not where the stretch has none, by the sea, on the switchbacks, across the front of a
+    // house on this side (its own wall and gate are there), across the way to a temple with its verges and rows of trees, over water or a river.
+    // A span has its post at its near end; where the next span is wanting, it has one at its far end too - no wire ends in the air.)
+    const fenceAt = (z) => { if (ph(floor(z / 96), 5) < 0.5 || seaW(z) > 0.15 || hpW(z) > 0 || (isOf(z) && nearRiv(z, 20))) return false;
+      for (let i = 0; i < homes.length; i += 2) if (homes[i + 1] < 0 && abs(z + 1.5 - homes[i]) < 13) return false;
+      const T = watOf(floor(z / SEG)); if (T && T.side < 0 && abs(z + 1.5 - T.z) < 10.5) return false;
+      ground(roadX(z) - 9, z); return !(gw[0] || (rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 22)); };
     for (let k = Math.ceil(oz / 3); k * 3 < oz + CH; k++) {
-      const z = k * 3; if (ph(floor(z / 96), 5) < 0.5 || seaW(z) > 0.15 || hpW(z) > 0 || (isOf(z) && nearRiv(z, 20))) continue;
-      let home = false; for (let i = 0; i < homes.length; i += 2) if (homes[i + 1] < 0 && abs(z + 1.5 - homes[i]) < 13) home = true; if (home) continue;      // (not across the front of a house on this side: its own wall or fence is there, and its gate)
-      const x = roadX(z) - 9, x1 = roadX(z + 3) - 9; if (!inside(x, z)) continue;
-      const y = ground(x, z); if (gw[0] || (rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 22)) continue; const y1 = ground(x1, z + 3);
-      far.push(x, y - 0.2, z, 0.05, x, y + 1.3, z, 0.045, -1, 0);
+      const z = k * 3, x = roadX(z) - 9, x1 = roadX(z + 3) - 9; if (!inside(x, z) || !fenceAt(z)) continue;
+      const y = ground(x, z), y1 = ground(x1, z + 3);
+      far.push(x, y - 0.2, z, 0.05, x, y + 1.3, z, 0.045, -1, 0); if (!fenceAt(z + 3)) far.push(x1, y1 - 0.2, z + 3, 0.05, x1, y1 + 1.3, z + 3, 0.045, -1, 0);
       for (const hh of [0.45, 0.8, 1.15]) far.push(x, y + hh, z, 0.007, x1, y1 + hh, z + 3, 0.007, -1, 1);
       if (R() < 0.08) plant(TREES[8 + (R() < 0.3 ? 1 : 0)], x + 0.4, z + 1, R() * TAU, 0.8 + R() * 0.6);
     }
     // on bends: white marker posts with red reflectors on both edges
     for (let k = Math.ceil(oz / 8) - 1; k * 8 < oz + CH + 8; k++) {
       const z = k * 8 + 5; if ((k % 3 && hpW(z) <= 0) || abs(roadX(z + 6) - 2 * roadX(z) + roadX(z - 6)) < 0.11) continue;        // every 24 m; every 8 m round the switchbacks
-      for (const sd of [-4.15, 4.15]) { const [x, zp] = rp(z, sd); if (inside(x, zp) && !brSpan(zp) && !inTun(zp) && !onDrive(zp, sd)) boxes.push(x, ground(x, zp) + 0.4, zp, 0, 0.1, 0.85, 0.1, 0, 13, 0, 0, 0); }
+      for (const sd0 of [-4.15, 4.15]) { const sd = Math.sign(sd0) * (4.15 + 2.75 * hpT(z)), [x, zp] = rp(z, sd);      // (on switchbacks the +x posts stand beyond the gutter)
+        if (inside(x, zp) && !brSpan(zp) && !inTun(zp) && !onDrive(zp, sd, 0.4)) boxes.push(x, ground(x, zp) + 0.4, zp, 0, 0.1, 0.85, 0.1, 0, 13, 0, 0, 0); }
     }
   }
+  // (The roadside signs are put up once every drive of the chunk is known - see onDrive - so that none stands in a drive's mouth.)
+  const roadSigns = () => {
+  // Speed limit signs: wherever the limit changes there is one for each direction of travel, on the driver's left, facing the traffic that is about
+  // to come under it and showing the limit that begins there.
+  for (let zq = Math.ceil((oz - 8) / 4) * 4; zq < oz + CH + 8; zq += 4) {
+    const la = zlim(zq - 2), lb = zlim(zq + 2); if (la === lb || nearRiv(zq, 14)) continue;
+    for (const e of [-1, 1]) {          // e = -1: for traffic going up the road (+z), which meets lb; e = 1: for traffic coming down, which meets la
+      let zs = zq; for (let i = 0; i < 6 && onDrive(zs, -e, 1.2); i++) zs -= e * 2;      // (stepped back toward the traffic it faces, out of a drive's mouth)
+      const a = atan2(roadX(zs + 1) - roadX(zs - 1), 2), so = 5.2 + 1.8 * hpT(zs) + svW(zs), x = roadX(zs) - e * so * cos(a), zz = zs + e * so * sin(a); if (!inside(x, zz)) continue;      // (so: out beyond a frontage road, beside an underpass)
+      const yaw = a + (e > 0 ? 0 : PI), c = cos(yaw), sn = sin(yaw), y = ground(x, zz);
+      boxes.push(x - 0.06 * sn, y + 1.2, zz - 0.06 * c, yaw, 0.07, 2.4, 0.07, 0, 34, 0, 2.4, 0, x, y + 2.4, zz, yaw, 0.75, 0.75, 0.04, 0, 37, 0, e < 0 ? lb : la, 0);
+    }
+  }
+  // Traffic lights (see tlOf in land.js), at a crossroads. For each direction: a stop line across its lane before the zebra crossing, and beyond the corner, on the
+  // driver's left, a steel post with an arm reaching out over the lane; one signal head hangs from the arm's end and a second is on the post.
+  for (let g = floor((oz - 60) / 360); g <= floor((oz + CH + 30) / 360); g++) {
+    const zs = tlOf(g); if (zs === null) continue; const off = ph(g, 521);
+    for (const e of [-1, 1]) {          // e = -1: for traffic going up the road (+z); e = 1: for traffic coming down
+      const zp = zs - e * 5, a = atan2(roadX(zp + 1) - roadX(zp - 1), 2), ca = cos(a), sa = sin(a), x = roadX(zp) - e * 5.0 * ca, zz = zp + e * 5.0 * sa;
+      if (inside(x, zz)) {
+        const yaw = a + (e > 0 ? 0 : PI), y = ground(x, zz), hx = roadX(zp) - e * 1.9 * ca, hz = zp + e * 1.9 * sa;
+        far.push(x, y, zz, 0.11, x, y + 5.9, zz, 0.08, -1, 4, x, y + 5.75, zz, 0.06, hx, y + 5.95, hz, 0.045, -1, 4);
+        // the post carries two heads on different faces and at different heights, as they are bolted on: the drivers' one (2.65-3.75 m) on the side the
+        // traffic comes from, facing it; the one for people crossing (1.67-2.33 m) below it on the road side, facing the far kerb
+        boxes.push(hx, y + 5.3, hz, yaw, 0.38, 1.1, 0.26, 0, 45, off, 1.1, 0, x + e * 0.3 * sa, y + 3.2, zz + e * 0.3 * ca, yaw, 0.38, 1.1, 0.26, 0, 45, off, 1.1, 0);
+        boxes.push(x - e * 0.3 * ca, y + 2.0, zz + e * 0.3 * sa, a + e * PI / 2, 0.3, 0.66, 0.2, 0, 46, off, 0.66, 0);
+      }
+      // the side street: its own signal head on a short post at the far corner (green inside the main road's red)
+      const a0 = atan2(roadX(zs + 1) - roadX(zs - 1), 2), jx = roadX(zs);
+      if (inside(jx, zs)) {
+        const yw = e < 0 ? a0 : a0 + PI, cy = cos(yw), sy = sin(yw), fx = cy, fz = -sy, lx2 = -sy, lz2 = -cy;      // the way traffic out of that side street goes (f) and its left (l)
+        const px = jx + fx * 5.4 + lx2 * 4.9, pz = zs + fz * 5.4 + lz2 * 4.9, py = ground(px, pz);
+        far.push(px, py, pz, 0.07, px, py + 3.7, pz, 0.055, -1, 4); boxes.push(px - fx * 0.22, py + 3.1, pz - fz * 0.22, yw - PI / 2, 0.38, 1.1, 0.26, 0, 45, 1 + off, 1.1, 0);
+      }
+      const zl = zs + e * 8.7, a2 = atan2(roadX(zl + 1) - roadX(zl - 1), 2), lx = roadX(zl) - e * 1.8 * cos(a2), lz = zl + e * 1.8 * sin(a2);
+      if (inside(lx, lz)) boxes.push(lx, surf(lx, lz) + 0.012, lz, a2, 3.3, 0.02, 0.45, 0, 19, 0, 0.02, 0);
+    }
+  }
+  // Nothing stands across the road where a town begins. What tells the driver is at the roadside, on the left as you come in: first the
+  // speed limit (50, a white disc ringed in red), then the green board that says a built-up area begins, on two steel posts.
+  for (let s0 = floor(oz / SEG), s = s0 - 2; s <= s0 + 2; s++) {
+    const sp = townSpan(s); if (!sp) continue;
+    for (const e of [-1, 1]) {
+      const z0 = (s + 0.5 + e * ((e < 0 ? sp[0] : sp[1]) - 0.045)) * SEG; if (townW(z0 + e * 80) > 0.5) continue;      // (two towns grown together have no edge here)
+      for (const [dz, off, kind] of [[30, 6.8, 0]]) {          // (the 50 sign is put up with all the other limit signs, below)
+        let z = z0 + e * dz; for (let i = 0; i < 8 && onDrive(z, -e, 2.2); i++) z += e * 2;      // (out of a drive's mouth: further in)
+        const a = atan2(roadX(z + 1) - roadX(z - 1), 2), x = roadX(z) - e * off * cos(a), zz = z + e * off * sin(a); if (!inside(x, zz) || nearRiv(z, 14)) continue;
+        const yaw = a + (e > 0 ? 0 : PI), c = cos(yaw), sn = sin(yaw), y = ground(x, zz);            // turned to face the traffic coming in
+        const put = (lx, ly, lz, sx, sy, sz, mat, seed = 0, h = sy) => boxes.push(x + lx * c + lz * sn, y + ly, zz - lx * sn + lz * c, yaw, sx, sy, sz, 0, mat, seed, h, 0);
+        if (kind === 0) { for (const d of [-1, 1]) put(d, 1.3, -0.08, 0.09, 2.6, 0.09, 34); put(0, 2.25, 0, 2.6, 1.1, 0.06, 23, 3 + 8 + 0.63, -1.1); }      // (green, white letters, as guide signs are; it reads เขตชุมชน, 'built-up area': the ninth of the road words in render.js - left to chance it read วัด, 'temple', where there is none)
+        else { put(0, 1.2, -0.06, 0.07, 2.4, 0.07, 34); put(0, 2.4, 0, 0.75, 0.75, 0.04, 37, 0, 50); }
+      }
+    }
+  }
+  };
+  roadSigns();
+  // The gutters of a mountain road (ร่องน้ำ): a shallow open concrete channel along both edges of the switchbacks, right against the asphalt -
+  // 3.85 to 4.45 m out, 60 cm wide and 12 deep, so that a wheel can be run along it without the car's underside touching (drive.js lets it drop
+  // in): a thin face down from the road's edge, a floor, a low lip on the outer side, in lengths of 2 m that follow the road, closed at each end.
+  // The ground is not drawn over it (terrain.wgsl), so the channel is open to the sky.
+  if (hwc > 0.4) { const gw = (z) => hpW(z) > 0.05 && !inTun(z);
+    for (let k = Math.ceil(oz / 2) - 1; k * 2 < oz + CH + 2; k++) { const z0 = k * 2, z1 = z0 + 2, zm = z0 + 1; if (!gw(zm)) continue;
+      const ya = roadY(z0), yb = roadY(z1), my = (ya + yb) / 2;
+      for (const sd of [-1, 1]) { const G = sd * 4.15, [x0, za] = rp(z0, G), [x1, zb] = rp(z1, G), mx = (x0 + x1) / 2, mz = (za + zb) / 2; if (!inside(mx, mz)) continue;
+        const L = hypot(x1 - x0, zb - za), yw = atan2(x1 - x0, zb - za), tl = -atan2(yb - ya, L), c = cos(yw), sn = sin(yw), at = (o) => [mx + sd * o * c, mz - sd * o * sn];
+        { const q = at(-0.32); boxes.push(q[0], my - 0.09, q[1], yw, 0.06, 0.18, L + 0.06, tl, 2, 0, 0.18, 0); }      // the face down from the road's edge
+        boxes.push(mx, my - 0.16, mz, yw, 0.62, 0.08, L + 0.06, tl, 48, 0, 0.08, 0);      // the floor, old wet concrete, 12 cm down
+        { const q = at(0.34); boxes.push(q[0], my - 0.05, q[1], yw, 0.1, 0.22, L + 0.06, tl, 2, 0, 0.22, 0); }      // the outer lip, a hand above the road
+        for (const [e, zz, yy] of [[gw(zm - 2), z0, ya], [gw(zm + 2), z1, yb]]) if (!e) { const q = rp(zz, G); boxes.push(q[0], yy - 0.07, q[1], yw, 0.7, 0.14, 0.08, 0, 2, 0, 0.14, 0); } } } }
   // steel guard rail on the hill road where it runs along a drop
+  // (railOn: is there a length of it from z0 to z1 - not where the stretch has none, nor in a tunnel, nor across the mouth of a drive or a temple's
+  // way. Where it stops, it ends on a post: the beam runs post to post and stops at the last - no end bent down into the ground.)
+  const railOn = (z0, z1) => { const zm = (z0 + z1) / 2, kk = floor(zm / 4) * 4, hp = hpW(kk) > 0.05; return !((!hp && ph(floor(kk / 120), 9) < 0.5) || inTun(kk) || inTun(z0 - 3) || inTun(z1 + 3) || onDrive(z0, -1, 0.3) || onDrive(z1, -1, 0.3)); };      // (it ends a few metres short of a tunnel's mouth, its turned-down end too: taken a length at a time, the last ran on into the tunnel)
   if (hwc > 0.6 && twc < 0.1) for (let k = Math.ceil(oz / 4) - 2; k * 4 < oz + CH + 8; k++) {
     const z = k * 4, hp = hpW(z) > 0.05; if ((!hp && ph(floor(z / 120), 9) < 0.5) || inTun(z)) continue;        // all the way round the switchbacks
     const n = hp ? 3 : 1;
     for (let i = 0; i < n; i++) {
-      const [x, za] = rp(z + 4 * i / n, -4.3), [x1, zb] = rp(z + 4 * (i + 1) / n, -4.3); if (!inside(x, za)) continue;
-      const y = ground(x, za), y1 = ground(x1, zb), len = hypot(x1 - x, zb - za);
+      // (on switchbacks 2 m back from the gutter's lip, clear of a drifting car's swung-out corners - the trees, poles, posts and signs stand back
+      // behind it there, or it ran in among them)
+      // (eased out from the hill road's 4.3 m to 6.4 m as the switchbacks begin, always behind the gutter, which starts with them: stepped out
+      // there at once, the rail coming from the road before ran on into the gutter)
+      const ro = (zq) => -(4.3 + 2.1 * hpT(zq)),
+      za0 = z + 4 * i / n, zb0 = z + 4 * (i + 1) / n, [x, za] = rp(za0, ro(za0)), [x1, zb] = rp(zb0, ro(zb0));
+      if (!inside(x, za) || !railOn(za0, zb0)) continue;
+      // (at the road's edge's level or below it, never up the ground's: by a tunnel's mouth the hillside over the portal rises steeply right
+      // beside the road, and the rail, set on the ground, climbed the face of it)
+      const y = min(ground(x, za), roadY(za0) + 0.1), y1 = min(ground(x1, zb), roadY(zb0) + 0.1), len = hypot(x1 - x, zb - za), ya = atan2(x1 - x, zb - za);
       boxes.push(x, y + 0.3, za, 0, 0.1, 0.75, 0.12, 0, 12, 0, 0, 0);
-      boxes.push((x + x1) / 2, (y + y1) / 2 + 0.55, (za + zb) / 2, atan2(x1 - x, zb - za), 0.05, 0.3, len + 0.05, -atan2(y1 - y, len), 12, 0, 0, 0);
+      boxes.push((x + x1) / 2, (y + y1) / 2 + 0.55, (za + zb) / 2, ya, 0.05, 0.3, len + 0.05, -atan2(y1 - y, len), 12, 0, 0, 0);
+      const step = 4 / n;
+      for (const [end, px, pz, py, dir] of [[!railOn(zb0, zb0 + step), x1, zb, y1, 1], [!railOn(za0 - step, za0), x, za, y, -1]]) { if (!end) continue;
+        if (dir > 0) boxes.push(px, py + 0.3, pz, 0, 0.1, 0.75, 0.12, 0, 12, 0, 0, 0);      // (the end post - at the start of a length there is one already)
+      }
     }
   }
   // shrubs scattered on the verges
@@ -907,7 +1367,8 @@ function buildChunk(cx, cz) {
     let zk = null; for (const d of [0, 30, -30, 60, -60, 90, -90, 120, -120]) { const q = k * 1000 + 3 + d;
       if (!(rivOf(q) && min(abs(q - RV.zb), abs(q - RV.zr)) < RV.W / 2 + 22) && !(isOf(q) && abs(q - IS.zc) > 136 && abs(q - IS.zc) < 534) && !inTun(q)) { zk = q; break; } }
     if (zk === null) continue;
-    const [x, z] = rp(zk, 4.5 + svW(zk)); if (!inside(x, z)) continue;
+    let zq = zk; for (let i = 0; i < 6 && onDrive(zq, 1, 0.8); i++) zq += 3;      // (stepped along, out of a drive's mouth)
+    const [x, z] = rp(zq, 4.5 + 2.5 * hpT(zq) + svW(zq)); if (!inside(x, z)) continue;      // (beyond the gutter, on switchbacks)
     const yw = atan2(roadSl(z), 1) - PI / 2, y = ground(x, z);
     boxes.push(x, y + 0.345, z, yw, 0.40, 0.75, 0.26, 0, 11, 2148, ((k + 79) % 1000 + 1000) % 1000, 0, x, y + 0.785, z, yw + PI / 2, 0.26, 0.13, 0.40, 0, 11, 0, -1, 1);
   }
@@ -925,7 +1386,13 @@ function buildChunk(cx, cz) {
   const poleAt = (k) => { const z = k * 40; return !(isOf(z) && abs(z - IS.zc) > 138 && abs(z - IS.zc) < 532) && !(rivOf(z) && abs(z - RV.zr - rivM(roadX(z) + 5.6)) < RV.W / 2 + 14); };      // (measured to where the river really runs at the pole)
   // (Measured square to the road - rp - not along x: round the switchbacks the road runs so far aslant that 5.6 m along x is 2 m from its middle, and
   // the pole stood in the lane.)
-  const poleXZ = (k) => { const zb = k * 40; if (seaW(zb) > 0.25) return rp(zb, -8.6); const z = clearZ(zb, 1, 5.6); return rp(z, 5.6 + svW(z)); };      // (in town a pole steps aside from a lane's mouth: its place is not quite every 40 m there)
+  const poleXZ = (k) => { const zb = k * 40; if (seaW(zb) > 0.25) return rp(zb, -8.6); let z = clearZ(zb, 1, 5.6); const T = watOf(floor(z / SEG));
+    // (nor does one stand in the mouth of a temple's way)
+    // (measured where the pole really stands: square off a skew road it is carried along z)
+    // (on the switchbacks behind the guard rail, 8 m out)
+    const po = (zq) => 5.6 + 2.4 * hpT(zq) + svW(zq);
+    let q = rp(z, po(z)); if (T && T.side > 0) for (let i = 0; i < 4 && abs(q[1] - T.z) < 3.6; i++) { z += (q[1] < T.z ? -1 : 1) * (3.9 - abs(q[1] - T.z)); q = rp(z, po(z)); }
+    return q; };      // (in town a pole steps aside from a lane's mouth: its place is not quite every 40 m there)
   for (let k = Math.ceil(oz / 40) - 1; (k - 1) * 40 < oz + CH; k++) {
     const [x0, z0] = poleXZ(k); if (!inside(x0, z0) || !poleAt(k)) continue;
     let kn = 0; for (let j = 1; j <= 4 && !kn; j++) if (poleAt(k + j)) kn = j;
@@ -942,14 +1409,37 @@ function buildChunk(cx, cz) {
       far.push(x0 + 0.16 * c, y0 + 8.9, z0 - 0.16 * sn, 0.05, x0 + 0.16 * c, y0 + 9.5, z0 - 0.16 * sn, 0.05, -1, 1); reach = max(reach, hypot(ex - x0, ez - z0) - 14); }
     if (!kn) continue;
     const yaw1 = atan2(roadSl(z1), 1), c1 = cos(yaw1), s1 = sin(yaw1);      // the next pole stands square to the road where it is
+    // (clr: however a wire sags, it keeps 4.8 m over the road - where a span cuts across a bend, its low cables hung across the lane at a man's
+    // height - and 2.6 m over the ground anywhere else)
+    const clr = (x, z, y) => max(y, abs(rdist(x, z)) < 5.5 ? roadYs(z) + 4.8 : ground(x, z) + 2.6);
     const wire = (off, h, r, sagM, n) => { const sM = min(sagM * kn * kn, h < 6 ? 1.2 : 2.4), nn = n * kn, ax = x0 + off * c, az = z0 - off * sn, bx = x1 + off * c1, bz = z1 - off * s1;
       // a wire under tension hangs in the vertical plane through its two insulators: seen from above it is a straight line from pole to pole,
       // cutting the chord of a bend (it cannot follow the road round - nothing pulls it sideways). Only its height sags.
       for (let i = 0; i < nn; i++) { const a = i / nn, b = (i + 1) / nn, sag = (t) => -sM * 4 * t * (1 - t);
-        far.push(mix(ax, bx, a), mix(y0, y1, a) + h + sag(a), mix(az, bz, a), r, mix(ax, bx, b), mix(y0, y1, b) + h + sag(b), mix(az, bz, b), r, -1, 1); } };
+        const pa = [mix(ax, bx, a), mix(az, bz, a)], pb = [mix(ax, bx, b), mix(az, bz, b)]; far.push(pa[0], clr(pa[0], pa[1], mix(y0, y1, a) + h + sag(a)), pa[1], r, pb[0], clr(pb[0], pb[1], mix(y0, y1, b) + h + sag(b)), pb[1], r, -1, 1); } };
     reach = max(reach, hypot(x1 - x0, z1 - z0) - 14);      // (a pole may stand in the chunk's far corner, 45 m from its middle)
     for (const ix of [-0.85, -0.3, 0.75]) wire(ix, 9.74, 0.012, 0.5, 5); wire(0, 10.97, 0.011, 0.4, 4);
     if (lv) { for (let i = 0; i < 4; i++) wire(-0.24, 7.0 + i * 0.2, 0.012, 0.7, 4); wire(-0.2, 5.3, 0.035, 1.0, 6); wire(-0.26, 5.0, 0.015, 1.2, 6); }
+    // As a Thai street has it: below the power lines the pole carries everybody's telephone, internet and cable-television lines, strung by many
+    // hands over many years and never taken down - a thick untidy skein, no two cables at the same height or hanging alike, some sagging far below
+    // the rest; spare lengths left coiled in hoops and hung on the pole; black splice cases along the skein near the pole; a small grey
+    // junction box or two on the pole itself; and on one pole in five the street's transformer, on brackets under the crossarm. In a town the
+    // full tangle; out along the village stretches a few cables and now and then a hoop.
+    if (lv0) { const tw0 = townW(z0), full = tw0 > 0.5, hp = (m) => ph(k * 61 + m, 7700);
+      if (lv) for (let i = 0, n = full ? 12 : 4; i < n; i++) { const o0 = -0.3 + 0.5 * hp(i) - 0.06, o1 = -0.3 + 0.5 * ph((k + kn) * 61 + i, 7700) - 0.06, h0 = 4.3 + 1.5 * hp(i + 20), h1 = 4.3 + 1.5 * ph((k + kn) * 61 + i + 20, 7700), sg0 = (0.5 + 2.2 * hp(i + 40) * hp(i + 40)) * min(kn, 2), r = 0.008 + 0.014 * hp(i + 60);
+          const ax = x0 + o0 * c, az = z0 - o0 * sn, bx = x1 + o1 * c1, bz = z1 - o1 * s1, nn = 5 * kn, pk = 0.3 + 0.4 * hp(i + 80), yy = (t) => mix(y0 + h0, y1 + h1, t) - sg0 * (t < pk ? t / pk : (1 - t) / (1 - pk)) * (2 - (t < pk ? t / pk : (1 - t) / (1 - pk)));      // (lowest where it likes, not in the middle)
+          for (let q = 0; q < nn; q++) { const t0 = q / nn, t1 = (q + 1) / nn, xa = mix(ax, bx, t0), za = mix(az, bz, t0), xb = mix(ax, bx, t1), zb = mix(az, bz, t1); far.push(xa, clr(xa, za, yy(t0)), za, r, xb, clr(xb, zb, yy(t1)), zb, r, -1, 1); } }
+      const dz = (m) => [sn * m, c * m];      // (m metres along the road from the pole)
+      for (let j = 0, n = full ? 2 + floor(hp(100) * 3) : (hp(100) < 0.4 ? 1 : 0); j < n; j++) {      // hoops of spare cable, hung flat against the line of the wires
+        const R0 = 0.3 + 0.22 * hp(110 + j), hh = 4.5 + 1.3 * hp(120 + j), al = (hp(130 + j) < 0.5 ? -1 : 1) * (0.25 + 0.5 * hp(140 + j)), lx = -0.2 - 0.12 * hp(150 + j), d0 = dz(al), cx = x0 + lx * c + d0[0], cz = z0 - lx * sn + d0[1];
+        for (let w = 0; w < 2; w++) { const Rw = R0 * (1 - 0.13 * w), off = 0.025 * w; for (let q = 0; q < 8; q++) { const a0 = q / 8 * TAU, a1 = (q + 1) / 8 * TAU, e0 = dz(cos(a0) * Rw), e1 = dz(cos(a1) * Rw);
+            far.push(cx + e0[0] - off * c, y0 + hh - R0 + sin(a0) * Rw, cz + e0[1] + off * sn, 0.016, cx + e1[0] - off * c, y0 + hh - R0 + sin(a1) * Rw, cz + e1[1] + off * sn, 0.016, -1, 1); } } }
+      if (full && lv) for (let j = 0, n = 1 + (hp(200) < 0.5 ? 1 : 0); j < n; j++) { const t = (1.4 + 2.2 * hp(210 + j)) / hypot(x1 - x0, z1 - z0), hh = 4.9 + 0.7 * hp(220 + j), px = mix(x0, x1, t) - 0.25 * c, pz = mix(z0, z1, t) + 0.25 * sn, e = dz(0.3);      // splice cases
+          far.push(px - e[0], y0 + hh, pz - e[1], 0.085, px + e[0], y0 + hh, pz + e[1], 0.085, -1, 1); far.push(px - e[0] * 1.25, y0 + hh, pz - e[1] * 1.25, 0.04, px + e[0] * 1.25, y0 + hh, pz + e[1] * 1.25, 0.04, -1, 1); }
+      if (full) { put(0.17, 3.6 + hp(300), 0.12, 0.34, 0.24, 34); if (hp(301) < 0.5) put(-0.17, 4.2 + 0.5 * hp(302), 0.1, 0.24, 0.18, 34); }      // junction boxes
+      if (tw0 > 0.3 && ((k % 5) + 5) % 5 === 2) {      // the transformer: a finned grey tank on two steel arms, three bushings on its lid, leads up to the line
+        put(0.62, 8.05, 0.78, 0.95, 0.62, 34); put(0.62, 8.05, 0.86, 0.7, 0.7, 34); put(0.4, 7.52, 1.1, 0.07, 0.5, 34); for (const iz of [-0.2, 0, 0.2]) boxes.push(x0 + 0.62 * c + iz * sn, y0 + 8.66, z0 - 0.62 * sn + iz * c, yaw, 0.08, 0.26, 0.08, 0, 4, 0, 0, 0);
+        for (const [iz, ix] of [[-0.2, 0.75], [0, -0.3], [0.2, -0.85]]) far.push(x0 + 0.62 * c + iz * sn, y0 + 8.79, z0 - 0.62 * sn + iz * c, 0.012, x0 + ix * c, y0 + 9.72, z0 - ix * sn, 0.012, -1, 1); } }
   }
   // the trees, now that the buildings stand (see plant): every box big enough to be part of a building - a wall or a block at least 1.8 m high, or a
   // floor or roof of 6 m² - is something a crown may not grow into, if it stands higher than a man's head above the tree's foot and lower than its top
@@ -961,9 +1451,22 @@ function buildChunk(cx, cz) {
   // seats); what is high passes over it (canopies, roofs, sign boards, overhead wires) - the car's own height decides that as it comes, so a
   // slab is a roof from below and a road from above. Each: [x, z, cos, sin, half width, half length, foot, top].
   // Trees are sorted as they are grown, below: one with a real trunk is solid, at the trunk; shrubs, saplings and the like are soft.
+  // The pickups (see truck): each is parked only if its footprint, and a hand's breadth round it, is clear of every box that stands up from the
+  // ground there - a wall, a column, a post, a shop's goods, a step - and of every motorcycle and bicycle left there. A unit of a shophouse
+  // row is narrower than a Ranger is long: parked by its unit alone, its end stood in the next one's front or its column.
+  for (const [px, pz, yw, hw, hl, yt, emit] of trkPend) { const c = cos(yw), sn = sin(yw); let ok = true;
+    const inFoot = (x, z, r) => { const dx = x - px, dz = z - pz; return abs(dx * c - dz * sn) < hw + 0.15 + r && abs(dx * sn + dz * c) < hl + 0.15 + r; };
+    for (const t of twList) if (inFoot(t[0], t[1], 1.0)) { ok = false; break; }      // (a two-wheeler is up to 1.9 m long, measured from its middle)
+    for (let i = 0; ok && i < boxes.length; i += 12) { const sy = boxes[i + 5], yb = boxes[i + 1] - sy / 2, ytp = boxes[i + 1] + sy / 2; if (ytp < yt + 0.12 || yb > yt + 1.7 || sy < 0.1) continue;
+      const bx = boxes[i], bz = boxes[i + 2], ba = boxes[i + 3], hx = boxes[i + 4] / 2, hz = boxes[i + 6] / 2; if (abs(bx - px) > hl + hx + hz + 1 || abs(bz - pz) > hl + hx + hz + 1) continue;
+      const cb = cos(ba), sb2 = sin(ba);
+      // (sampled: points over the box's own face, every 30 cm, each tested against the footprint)
+      for (let a = -hx; ok && a <= hx + 1e-6; a += max(0.3, hx / 6)) for (let b = -hz; b <= hz + 1e-6; b += max(0.3, hz / 6)) if (inFoot(bx + a * cb + b * sb2, bz - a * sb2 + b * cb, 0)) { ok = false; break; } }
+    if (ok) emit(); }
   const col = [], soft = [];
   { const gAt = (x, z) => hAt(clamp(x, ox - GS + 0.01, ox + CH + GS - 0.01), clamp(z, oz - GS + 0.01, oz + CH + GS - 0.01));
     const add = (x, z, yaw, hx, hz, yb, yt) => { const gy = gAt(x, z); if (yb < gy + 1.3 && yt > gy + 0.4) col.push(x, z, cos(yaw), sin(yaw), hx, hz, yb, yt); };
+    for (let i = 0; i < xcol.length; i += 7) add(xcol[i], xcol[i + 1], xcol[i + 2], xcol[i + 3], xcol[i + 4], xcol[i + 5], xcol[i + 6]);
     for (let i = 0; i < boxes.length; i += 12) { const sy = boxes[i + 5]; if (sy >= 0.5) add(boxes[i], boxes[i + 2], boxes[i + 3], boxes[i + 4] / 2, boxes[i + 6] / 2, boxes[i + 1] - sy / 2, boxes[i + 1] + sy / 2); }
     for (const A of [far, segs]) for (let i = 0; i < A.length; i += 10) { const dx = A[i + 4] - A[i], dz = A[i + 6] - A[i + 2], r = max(A[i + 3], A[i + 7], 0.04), L = hypot(dx, dz);
       add((A[i] + A[i + 4]) / 2, (A[i + 2] + A[i + 6]) / 2, atan2(dx, dz), r, L / 2 + r, min(A[i + 1], A[i + 5]) - r, max(A[i + 1], A[i + 5]) + r); } }
@@ -985,6 +1488,7 @@ function buildChunk(cx, cz) {
           let m = into(a[1], a[2]);
           if (m > 0) { const sl = roadSl(a[2]), n = Math.sqrt(1 + sl * sl), dir = rdist(a[1], a[2]) < 0 ? -1 : 1; a[1] += dir * (m + 0.3) / n; a[2] -= dir * (m + 0.3) * sl / n; lowFix[0]++; if (m > 6 || into(a[1], a[2]) > 0.05) { lowFix[1]++; continue; } } } }
       const T = a[0], x = a[1], z = a[2], sc = a[4];
+      if (a[10]) { plantNow(...a); continue; }      // (a tree a temple plants in its own court: it stands, whatever is cleared round it)
       if (T.crR === undefined) { let r = 0, h = 0; const L = T.leaves; for (let i = 0; i < L.length; i += 12) { r = max(r, hypot(L[i], L[i + 2])); h = max(h, L[i + 1]); } T.crR = r; T.crH = h; }
       const R = T.crR * sc, keep = max(0.8, 0.6 * R), ty = hAt(x, z), top = ty + max(T.crH * sc, 3); let ok = true;
       for (let j = 0; j < F.length && ok; j += 7) {
@@ -993,24 +1497,42 @@ function buildChunk(cx, cz) {
         const c = cos(F[j + 2]), s = sin(F[j + 2]), ex = max(abs(dx * c - dz * s) - hx, 0), ez = max(abs(dx * s + dz * c) - hz, 0);
         if (ex * ex + ez * ez < keep * keep) ok = false;
       }
-      if (ok) { plantNow(...a); if (a[9]) a[9]();      // (a[9]: what belongs to the tree and is only made if the tree is - the tapper's cup on a rubber tree)
+      if (ok) { const n0 = far.length + segs.length; plantNow(...a); const grew = far.length + segs.length > n0; if (a[9] && grew) a[9]();      // (a[9]: what belongs to the tree and is only made if the tree is - the tapper's cup on a rubber tree, a cherry's arch; plantNow may still refuse it)
        
         // a tree taller than a man with a trunk as thick as an arm stops the car, at its trunk; anything less the car pushes down and drives over
         const S = T.segs, tr = (S.length ? max(S[3], S[7]) : 0) * sc;
+        // (only for a tree that was planted: plantNow refuses some - in an underpass's cutting, round a house, in front of the switchbacks' guard
+        // rail - and those had left their trunks behind, unseen, for the car to run into)
+        if (!grew) continue;
         if (T.crH * sc > 2.6 && tr > 0.07) col.push(x, z, 1, 0, max(tr, 0.18), max(tr, 0.18), ty - 0.5, ty + T.crH * sc); else soft.push(x, z, max(0.6, T.crR * sc)); }
     } }
+  // Under the cherries the road and its verges lie strewn with petals (painted on the ground: terrain.wgsl); some 1400 to a chunk are real ones
+  // as well, lying unseen until the car's passing or a gust takes them up into the air (leaf kind 11 with its last number 1: see common.wgsl).
+  if (abs(roadX(oz + CH / 2) - (ox + CH / 2)) < CH + 12) for (let j = 0; j < 1400; j++) { const pz = oz + ph(j, cz * 7 + 411) * CH, gs = kunAt(pz); if (!chyAt(pz) && !gs) continue;      // (and under the golden showers: gs, their petals yellow)
+      const px = roadX(pz) + (ph(j, cz * 7 + 412) - 0.5) * 15; if (!inside(px, pz) || townW(pz) > 0.05) continue;      // (none in a town: none are planted there)
+      // On a bridge they lie on its deck only - none over the water beside it - and fewer, since no tree stands over it (two
+      // in three - a little more than the deck's paint in scene.wgsl shows, since only those near the wheels are ever seen); in a tunnel along its floor, fewer the further in, none beyond 30 m. Anywhere else, not on water.
+      { const keep = ph(j, cz * 7 + 415);
+        if (brSpan(pz)) { if (!brAt(px, pz) || keep > 0.65) continue; }
+        else if (inTun(pz)) { const inn = TN.hl - abs(pz - TN.zc); if (!tunAt(px, pz) || keep > 0.6 * (1 - min(1, inn / 30))) continue; }
+        else if (wetAt(px, pz)) continue; }
+      leaves.push(px, surf(px, pz) + 0.04, pz, 0.085, ph(j, cz * 7 + 413), 0, 0.032, gs ? 1 : 0, 11, ph(j, cz * 7 + 414), 1, 1); }
   // leaves from different trees are interleaved so that drawing the first third or ninth thins every tree evenly
   const nL = leaves.length / 12, lf = new Float32Array(leaves.length), Rs = rng(cx * 31 + cz * 17 + 5);
   { const order = new Uint32Array(nL); for (let i = 0; i < nL; i++) order[i] = i; for (let i = nL - 1; i > 0; i--) { const j = floor(Rs() * (i + 1)), t = order[i]; order[i] = order[j]; order[j] = t; } for (let i = 0, o = 0; i < nL; i++) { const q = order[i] * 12; for (let k = 0; k < 12; k++) lf[o++] = LBUF[q + k]; } }
+  let meshV = new Float32Array(0), meshI = new Uint32Array(0); let nMeshFar = 0, nMeshA = 0; if (meshP.length) { const ord = [0, 2, 1]; meshP.sort((a, b) => ord[a[2] || 0] - ord[b[2] || 0]); for (const q of meshP) { if (!q[2]) nMeshA += q[1].length; if (q[2] !== 1) nMeshFar += q[1].length; } let nv = 0, ni = 0; for (const [v, ix] of meshP) { nv += v.length; ni += ix.length; } meshV = new Float32Array(nv); meshI = new Uint32Array(ni); let ov = 0, oi = 0; for (const [v, ix] of meshP) { meshV.set(v, ov); const b = ov / 7; for (let q = 0; q < ix.length; q++) meshI[oi + q] = ix[q] + b; ov += v.length; oi += ix.length; } }
+  const nBoxFar = boxes.length / 12; for (const q of boxesD) boxes.push(q);      // (the fine detail goes last: drawn only from near to - see main.js; and it stops nothing)
   const allSeg = new Float32Array(far.length + segs.length); allSeg.set(far); allSeg.set(segs, far.length); nSegFar = far.length / 10;
   return { cx, cz, x: ox + CH / 2, z: oz + CH / 2, y: hg[(M * M) >> 1], vb: vbuf(v), nSeg: allSeg.length / 10, nSegFar, segB: allSeg.length ? vbuf(allSeg) : null,
     hgc: hg.slice(), hwc: hwet.slice(),          // the chunk's own heights and water marks, kept for growing its grass later without working the ground out again
     col: new Float32Array(col), soft: new Float32Array(soft),          // what stops the car, and what it flattens (see above)
-    reach, lowFix, nLeaf: nL, leafB: nL ? vbuf(lf) : null, nGrass: 0, grassB: null, house: dbgHouse, nBox: boxes.length / 12, boxB: boxes.length ? vbuf(new Float32Array(signW(boxes))) : null };
+    reach, lowFix, wat: watSpot, round: watRound, nMesh: meshI.length, nMeshFar, nMeshA, meshB: meshI.length ? vbuf(meshV) : null, meshIB: meshI.length ? vbuf(meshI, GPUBufferUsage.INDEX) : null, nBoxFar, nLeaf: nL, leafB: nL ? vbuf(lf) : null, nGrass: 0, grassB: null, house: dbgHouse, tw: twList, drives, nBox: boxes.length / 12, boxB: boxes.length ? vbuf(new Float32Array(signW(boxes))) : null };
 }
 // grass is only grown for the chunks around the camera (and let go again further away): blades on level ground off the road
 // (NGF: a chunk of flower fields may hold twice as many pieces - its plants are of several pieces each, and many stand without a flower)
 const NG = 42000, NGF = 84000, gr = new Float32Array(NGF * 12);
+// GRASS_SNOW: 1 in the cool season, when the snowfield's grass is a few dry stalks out of the snow; 0 the rest of the year (set by worldclient.js)
+let GRASS_SNOW = 1;
 // A chunk's grass is grown over three or four frames, a share of it each time (grassJob: the chunk being done; one at a time, since they share
 // the array gr), so that no single frame has to wait for all of it.
 let grassJob = null;
@@ -1023,23 +1545,27 @@ function growGrass(c) {
   // tens of thousands of blades, used to hold a frame up for 20 ms each time a chunk came into range
   const hgAt = (x, z) => { const fx = (x - ox) / GS + 1, fz = (z - oz) / GS + 1, ix = floor(fx), iz = floor(fz), u = fx - ix, w = fz - iz, k = iz * M + ix; gw[0] = HW[(iz + (w > 0.5 ? 1 : 0)) * M + ix + (u > 0.5 ? 1 : 0)] > 0 ? 1 : 0; return mix(mix(HG[k], HG[k + 1], u), mix(HG[k + M], HG[k + M + 1], u), w); };
   // what kind of country it is changes only along the road, and slowly: it is looked up once for every 2 m of the chunk's length, not once a blade
-  const ZT = [], ZS = [], ZN = [], ZH = [], ZV = [], ZP = [], ZB = [], ZQ = []; const ZF = [], FLW = flwAt(oz + CH / 2), FK = flwKind(oz + CH / 2), CAP = FLW ? NGF : NG;
+  const ZT = [], ZS = [], ZN = [], ZH = [], ZV = [], ZP = [], ZB = [], ZQ = []; const WT = watOf(floor((oz + CH / 2) / SEG)), ZF = [], FLW = flwAt(oz + CH / 2), FK = flwKind(oz + CH / 2), CAP = FLW ? NGF : NG;
   for (let j = 0; j < 32; j++) { const zz = oz + j * 2 + 1; ZT[j] = townW(zz); ZS[j] = seaW(zz); ZN[j] = snowW(zz); ZH[j] = hillW(zz); ZV[j] = vergeAt(zz); ZP[j] = pineAt(zz); ZB[j] = beachW(zz); ZQ[j] = max(seaZ(zz), plantW(zz)); ZF[j] = mix(VERGE + 4, 8.5, flwW(zz)); }      // (ZQ: no rice here - by the sea, or in a plantation)
   for (let i = c.gI; i < iEnd; i++) {
     if (ng >= CAP - 2) break;
-    const x = ox + R() * CH, z = oz + R() * CH, d = abs(rdist(x, z)); if (d < 4.2) continue;
+    const x = ox + R() * CH, z = oz + R() * CH, rs = rdist(x, z), d = abs(rs); if (d < 4.2 || (d < 4.6 && hpW(z) > 0.05)) continue;      // (nor in the switchbacks' gutter)
     const zj = min(31, floor((z - oz) / 2)), tW = ZT[zj], sW = ZS[zj], nW = ZN[zj], hW = ZH[zj];
     const y = hgAt(x, z), u = R(), town = d < 160 && tW > 0.45; if (gw[0] || (town && (d < 28.5 || u > 0.5 || turfAt(x, z) < 0.55 || soiD(x, z) < 2.6))) continue;      // in town grass grows only in the yards
-    { const fx = (x - ox) / GS + 1, fz = (z - oz) / GS + 1, ix = floor(fx), iz = floor(fz), k = iz * M + ix, a = fx - ix, b = fz - iz;      // a house's drive (see buildChunk): none in the wheel tracks, a little between them, thin at the edges
-      const pv = -mix(mix(min(HW[k], 0), min(HW[k + 1], 0), a), mix(min(HW[k + M], 0), min(HW[k + M + 1], 0), a), b);
+    let pv = 0; { const fx = (x - ox) / GS + 1, fz = (z - oz) / GS + 1, ix = floor(fx), iz = floor(fz), k = iz * M + ix, a = fx - ix, b = fz - iz;      // a house's drive (see buildChunk): none in the wheel tracks, a little between them, thin at the edges
+      pv = -mix(mix(min(HW[k], 0), min(HW[k + 1], 0), a), mix(min(HW[k + M], 0), min(HW[k + M + 1], 0), a), b);
+      if (pv > 0.44) continue;      // (a temple's swept court: nothing)
+      if (WT && WT.paved && abs(z - WT.z) < 2.7 && (x - roadX(WT.z)) * WT.side > 0 && (WT.x - x) * WT.side > 0) continue;      // (nor through the asphalt of a temple's road)
       if (pv > 0.05) { const dl = (1 - (pv - 0.05) / 0.4) * 4; if (dl < 0.4 ? u > 0.3 : dl < 1.5 || (dl < 2.1 && u > 0.45)) continue; } }
     if (sW > 0.3 && x - roadX(z) > 19 && u < ZB[zj] * 1.2) continue;          // no grass on the sand
     if (d < 22 && u > 0.12 && ZP[zj]) continue;
-    if (u > 0.12 && nW > 0.3) continue;                                          // only a few dry stalks stand out of the snow                                      // and little under the casuarinas
+    if (u > 0.12 && nW * GRASS_SNOW > 0.3) continue;                                          // only a few dry stalks stand out of the snow                                      // and little under the casuarinas
     // (A crop stands only where the ground is wholly its plot's. The plots begin gradually - where a flower stretch starts or meets a canal the
     // ground changes from verge to field over the 4 m and more before ZF - and each plot has a path round it 1.8 m wide: planted from where the
     // change began, and right up to the path, flowers stood out on the grass in front of their beds and in the paths between them.)
-    if (d > ZF[zj] + 0.5 && hW < 0.02 && nW < 0.02 && tW < (FLW ? 0.02 : 0.3) && sW < 0.02 && ZQ[zj] < 0.02 && plotAt(x, z, po)[1] > (po[0] >= 4 ? (FK === 1 ? 3.0 : 2.4) : 1.9)) {        // inside a paddy plot, clear of its bunds: rice according to its stage
+    // (No crop on a track or within 3.4 m of its middle - its bank is that wide: rice and flowers were planted by the plot they fell in, with no
+    // thought for a track across it, and the thin grass let grow between wheel tracks came out, in a flower field, as flowers down the road.)
+    if (pv <= 0.002 && d > ZF[zj] + 0.5 && hW < 0.02 && nW < 0.02 && tW < (FLW ? 0.02 : 0.3) && sW < 0.02 && ZQ[zj] < 0.02 && plotAt(x, z, po)[1] > (po[0] >= 4 ? (FK === 1 ? 3.0 : 2.4) : 1.9)) {        // inside a paddy plot, clear of its bunds: rice according to its stage
       const st = po[0];
       // Rice is not sown broadcast but set out by hand in hills, a hand's span apart in rows: so each plant is moved to the nearest place of a
       // lattice 25 cm each way (hx, hz), which is how rice is transplanted in Thailand, and there several blades fan out from one foot. (Plants that fall on the same place make a fuller hill.)
@@ -1056,20 +1582,31 @@ function growGrass(c) {
           if (bloom) P(fx + cos(yw) * 0.19 * Ls, y + Ls * 0.96, z + sin(yw) * 0.19 * Ls, size, r4 * TAU, 0.95 + r3 * 0.35, size * 0.55, 0, 9, r3, 1, Ls); else P(fx, y + Ls * 0.9, z, 0.3, yw + 1, 0.9, 0.12, 0.6, 15, r3, 0.9, E15(Ls * 0.9, Ls));
         } else if (fk === 1) {   // Hydrangeas: a bush, not a stalk - waist high, rounded, dense with broad leaves, and on it four or five mopheads
           // set among the leaves at the top and sides. Bushes in rows 1.3 m apart. (A bush has no one stem: each piece sways by its own height.)
-          if (u > 0.24) continue; const bloom = u < 0.11, fx = (floor(x / 1.3) + 0.5) * 1.3 + (r4 - 0.5) * 0.2, Hb = 0.7 + 0.35 * r1, h9 = (m) => ph(m, floor(r2 * 99999));
-          for (let j = 0; j < 8; j++) { const a = j * 2.39996 + r3 * 6, rr = 0.1 + 0.34 * h9(j), h = Hb * (0.12 + 0.68 * h9(j + 20) + (bloom ? 0 : 0.2)), ll = 0.26 + 0.12 * h9(j + 40); P(fx + cos(a) * rr, y + h, z + sin(a) * rr, ll, a, 0.05 + 0.5 * h9(j + 60), ll * 0.36, 0.8, 15, h9(j + 80), 0.72, E15(h, h)); }
-          if (bloom) for (let j = 0, n = 4 + (r4 < 0.5 ? 1 : 0); j < n; j++) { const a = j * 2.2 + r1 * 6, rr = j === 0 ? 0.04 : 0.24 + 0.24 * h9(j + 100), h = Hb * (j === 0 ? 1.02 : 0.72 + 0.26 * h9(j + 120)), size = 0.25 + 0.09 * h9(j + 140);
+          if (u > 0.2) continue; const bloom = u < 0.15, fx = (floor(x / 1.3) + 0.5) * 1.3 + (r4 - 0.5) * 0.2, Hb = 0.7 + 0.35 * r1, h9 = (m) => ph(m, floor(r2 * 99999));
+          for (let j = 0; j < 5; j++) { const a = j * 2.39996 + r3 * 6, rr = 0.1 + 0.34 * h9(j), h = Hb * (0.12 + 0.68 * h9(j + 20) + (bloom ? 0 : 0.2)), ll = 0.34 + 0.14 * h9(j + 40); P(fx + cos(a) * rr, y + h, z + sin(a) * rr, ll, a, 0.05 + 0.5 * h9(j + 60), ll * 0.36, 0.8, 15, h9(j + 80), 0.72, E15(h, h)); }
+          if (bloom) for (let j = 0; j < 6; j++) { const a = j * 2.2 + r1 * 6, rr = j === 0 ? 0.04 : 0.24 + 0.26 * h9(j + 100), h = Hb * (j === 0 ? 1.04 : 0.66 + 0.34 * h9(j + 120)), size = 0.36 + 0.1 * h9(j + 140);
             P(fx + cos(a) * rr, y + h - size * 0.4, z + sin(a) * rr, size, a, 1.05 + 0.35 * h9(j + 160), size * 0.52, 0, 9, h9(j + 180), 1, h); }
         } else if (fk === 2) {   // Tulips: short, upright cups, one to a stem, two broad leaves at its foot; set out in rows
-          if (u > 0.9) continue; const bloom = u < 0.55, fx = (floor(x / 0.45) + 0.5) * 0.45 + (r4 - 0.5) * 0.06, Ls = 0.3 + 0.12 * r1, size = 0.17 + 0.04 * r2;
-          P(fx, y, z, 0.24 + 0.06 * r3, yw + 2.2, 0.75, 0.045, 0.7, 3, r3, 0.85, 0.1);
-          if (bloom) { P(fx, y - 0.02, z, Ls, yw, 1.4, 0.011, 0.1, 17, r1, 1, 0.3); P(fx + cos(yw) * 0.17 * Ls, y + Ls * 0.97, z + sin(yw) * 0.17 * Ls, size, r4 * TAU, 1.42 + r3 * 0.12, 0.058, 0, 9, r3, 1, Ls); } else P(fx, y, z, 0.22 + 0.06 * r1, yw - 1, 0.9, 0.04, 0.6, 3, r1, 0.85, 0.1);
+          // (A chunk holds only so many pieces (NGF), and a field of these small plants reaches that long before it is full: so each plant must
+          // cover more - four in five in flower, a bigger cup, two broad leaves - for the rows to close up into a carpet of colour from the road.)
+          if (u > 0.9) continue; const bloom = u < 0.72, fx = (floor(x / 0.45) + 0.5) * 0.45 + (r4 - 0.5) * 0.06, Ls = 0.34 + 0.12 * r1, size = 0.24 + 0.05 * r2;
+          P(fx, y, z, 0.3 + 0.06 * r3, yw + 2.2, 0.7, 0.075, 0.7, 3, r3, 0.85, 0.1);
+          if (bloom) { P(fx, y - 0.02, z, Ls, yw, 1.4, 0.012, 0.1, 17, r1, 1, 0.3); P(fx + cos(yw) * 0.17 * Ls, y + Ls * 0.97, z + sin(yw) * 0.17 * Ls, size, r4 * TAU, 1.42 + r3 * 0.12, 0.08, 0, 9, r3, 1, Ls); } else P(fx, y, z, 0.28 + 0.06 * r1, yw - 1, 0.85, 0.07, 0.6, 3, r1, 0.85, 0.1);
+        } else if (fk === 4) {   // Marigolds, in rows 0.55 m apart: a bushy plant knee to thigh high, dark green leaves all through it, and over the
+          // top of it four or five round heads facing up and out - most plants in flower in their season, so a field is a sheet of orange or yellow (heads 22 to 28 cm across in the drawing, more than a real one's 8 to 12: from the road at speed they must close up)
+          if (u > 0.27) continue; const bloom = u < 0.245, fx = (floor(x / 0.55) + 0.5) * 0.55 + (r4 - 0.5) * 0.08, Hb = 0.58 + 0.32 * r1, h9 = (m) => ph(m, floor(r2 * 99999));
+          for (let j = 0; j < 3; j++) { const a = j * 2.39996 + r3 * 6, rr = 0.06 + 0.16 * h9(j), h = Hb * (0.2 + 0.55 * h9(j + 20)), ll = 0.26 + 0.1 * h9(j + 40); P(fx + cos(a) * rr, y + h, z + sin(a) * rr, ll, a, 0.1 + 0.5 * h9(j + 60), ll * 0.3, 0.8, 15, h9(j + 80), 0.62, E15(h, h)); }
+          if (bloom) for (let j = 0; j < 4; j++) { const a = j * 2.2 + r1 * 6, rr = j === 0 ? 0.02 : 0.1 + 0.14 * h9(j + 100), h = Hb * (j === 0 ? 1.0 : 0.8 + 0.2 * h9(j + 120)), size = 0.22 + 0.06 * h9(j + 140);
+            P(fx + cos(a) * rr, y + h - size * 0.3, z + sin(a) * rr, size, a, 1.15 + 0.3 * h9(j + 160), size * 0.55, 0, 9, h9(j + 180), 1, h); }
         } else {                 // Lilies, in rows 0.6 m apart: a straight leafy stem - narrow leaves standing out all the way up it - and at
           // the top two or three trumpets, each on its own short stalk, facing out a different way.
-          if (u > 0.42) continue; const bloom = u < 0.17, fx = (floor(x / 0.6) + 0.5) * 0.6 + (r4 - 0.5) * 0.08, Ls = (0.8 + 0.3 * r1) * (bloom ? 1 : 0.85);
+          // (Seen from a passing car a lily field must read as flowers, not as rows of sticks: seven plants in ten are in bloom, each with a
+          // head of three big trumpets that all but hides its top, over a few broad leaves. And a chunk holds only so many pieces (NGF): with
+          // more plants than that allows, the last of them were simply left out and the field stood thin - so fewer plants, of fewer, bigger pieces.)
+          if (u > 0.26) continue; const bloom = u < 0.18, fx = (floor(x / 0.6) + 0.5) * 0.6 + (r4 - 0.5) * 0.08, Ls = (0.8 + 0.3 * r1) * (bloom ? 1 : 0.85);
           P(fx, y - 0.02, z, Ls, yw, 1.5, 0.013, 0.05, 17, r1, 1, 0.4);
-          for (let j = 0, n = bloom ? 4 : 5; j < n; j++) { const a = yw + j * 2.4 + r3 * 3, h = Ls * (0.18 + 0.17 * j); P(fx, y + h, z, 0.3 + 0.08 * r2, a, 0.5, 0.034, 0.9, 15, r2, 0.82, E15(h, Ls)); }
-          if (bloom) for (let j = 0; j < 3; j++) { const a = yw + j * 2.1 + r2 * 2, size = 0.29 + 0.08 * ph(j, floor(r3 * 999)); P(fx + cos(a) * 0.11, y + Ls * (1.0 - 0.07 * j) - size * 0.25, z + sin(a) * 0.11, size, a, 1.0 + 0.35 * ph(j + 5, floor(r1 * 999)), size * 0.55, 0, 9, ph(j + 9, floor(r2 * 999)), 1, Ls); }
+          for (let j = 0, n = bloom ? 3 : 4; j < n; j++) { const a = yw + j * 2.4 + r3 * 3, h = Ls * (0.14 + 0.2 * j); P(fx, y + h, z, 0.42 + 0.1 * r2, a, 0.45, 0.062, 0.9, 15, r2, 0.82, E15(h, Ls)); }
+          if (bloom) for (let j = 0; j < 3; j++) { const a = yw + j * 2.1 + r2 * 2, size = 0.44 + 0.1 * ph(j, floor(r3 * 999)); P(fx + cos(a) * 0.14, y + Ls * (1.04 - 0.06 * j) - size * 0.25, z + sin(a) * 0.14, size, a, 1.0 + 0.35 * ph(j + 5, floor(r1 * 999)), size * 0.55, 0, 9, ph(j + 9, floor(r2 * 999)), 1, Ls); }
         }
         ng--;      // (the last piece is counted with everything else, below)
       } else
@@ -1092,7 +1629,7 @@ function growGrass(c) {
   c.gI = iEnd; c.gN = ng; if (iEnd < NG && ng < CAP - 2) return;          // more to do next frame
   c.nGrass = ng; c.grassB = ng ? vbuf(gr.subarray(0, ng * 12)) : null; c.grassTried = true; grassJob = null;
 }
-function dropChunk(c) { c.dead = true; c.boxB && c.boxB.destroy(); c.vb.destroy(); c.segB && c.segB.destroy(); c.leafB && c.leafB.destroy(); c.grassB && c.grassB.destroy(); }
+function dropChunk(c) { c.dead = true; c.meshB && c.meshB.destroy(); c.meshIB && c.meshIB.destroy(); c.boxB && c.boxB.destroy(); c.vb.destroy(); c.segB && c.segB.destroy(); c.leafB && c.leafB.destroy(); c.grassB && c.grassB.destroy(); }
 const want = [];
 let cxS = 1e9, czS = 1e9;      // the chunk the eye counts as being in: it changes only when the eye is 8 m into the next one
 function updateChunks(px, pz, budget) {
@@ -1106,7 +1643,7 @@ function updateChunks(px, pz, budget) {
   }
   for (const [k, c] of chunks) if (!keep.has(k)) { dropChunk(c); chunks.delete(k); }
   want.sort((a, b) => a[0] - b[0]);
+  if (typeof chunkQueue === 'function') return chunkQueue(want, budget, keep);      // (built by the world worker: see worldclient.js)
   for (let i = 0; i < want.length && i < budget; i++) chunks.set(want[i][3], buildChunk(want[i][1], want[i][2]));
   return want.length;
 }
-

@@ -225,6 +225,7 @@ function updateChunks(px, pz, budget) {
   for (let dz = -6; dz <= 6; dz++) for (let dx = -6; dx <= 6; dx++) { if (dx * dx + dz * dz > 34) continue; const cx = cxS + dx, cz = czS + dz, k = cx + ',' + cz; keep.add(k); if (!chunks.has(k)) want.push([hypot((cx + 0.5) * CH - px, (cz + 0.5) * CH - pz), cx, cz, k]); }
   for (const [k, c] of chunks) if (!keep.has(k)) { dropChunk(c); chunks.delete(k); }
   want.sort((a, b) => a[0] - b[0]);
+  if (typeof chunkQueue === 'function') return chunkQueue(want, budget, keep);      // (built by the world worker: see worldclient.js)
   for (let i = 0; i < want.length && i < budget; i++) chunks.set(want[i][3], buildChunk(want[i][1], want[i][2]));
   return want.length;
 }

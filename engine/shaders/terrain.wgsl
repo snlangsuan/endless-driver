@@ -1,6 +1,8 @@
 // The ground of Endless and its sea: the fragment stage that paints the terrain (road, paddies, town, beach) and the sea's colour.
 // (A game with another land brings its own file in place of this one: see boot.js.)
 // the sea: turquoise over the shallows, deep blue further out, waves that mirror the sky and glitter under the sun, foam at the rocks
+// One fallen petal, if there is one in the cell of the 10 cm grid that pc lies in (dens: the share of cells that have one): x how much of it covers this point, y its tint.
+fn petl(pc: vec2f, dens: f32) -> vec2f { let ci = floor(pc); let pd = length(fract(pc) - .5 - (vec2f(h2(ci + 7.3), h2(ci + 19.1)) - .5) * .55); return vec2f(step(h2(ci), dens) * ss(.26, .18, pd), h2(ci + 3.1)); }
 fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   let t = g.cam.w; let P = wp.xz; let d = distance(g.cam.xyz, wp);
   var u = wp.x - roadX(wp.z) - shoreX(wp.z); var b = bch(wp.z);          // u: metres out from the waterline
@@ -29,6 +31,15 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   // Pf: the place within a 256 m tile, worked out from the position relative to the eye (exact) and the eye's own place in the tile (g.camM,
   // reckoned in double precision by the script). All fine grain is drawn from Pf: an absolute position is only good to millimetres far from the origin.
   let Pf = fract((i.rel.xz + g.camM.xy) / 256.) * 256.;
+  // Beside an underpass's cutting the ground's 2 m squares slope from the cutting's floor up to the street, and their corners stood up out of the
+  // cutting as white spikes along the foot of the wall. Nothing of the ground that steep and that close to the wall is drawn: the wall stands
+  // there (4.5 to 5.2 m out, square to the road), and the frontage road's slab beyond it.
+  // (the gutters along both edges of the switchbacks - chunks.js: the ground is not drawn over their channels, 3.85 to 4.45 m out)
+  { if (hpw(wp.z) > .05 && tunk(wp.z) < .5) { let rg = abs(rdist(P)); if (rg > 3.86 && rg < 4.42) { discard; } } }
+  // (wherever the walls stand - the road 20 cm and more below the street - and whatever the slope's own smoothed normal says: it was shaded as
+  // if level, and the spikes stayed)
+  { if (isb(wp.z) > .5 && abs(rdist(P)) < 5.4) { discard; } }      // (none under an island bridge's deck: near its ends, on the road's bank, the ground came up through the deck)
+  { if (udd(wp.z) > .2) { let sl = roadX(wp.z + .5) - roadX(wp.z - .5); let dq = abs(wp.x - roadX(wp.z)) * inverseSqrt(1. + sl * sl); if (dq > 4.05 && dq < 7.4) { discard; } } }
   let dPx = dpdx(i.rel.xz); let dPy = dpdy(i.rel.xz); let pxa = length(dPx); let pxb = length(dPy); let px = sqrt(max(sqrt(pxa * pxb) * max(pxa, pxb), 1e-10));      // between the pixel's mean size and its long side on the ground
   // (Each grain is worked out only where it can still be told apart - where its fade is above nothing. Faded out it is its mean value exactly, so
   // the picture is the same; and from the driver's seat most of the ground on screen is too far, or seen too flat, for the fine ones.)
@@ -84,14 +95,16 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   // The drive of a house in the fields (marked in the grid by chunks.js: i.w negative says how far it is to the drive's middle line, -.45 on it ..
   // -.05 at 4 m): earth beaten hard and pale by coming and going, the two wheel tracks barest and a shade darker, thin grass left standing between
   // them, and the turf closing in raggedly at the sides.
-  if (i.w < -.05 && i.w > -.5) { let dl = (1. - (-i.w - .05) / .4) * 4.;
+  // (-.48: the swept court of a temple - pale sandy earth, raked, a little grass only at its edges)
+  if (i.w < -.455 && i.w > -.5) { alb = mix(mix(soil, vec3f(.40, .33, .23), .7) * (.82 + .3 * n3) * (.92 + .16 * n4), grass * .9, ss(.6, .75, n2 + rag) * .25); }
+  else if (i.w < -.05 && i.w > -.5) { let dl = (1. - (-i.w - .05) / .4) * 4.;
     let worn = 1. - ss(1.35, 1.95, dl + rag * 5. + (n2 - .5) * .5);
     if (worn > 0.) { let rut = 1. - ss(.28, .6, abs(dl - .8)); let mid = ss(.5, .22, dl) * ss(.3, .55, n2 + (n3 - .5) * .6);
       let bare = mix(soil, vec3f(.36, .26, .17) * (.8 + .3 * n3), .6) * (1. - .16 * rut);
       alb = mix(alb, mix(bare, grass * .9, mid * .75), worn); } }
   var bump = .9; var gloss = .02; var wet = 0.;
   // hill country: darker turf under the forest, bare rock where the slope is steep
-  let twz = tw(wp.z); let swz = sw(wp.z); let hz_ = hw(wp.z) * (1. - twz); let slope = 1. - n.y; let nwz = max(nw(wp.z), g.camM.z);
+  let twz = tw(wp.z); let swz = sw(wp.z); let hz_ = hw(wp.z) * (1. - twz); let slope = 1. - n.y; let nwz = max(nw(wp.z) * g.ssn.x, g.camM.z);
   let fq = P * .012 + vec2f(40., 0.); var wood = 0.; if (hz_ > 0.) { let fm = (2. * pn(fq) + pn(fq * 2.03 + vec2f(17.1, 9.7))) / 3.; wood = hz_ * ss(.37, .45, fm); }      // the script plants the forest by this same number (fbm, two octaves)
   // (what belongs to one kind of country - forest floor, rock, paddies, the coast's kerbs, sand, pine needles - is only worked out where that country is)
   let ck = chy(wp.z);
@@ -103,7 +116,8 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   let rk = ss(.30, .50, slope + (n2 - .5) * .14) * max(hz_, swz);
   alb = mix(alb, mix(vec3f(.23, .20, .17), vec3f(.36, .32, .27), strata) * (.6 + .7 * n2) * (.8 + .4 * n4), rk); bump = mix(bump, 2.2, rk); }
   // rice paddies
-  let fv = flw(wp.z, twz); let pad = ss(mix(44., 6.5, fv), mix(52., 8.5, fv), rd) * (1. - ss(0., .15, hw(wp.z))) * (1. - twz) * (1. - seaz(wp.z)) * (1. - plz) * (1. - ss(0., .15, nwz));
+  let fv = flw(wp.z, twz); var pad = ss(mix(44., 6.5, fv), mix(52., 8.5, fv), rd) * (1. - ss(0., .15, hw(wp.z))) * (1. - twz) * (1. - seaz(wp.z)) * (1. - plz) * (1. - ss(0., .15, nwz));
+  pad *= 1. - ss(-.008, -.022, i.w) * step(-.5, i.w);      // (no paddy where a temple's court has been made)
   if (pad > 0.) {
   let pc = P / vec2f(28., 22.); let f = fract(pc); let hsh = ph(vec2i(floor(pc)));
   let ed = min(min(f.x, 1. - f.x) * 28., min(f.y, 1. - f.y) * 22.);
@@ -132,17 +146,18 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     let fk = fkind(wp.z); var fcol = vec3f(.88, .60, .04);                                                                    // sunflowers
     if (fk == 1.) { fcol = mix(vec3f(.28, .38, .80), vec3f(.70, .42, .72), ss(.35, .65, vn(P * .05 + 3.))); }              // hydrangeas: blue, turning mauve and pink in patches
     if (fk == 2.) { fcol = tulc(ph(vec2i(i32(floor(P.x / 5.)), 61))); }                                                     // tulips: a band of one colour, then the next
+    if (fk == 4.) { fcol = select(vec3f(.96, .70, .05), vec3f(.94, .42, .03), ph(vec2i(i32(floor(P.x / 24.)), i32(floor(P.y / 20.)) + 90)) < .62); }      // marigolds: orange and yellow plots
     if (fk == 3.) { let hp = ph(vec2i(i32(floor(pc.x)), i32(floor(pc.y)) + 50)); fcol = vec3f(.84, .82, .76); if (hp > .4) { fcol = vec3f(.88, .46, .12); } if (hp > .75) { fcol = vec3f(.80, .30, .48); } }      // lilies: a plot of white, a plot of orange, a plot of pink
     // (under sunflowers, hydrangeas and lilies the ground is hidden by leaves: seen through the stems it is dark green, not bare tilled earth)
-    if (fk != 2.) { field = mix(field, mix(vec3f(.028, .060, .016), vec3f(.13, .10, .045), fdry() * .8) * (.8 + .4 * n3), .85 * (1. - .55 * fur)); }      // (the furrows still show as lines of earth between the rows)
+    if (fk != 2.) { field = mix(field, mix(vec3f(.028, .060, .016), vec3f(.13, .10, .045), fdryK(fk) * .8) * (.8 + .4 * n3), .85 * (1. - .55 * fur)); }      // (the furrows still show as lines of earth between the rows)
     // (by season: out of bloom there is little of the flowers' colour in the field - it is the green of the plants, or in the hot season their straw)
-    let blm = fbloom(); let lfc = mix(vec3f(.050, .110, .022), vec3f(.20, .16, .06), fdry()); fcol = mix(lfc, fcol, blm);
-    field = mix(field, fcol * .6 * (.8 + .4 * n2), max(select(.2, .05, fk != 2.), ss(35., 110., dcam)) * (.75 + .25 * sin(P.x * 9.)));
+    let blm = fbloomK(fk); let lfc = mix(vec3f(.050, .110, .022), vec3f(.20, .16, .06), fdryK(fk)); fcol = mix(lfc, fcol, blm);
+    field = mix(field, fcol * .6 * (.8 + .4 * n2), max(select(.2, .05, fk != 2. && fk != 4.), ss(35., 110., dcam)) * (.75 + .25 * sin(P.x * 9.)));
     // Looked down on, single plants leave the ground showing between them and a field seems thin: so where the eye looks steeply down the
     // ground under the plants is the soft green of the leaves lower in the crop, with a wash of the flowers' colour - no shapes. (Cards of
     // flowers laid over the field, and flower heads painted on the ground, were both tried for this: paper, and a printed cloth.)
     let tk = ss(.38, .75, Vg.y);
-    field = mix(field, mix(mix(mix(vec3f(.026, .066, .013), vec3f(.058, .125, .024), vn(P * 4.5)), vec3f(.15, .12, .05), fdry() * .8) * (.7 + .5 * n3), fcol * .5, .3), tk * select(.85, .5, fk == 2.)); }
+    field = mix(field, mix(mix(mix(vec3f(.026, .066, .013), vec3f(.058, .125, .024), vn(P * 4.5)), vec3f(.15, .12, .05), fdryK(fk) * .8) * (.7 + .5 * n3), fcol * .5, .3), tk * select(.85, .5, fk == 2. || fk == 4.)); }
   let bundCol = mix(vec3f(.20, .14, .085), vec3f(.12, .15, .04), ss(.35, .65, n2)) * (.7 + .5 * n3);
   alb = mix(alb, mix(field, bundCol, bund), pad); wet *= pad * (1. - bund); }
   // river and canal: muddy grown-over banks, brown-green water; no road is painted across (the bridge carries it)
@@ -158,7 +173,11 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   // the road: gravel shoulders, asphalt, white edge lines, dashed yellow centre line
   // rdT: distance from the road's edge as the street sees it - where frontage roads widen the street beside an underpass, the extra asphalt is
   // counted as road and the footpath and everything beyond it are painted that much further out
-  let sv = select(0., svw(wp.z), twz > .01); let rdT = max(min(rd, 3.4), rd - sv);
+  // (beside an underpass's cutting the walls, the frontage roads and the kerb blocks are set out square to the road, not along x - svSide in
+  // land.js - so the paint there is measured square too: measured along x, on a slanting road the painted kerb lay a metre and more inside the
+  // kerb blocks, out on the road)
+  let sv = select(0., svw(wp.z), twz > .01); let sq = select(0., svq(wp.z), twz > .01); let sls = roadX(wp.z + .5) - roadX(wp.z - .5);
+  let rq = mix(rd, rd * inverseSqrt(1. + sls * sls), sq); let rdT = max(min(rq, 3.4), rq - sv);
   let asp = (1. - ss(3.5, 3.75, rdT)) * (1. - rivK);
   alb = mix(alb, mix(soil, vec3f(.33, .19, .11), .5) * (.75 + .5 * n3), (1. - ss(3.8, 5.2 + rag * 6., rd)) * .9 * (1. - twz) * (1. - swz) * (1. - rivK));
   // snowfield: everything level lies under snow
@@ -222,12 +241,30 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   road = mix(road, vec3f(.56, .58, .63) * (.9 + .1 * n4), nwz * .85 * (1. - ss(.55, .25, min(abs(rd - .95), abs(rd - 2.55)))) * ss(.3, .6, vn(P * .45) + .15));      // snow on the road, worn away in the wheel tracks
   alb = mix(alb, road, asp); bump = mix(bump, .25, asp); gloss = mix(gloss, .22, asp);
   // under the cherries: fallen petals, on the verges and the road's edges and (on a cherry hill) all through the wood; fewer where the wheels run
-  if (ck > 0 && nk > .01) {
-    var area = 1. - ss(9., 17., rd); if (ck == 1) { area = max(area, wood * .8); }
-    let pc = P * 10.; let ci = floor(pc); let pd = length(fract(pc) - .5 - (vec2f(h2(ci + 7.3), h2(ci + 19.1)) - .5) * .55);
+  // (only while the trees are in flower: the cool season - g.ssn.x. And under the golden showers, yellow, in the hot season - kn, pse)
+  let kn = kun(wp.z); let pse = select(g.ssn.x, ss(.55, .85, g.fog.w), kn);
+  if ((ck > 0 || kn) && nk > .01 && pse > .01) {
+    var area = 1. - ss(9., 17., rd); if (ck == 1) { area = max(area, wood * .8); } if (kn) { area = (1. - ss(8.5, 13., rd)) * .8 * (1. - ss(.02, .1, twz)); }
     let dens = area * (.12 + .50 * vn(P * .35 + 3.)) * (1. - .75 * asp * ss(3.1, 2.2, rd));
-    let pet = step(h2(ci), dens) * ss(.26, .18, pd) * nk * (1. - ss(.5, 1.4, px * 10.));
-    alb = mix(alb, mix(vec3f(.62, .16, .30), vec3f(.84, .46, .58), h2(ci + 3.1)), pet * .92);
+    // They do not lie still. Where the car has just passed (g.wake) they are blown out to both sides of its line, whirling, and for some
+    // seconds the ground there is swept; then others have fallen. And in a strong wind a share of them - the more the harder it blows, most in
+    // the gusts - skitter off downwind along the ground, in fits and starts, each lane of them at its own pace.
+    let tp = g.cam.w;
+    var wk = 0.; var wage = 0.; var wout = vec2f(0.);
+    for (var q = 0; q < 7; q++) { let wa = g.wake[q]; let wb = g.wake[q + 1]; if (wa.w * wb.w < .0004 || tp - wb.z > 8.) { continue; }
+      let ab = wb.xy - wa.xy; let hh = clamp(dot(P - wa.xy, ab) / max(dot(ab, ab), .0001), 0., 1.); let dv = P - (wa.xy + ab * hh); let dS = length(dv);
+      let k = (1. - ss(1.2, 4.2, dS)) * mix(wa.w, wb.w, hh); if (k > wk) { wk = k; wage = tp - mix(wa.z, wb.z, hh); wout = dv / max(dS, .05); } }
+    // (Wet petals stick: on wet ground - g.amb.w - neither the car nor the wind moves them much.)
+    let dryk = 1. - .9 * ss(.15, .6, g.amb.w); wk *= dryk;
+    let blown = wk * (1. - ss(5., 8., wage));
+    let disp = wout * (1. - exp(-wage * 2.2)) * 3. * wk + (vec2f(vn(P * 1.3 + tp * 2.3), vn(P * 1.3 + 9. - tp * 2.3)) - .5) * 2.4 * wk * exp(-wage * .9);
+    let Wn = g.misc.y; let mov = ss(.8, 3.2, Wn) * dryk; let wdir = vec2f(.824, .567); let lane = floor(dot(P, vec2f(-wdir.y, wdir.x)) * 3.);
+    let run = Wn * (.25 + .5 * h2(vec2f(lane, 3.7))) * (tp + 1.4 * sin(tp * .55 + lane * 1.7));
+    let aa = nk * (1. - ss(.5, 1.4, px * 10.));
+    let p0 = petl(P * 10., dens * (1. - .7 * mov)); let p1 = petl((P - disp) * 10., dens * (1. - .7 * mov) * (1. - .55 * wk)); let p2 = petl((P - wdir * run) * 10., dens * mov * (.35 + 1.3 * gust(P)));
+    var pt = mix(p0, p1, blown); if (p2.x > pt.x) { pt = p2; }
+    let pcol = select(mix(vec3f(.62, .16, .30), vec3f(.84, .46, .58), pt.y), mix(vec3f(.86, .60, .03), vec3f(.95, .78, .12), pt.y), kn);
+    alb = mix(alb, pcol, pt.x * aa * .92 * ss(.02, .3, pse));
   }
   n = normalize(n - vec3f(bx + fbx * nk * 1.4 * (1. - asp * .7), 0., bz + fbz * nk * 1.4 * (1. - asp * .7)) * bump * (1. - wet));
   let L = g.sun.xyz; let V = normalize(g.cam.xyz - wp);
@@ -272,7 +309,9 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     c += (g.amb.rgb + g.sunCol.rgb * .1) * (splash * .45 * g.sun.w * asp);
   }
   let land = fogged(c, wp);
-  let seaM = max(sw5 * ss(-.15, .15, su + swash(wp.z)), ss(-.15, .15, iw + swash(wp.z) * .5));
+  // (round the island the sea is where the shore line says - and only down at the sea's level: where the line ran under the road's bank by a
+  // bridge's end, the bank, 9 m up, was painted as sea - the water lying across the road at the bridge)
+  let seaM = max(sw5 * ss(-.15, .15, su + swash(wp.z)), ss(-.15, .15, iw + swash(wp.z) * .5) * ss(SEA + 2.5, SEA + 1., wp.y));
   if (seaM > .001) { return vec4f(mix(land, seaC(wp, V, sh), seaM), 1.); }
   return vec4f(land, 1.);
 }

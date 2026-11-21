@@ -1,5 +1,13 @@
 // --------------------------------------------------------------------------------------------------------- input, car, camera
 const keys = new Set();
+// DRIFT: the driving style chosen in the driving panel - false the ordinary grip, true drifting: the tail steps out in a hard turn and the car
+// slides through the bend, the view leaning and looking into it (drive.js, main.js); and the self-driving then minds no sign nor light.
+let DRIFT = false; try { DRIFT = localStorage.getItem('endless.drift') === '1'; } catch (e) {}
+// COACH_AT: the drift coach (drive.js) and the car's state over it - '0' both off, 'L' at the bottom left with the car's state, 'C' the two of them at the foot of the middle
+// DASSIST: drifting by hand with the help (drive.js): the stick steers the path and the slide is laid over it, as the self-driving's is; off,
+// the nose is swung against the tyres' grip and the slide must be held by hand
+let DASSIST = true; try { DASSIST = localStorage.getItem('endless.dassist') !== '0'; } catch (e) {}
+let COACH_AT = 'L'; try { const v = localStorage.getItem('endless.coach'); if (v === '0' || v === 'L' || v === 'C') COACH_AT = v; } catch (e) {}
 const auto = { on: false, limit: 90, signs: true };   // self-driving: keeps the left lane and holds the speed set for it (limit, km/h, 0-200), and no more than the signs beside the road say unless signs is off
 try { const v = localStorage.getItem('endless.limit'); if (v !== null && v !== '') auto.limit = clamp(Math.round(Number(v)) || 0, 0, 200); auto.signs = localStorage.getItem('endless.signs') !== '0'; } catch (e) {}
 // The drive starts somewhere different each time: any stretch within about 14 km of the origin (further out the ground's fine grain, which is worked out from world position, begins to lose precision), in the left lane, facing along the road.
@@ -18,7 +26,9 @@ if (LIVE) { const c = LIVE.car; car.x = c[0]; car.z = c[2]; car.yaw = c[3]; car.
 // car is is put aside every few seconds and when the page is left, and read back here. (Not after a reload made by the server while the game
 // is being worked on: that has its own, fuller note - LIVE, above.)
 let resume = true; try { resume = localStorage.getItem('endless.resume') !== '0'; } catch (e) {}
-const lastKeep = () => { if (window.GAME) return; try { localStorage.setItem('endless.last', JSON.stringify([car.x, car.y, car.z, car.yaw])); } catch (e) {} };
+// (and the game's clock - the day and the hour - which the seasons run on: kept always, so that the year goes on from where it was left)
+const lastKeep = () => { if (window.GAME) return; try { localStorage.setItem('endless.last', JSON.stringify([car.x, car.y, car.z, car.yaw])); localStorage.setItem('endless.clock', JSON.stringify([dayN, tday])); } catch (e) {} };
+if (!LIVE && !window.GAME) { try { const k = JSON.parse(localStorage.getItem('endless.clock')); if (Array.isArray(k) && k.length === 2 && k.every(Number.isFinite) && k[0] >= 0 && k[1] >= 0 && k[1] < 1) { dayN = k[0]; tday = k[1]; } } catch (e) {} }
 if (!LIVE && !window.GAME && resume) { try { const c = JSON.parse(localStorage.getItem('endless.last')); if (Array.isArray(c) && c.length === 4 && c.every(Number.isFinite) && abs(c[2]) < 14400) { car.x = c[0]; car.z = c[2]; car.yaw = c[3]; car.y = surf(car.x, car.z, c[1]); } } catch (e) {} }
 addEventListener('pagehide', lastKeep); document.addEventListener('visibilitychange', () => { if (document.hidden) lastKeep(); }); setInterval(lastKeep, 4000);
 // Full screen is of the whole page, so the text and the music player stay. While it is on, the page asks for the Esc key for itself (Keyboard Lock, in
@@ -125,7 +135,9 @@ const cfgRead = () => { for (const b of $('skQ').children) b.setAttribute('aria-
 // to stop on, and only then goes on changing by 5 at a time until let go (stepStart, stepStop).
 const drvRead = () => { $('drvB').classList.toggle('on', auto.on); if (!$('drv').open) return;
   $('dvOn').setAttribute('aria-pressed', auto.on); $('dvOn').textContent = auto.on ? 'ปิดขับอัตโนมัติ' : 'เปิดขับอัตโนมัติ'; $('dvOv').textContent = auto.on ? 'เปิดอยู่' : 'ปิดอยู่';
-  $('dvSp').value = auto.limit; $('dvSv').textContent = auto.limit + ' km/h'; $('dvSg').setAttribute('aria-pressed', auto.signs); };
+  $('dvSp').value = auto.limit; $('dvSv').textContent = auto.limit + ' km/h'; $('dvSg').setAttribute('aria-pressed', auto.signs); if ($('dvMd')) for (const b of $('dvMd').children) b.setAttribute('aria-pressed', String(b.dataset.v === (DRIFT ? '1' : '0')));
+  if ($('dvCo')) for (const b of $('dvCo').children) b.setAttribute('aria-pressed', String(b.dataset.v === COACH_AT));
+  if ($('dvAs')) for (const b of $('dvAs').children) b.setAttribute('aria-pressed', String(b.dataset.v === (DASSIST ? '1' : '0'))); };
 const setLimit = (v) => { auto.limit = clamp(Math.round(v), 0, 200); try { localStorage.setItem('endless.limit', String(auto.limit)); } catch (e) {} drvRead(); };
 let stepT = 0, stepI = 0;
 const stepStop = () => { clearTimeout(stepT); clearInterval(stepI); stepT = stepI = 0; };
@@ -134,6 +146,9 @@ const stepStart = (dir) => { stepStop(); setLimit(auto.limit + dir); stepT = set
   const D = $('drv');
   $('dvOn').addEventListener('click', () => { auto.on = !auto.on; drvRead(); });
   $('dvSp').addEventListener('input', () => setLimit(Number($('dvSp').value)));
+  if ($('dvMd')) $('dvMd').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; DRIFT = b.dataset.v === '1'; try { localStorage.setItem('endless.drift', DRIFT ? '1' : '0'); } catch (err) {} drvRead(); });
+  if ($('dvAs')) $('dvAs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; DASSIST = b.dataset.v === '1'; try { localStorage.setItem('endless.dassist', DASSIST ? '1' : '0'); } catch (err) {} drvRead(); });
+  if ($('dvCo')) $('dvCo').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; COACH_AT = b.dataset.v; try { localStorage.setItem('endless.coach', COACH_AT); } catch (err) {} drvRead(); });
   $('dvSg').addEventListener('click', () => { auto.signs = !auto.signs; try { localStorage.setItem('endless.signs', auto.signs ? '1' : '0'); } catch (e) {} drvRead(); });
   for (const [id, dir] of [['dvM', -1], ['dvP', 1]]) { const b = $(id);
     b.addEventListener('pointerdown', (e) => { if (e.button) return; try { b.setPointerCapture(e.pointerId); } catch (err) {} stepStart(dir); });
@@ -154,12 +169,12 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && document.pointerLockElement) { document.exitPointerLock(); return; }      // (with Esc held for the page, letting go of the mouse is the page's to do)
   if (e.code === 'Escape' && ($('sky').open || $('cfg').open || $('drv').open)) { for (const id of ['sky', 'cfg', 'drv']) if ($(id).open) $(id).close(); return; }      // (then it closes whichever panel is open)
   if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;       // typing in the music box is not driving
+  // (Space is the brake: it must not also press whatever button last had the focus, nor scroll the page)
+  if (e.code === 'Space') { e.preventDefault(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
   initSound(); if (e.code === 'KeyM' && !e.repeat) { mute = !mute; setVol(); }
   if (e.repeat) return; keys.add(e.code);
-  if (e.code === 'KeyT') { const J = [0.31, 0.5, 0.72, 0.9]; const n = J.find((t) => t > tday + 0.01); if (n === undefined) { tday = J[0]; dayN++; } else tday = n; headOn = -1; }
-  else if (e.code === 'KeyR') { wxAuto = false; wxCur = wxCur % 7 + 1; }
-  else if (e.code === 'KeyY') { wxAuto = !wxAuto; wxNext = time + 60 + Math.random() * 120; }
-  else if (e.code === 'KeyV') view3 = !view3;
+  // (T, R and Y - the time, the weather, the weather by itself - are not keys any more: the weather panel does them)
+  if (e.code === 'KeyV') view3 = !view3;
   else if (e.code === 'KeyL') headOn = (headOn === -1 ? (AT.night > 0.5 ? 0 : 1) : headOn ? 0 : 1);
   else if (e.code === 'KeyP') { auto.on = !auto.on; drvRead(); }
   else if (STEP_KEY[e.code]) stepStart(STEP_KEY[e.code]);      // - and +: by 1, and by 5 at a time while held
@@ -180,6 +195,7 @@ let drag = false;
 // A click on the picture takes hold of the mouse: the pointer disappears and cannot leave, and moving the mouse looks around.
 // Esc lets it go again (the browser does that). A finger on a touch screen still drags to look.
 const held = () => document.pointerLockElement === canvas;
+let lookT = 0;      // (when the mouse last turned the eye: see drive.js)
 canvas.addEventListener('pointerdown', (e) => { initSound();
   if (e.pointerType === 'mouse') { if (!held() && canvas.requestPointerLock) { try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) {} } }
   else { drag = true; canvas.setPointerCapture(e.pointerId); } });
@@ -188,6 +204,56 @@ canvas.addEventListener('pointerup', () => { drag = false; });
 canvas.addEventListener('pointermove', (e) => {
   if (!drag && !held()) return;
   if (fly.on) { fly.yaw -= e.movementX * 0.004; fly.pit = clamp(fly.pit - e.movementY * 0.004, -1.5, 1.5); }
-  else { car.ly -= e.movementX * 0.004; car.lp = clamp(car.lp - e.movementY * 0.004, -1.1, 1.1); }
+  else { car.ly -= e.movementX * 0.004; car.lp = clamp(car.lp - e.movementY * 0.004, -1.1, 1.1); lookT = performance.now(); }
 });
-const K = (c) => (keys.has(c) ? 1 : 0);
+// A game controller (a PlayStation pad, or any the browser maps the standard way): the left stick steers, R2 is the throttle and L2 the brake
+// - by how far they are pushed, not all or nothing - and Cross the throttle and Square the handbrake (HB: drive.js) as buttons, as racing
+// games have them, so that the thumb on the stick is free to steer; Shift's boost on L3. The right stick looks round. The other buttons
+// press the keys they stand for: Triangle P (self-driving), Circle V (the view), R3 or the touch pad drifting or ordinary grip (Chrome on a Mac
+// does not pass the touch pad on; in Ruin the touch pad is Tab, its map),
+// the D-pad up L (the lights), left and right the self-driving's speed - and +; L1/R1 the gears, R and D (in the flying camera down and up, Q and E);
+// Share F (the flying camera), Options H (the text over the picture). PAD: what it gives this frame.
+const PAD = { on: false, v: {}, b: [], look: [0, 0], gear: 'D' };
+const PAD_KEY = { 3: 'KeyP', 1: 'KeyV', 12: 'KeyL', 14: 'Minus', 15: 'Equal', 8: 'KeyF', 9: 'KeyH', 17: 'Tab' };
+function pollPad(dt) {
+  // (Any pad the browser shows - it shows none until a button has been pressed with the page open. Most map a PlayStation pad the standard
+  // way; some - Firefox on a Mac, among others - hand over its raw layout instead, which is put into the standard order here.)
+  const gs = navigator.getGamepads ? navigator.getGamepads() : []; let gp = null; for (const g of gs) if (g && g.connected) { gp = g; break; }
+  if (!gp) { if (PAD.on) { PAD.on = false; PAD.v = {}; PAD.gp = null; padNote('จอยหลุดการเชื่อมต่อ'); } return; }
+  if (!PAD.on || PAD.id !== gp.id) { PAD.id = gp.id; padNote('เชื่อมต่อจอยแล้ว'); initSound(); }
+  PAD.on = true; PAD.gp = gp; const dz = (a) => (abs(a) < 0.14 ? 0 : (a - Math.sign(a) * 0.14) / 0.86);
+  const raw = gp.mapping !== 'standard' && /054c|sony|dualsense|dualshock|wireless controller/i.test(gp.id) && gp.axes.length >= 6;
+  const RAWB = [1, 2, 0, 3, 4, 5, -6, -7, 8, 9, 10, 11, -1, -1, -1, -1, 12, 13];      // (standard button i is raw button RAWB[i]; negative: an axis, or the hat)
+  const Bs = (i) => { const b = gp.buttons[i]; return b ? (b.value || (b.pressed ? 1 : 0)) : 0; };
+  const B = (i) => { if (!raw) return Bs(i); const r = RAWB[i]; if (r === -6) return (gp.axes[3] + 1) / 2; if (r === -7) return (gp.axes[4] + 1) / 2;
+    if (r === -1) { const h = gp.axes[9]; if (h === undefined || h > 1.01) return 0; const d = Math.round((h + 1) * 3.5); return (i === 12 && (d === 0 || d === 1 || d === 7)) || (i === 13 && d >= 3 && d <= 5) || (i === 14 && d >= 5 && d <= 7) || (i === 15 && d >= 1 && d <= 3) ? 1 : 0; }
+    return Bs(r); };
+  const lx = dz(gp.axes[0] || 0), ly = dz(gp.axes[1] || 0), rx = dz(gp.axes[raw ? 2 : 2] || 0), ry = dz(gp.axes[raw ? 5 : 3] || 0);
+  // (the left stick pushed forward drives on and pulled back brakes, for those who drive with the stick alone; the triggers do it by degrees)
+  // (An automatic gearbox, D and R, changed with R1 and L1: the throttle drives the car the way the gear says, and the brakes - L2, the stick
+  // pulled back - only ever stop it, never run it backwards. The keyboard keeps W and S as they were.)
+  const tz = (v) => (v < 0.06 ? 0 : v), gas = tz(max(B(7), B(0), -ly)), brk = tz(max(B(6), ly));      // (a trigger at rest may read a hair above 0: it must not hold the brake on)
+  PAD.v = { KeyW: PAD.gear === 'D' ? gas : 0, KeyS: PAD.gear === 'R' ? gas : 0, KeyA: max(0, -lx), KeyD: max(0, lx), Space: brk, HB: tz(B(2)), ShiftLeft: B(10), KeyQ: fly.on ? B(4) : 0, KeyE: fly.on ? B(5) : 0 };
+  // (the buttons that stand for keys: pressed and let go as those keys would be, so that everything they do is done the one way)
+  const ev = (type, code) => dispatchEvent(new KeyboardEvent(type, { code, key: code }));
+  for (let i = 0; i < 18; i++) { const on = B(i) > 0.5, was = !!PAD.b[i]; PAD.b[i] = on; if (on === was) continue;
+    let code = PAD_KEY[i]; if (!fly.on && (i === 4 || i === 5)) { if (on) { const g = i === 4 ? 'R' : 'D'; if (PAD.gear !== g) { PAD.gear = g; padNote('เกียร์ ' + g); } } continue; }
+    if ((i === 17 || i === 11) && on && $('dvMd')) { DRIFT = !DRIFT; try { localStorage.setItem('endless.drift', DRIFT ? '1' : '0'); } catch (e) {} padNote(DRIFT ? 'โหมดดริฟต์' : 'โหมดขับปกติ'); if (typeof drvRead === 'function') drvRead(); continue; }
+    // (Square in the ordinary grip slows the car only: say how to drift, once a press - the mode is easily not the one thought)
+    if (i === 2 && on && !DRIFT && $('dvMd') && !fly.on) padNote('เบรกมือจะดริฟต์ได้ในโหมดดริฟต์: กด R3 (กดก้านขวา) เพื่อเปิด');
+    if (code) ev(on ? 'keydown' : 'keyup', code); }
+  // (taking the wheel or braking hands the self-driving's control back, as the keys do)
+  if (auto.on && !fly.on && (abs(lx) > 0.5 || brk > 0.5 || B(2) > 0.5 || PAD.gear === 'R' && gas > 0.5)) { auto.on = false; if (typeof drvRead === 'function') drvRead(); }
+  if (rx || ry) { if (fly.on) { fly.yaw -= rx * dt * 2.2; fly.pit = clamp(fly.pit - ry * dt * 1.8, -1.5, 1.5); } else { car.ly -= rx * dt * 2.6; car.lp = clamp(car.lp - ry * dt * 2, -1.1, 1.1); lookT = performance.now(); } }
+}
+addEventListener('gamepadconnected', () => { initSound(); });
+// a word at the foot of the picture for a few seconds: the pad found, or lost
+let padNoteEl = null, padNoteT = 0;
+function padNote(t) { if (!padNoteEl) { padNoteEl = document.createElement('div'); padNoteEl.style.cssText = 'position:fixed;left:50%;bottom:64px;transform:translateX(-50%);padding:8px 16px;border-radius:10px;background:rgba(20,22,28,.82);color:#fff;font:14px system-ui,sans-serif;z-index:50;pointer-events:none;transition:opacity .4s'; document.body.appendChild(padNoteEl); }
+  padNoteEl.textContent = t; padNoteEl.style.opacity = '1'; clearTimeout(padNoteT); padNoteT = setTimeout(() => { padNoteEl.style.opacity = '0'; }, 3000); }
+// The pad shakes: s the heavy motor (a thud), w the light one (a buzz), 0..1, for ms milliseconds - where the browser can (Chrome's
+// vibrationActuator, or the older hapticActuators), and quietly not where it cannot.
+function padRumble(s, w, ms) { const gp = PAD.gp; if (!gp) return; const a = gp.vibrationActuator;
+  try { if (a && a.playEffect) { const r = a.playEffect('dual-rumble', { startDelay: 0, duration: ms, strongMagnitude: clamp(s, 0, 1), weakMagnitude: clamp(w, 0, 1) }); if (r && r.catch) r.catch(() => {}); }
+    else if (gp.hapticActuators && gp.hapticActuators[0]) gp.hapticActuators[0].pulse(clamp(max(s, w), 0, 1), ms); } catch (e) {} }
+const K = (c) => max(keys.has(c) ? 1 : 0, PAD.v[c] || 0);

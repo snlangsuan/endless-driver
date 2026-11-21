@@ -31,15 +31,20 @@ const hillW = (z) => zw(z, 1, 0.46, 0.7), seaW = (z) => zw(z, 3, 0.45, 0.5), sno
 const chyAt = (z) => { const s = floor(z / SEG), k = zoneOf(s); return k === 1 && ph(s, 61) < 0.55 ? 1 : k === 0 && !flwAt(z) && ph(s, 63) < 0.25 ? 2 : 0; };
 const flwS = (s) => s === 0 || s === -2 || ph(s, 51) < 0.5, flwAt = (z) => { const s = floor(z / SEG); return zoneOf(s) === 0 && flwS(s); };        // a plain stretch where many plots are flower fields
 // A flower stretch is cut in three by its two canals, and each part between them is one place growing one flower, the whole of it: 0 sunflowers,
-// 1 hydrangeas, 2 tulips (in bands of colour), 3 lilies. (fkind in land.wgsl.)
-const flwKind = (z) => { const p = z / SEG, s = floor(p), q = p - s; return floor(ph(s * 3 + (q < 0.3 + (ph(s, 71) - 0.5) * 0.12 ? 0 : q < 0.72 + (ph(s, 72) - 0.5) * 0.12 ? 1 : 2), 387) * 4); };
+// 1 hydrangeas, 2 tulips (in bands of colour), 3 lilies - those four flower in the cool season - or, one part in four, 4 marigolds (ดาวเรือง),
+// which are the hot season's: watered, they stay green and flower through it. (fkind in land.wgsl.)
+const flwKind = (z) => { const p = z / SEG, s = floor(p), q = p - s, k = s * 3 + (q < 0.3 + (ph(s, 71) - 0.5) * 0.12 ? 0 : q < 0.72 + (ph(s, 72) - 0.5) * 0.12 ? 1 : 2); return ph(k, 389) < 0.25 ? 4 : floor(ph(k, 387) * 4); };
 // Along the coast the shore is sometimes a cliff of rocks under a high road and sometimes a sand beach the road comes down to.
 // beachW is 1 on the beaches; shoreX is how far from the road the water begins (pushed far away where the coast stretch starts and ends).
 // Some hill stretches cross a pass by switchbacks: the road swings 100 m to either side, turning about 140 degrees round bends of
 // 15 m radius, and climbs to the pass in the middle. hpW is 1 on the switchbacks (hpw in the shaders).
 // (A hill stretch has either switchbacks or a tunnel: tunS says which. The tunnel is the rarer lot, but every fourth stretch has one if it is hill.)
 const tunS = (s) => s !== 2 && (ph(s, 31) > 0.45 || ((s % 4) + 4) % 4 === 2);
-const hpW = (z) => { const p = z / SEG, s = floor(p); return zoneOf(s) !== 1 || tunS(s) ? 0 : 1 - sm(0.16, 0.24, abs(p - s - 0.5)); };
+// (and half of those stretches are a long mountain pass - tgS: the road climbs 95 m by switchbacks over nearly the whole stretch - about a
+// minute's climb and a minute's descent at a drift, the pass compressed from the five-kilometre mountain roads it is after - U-bend after U-bend, with a
+// concrete gutter along the uphill edge; the others have a short flight of them in the middle)
+const tgS = (s) => ph(s, 34) < 0.5;
+const hpW = (z) => { const p = z / SEG, s = floor(p); if (zoneOf(s) !== 1 || tunS(s)) return 0; const w = tgS(s) ? 0.47 : 0.24; return 1 - sm(w - 0.08, w, abs(p - s - 0.5)); };
 const hpX = (z) => { const e = hpW(z); return e <= 0 ? 0 : e * 100 * sin(0.0262 * (z - (floor(z / SEG) + 0.5) * SEG)); };
 // Where the road runs far from straight along z, distances from it must be measured square to the road, not along x.
 // roadSl: the road's dx/dz. rp: the point 'off' metres to the side of the road at z (+ is the +x side). rdist: signed distance of a
@@ -94,7 +99,9 @@ const udG = (g) => { let v = UDC.get(g);
   if (v === undefined) { UDC.set(g, 0);          // (so that asking about the road's height while this is being worked out finds 'none' and does not ask again)
     const zc = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36 + 34; v = ph(g, 523) < 0.5 && townW(zc) > 0.6 && townW(zc - 104) > 0.6 && townW(zc + 104) > 0.6 && !nearRiv(zc, 112) ? zc : 0; UDC.set(g, v); }
   return v; };
-const udOf = (z) => { const g0 = floor((z - 34) / 360); for (let g = g0 - 1; g <= g0 + 1; g++) { const v = udG(g); if (v && abs(z - v) < 140) { UD.zc = v; return 1; } } return 0; };
+// (the nearest: two can be as little as 180 m apart, their ramps meeting - the first found, as before, put one underpass's walls in the other's
+// ramp and none of its own. Depth and width fall off alike either side of each, so taken from the nearer they meet level half way between.)
+const udOf = (z) => { const g0 = floor((z - 34) / 360); let bd = 140, f = 0; for (let g = g0 - 1; g <= g0 + 1; g++) { const v = udG(g); if (v && abs(z - v) < bd) { bd = abs(z - v); UD.zc = v; f = 1; } } return f; };
 const udip = (z) => udOf(z) ? 6.2 * (1 - sm(18, 96, abs(z - UD.zc))) : 0;
 const roadYs = (z) => roadY(z) + udip(z);
 // A frontage road (ถนนคู่ขนาน) runs at street level down each side of an underpass, one way with the traffic on that side, so that the shops and lanes
@@ -108,7 +115,10 @@ const svW = (z) => udOf(z) ? SVW * (1 - sm(96, 136, abs(z - UD.zc))) : 0;
 // measures differ by a metre or two: kerbs and lamp posts then stood out in the frontage road's lane. So beside the cutting itself the
 // street's things are set out square to the road as well: svSide(z, side, off) is the place off metres out on that side - by x as everywhere
 // else, turning over the last 10 m before the walls begin into the place measured square to the road.
-const svSide = (z, side, off) => { const w = udOf(z) ? 1 - sm(86, 96, abs(z - UD.zc)) : 0; if (w <= 0) return [roadX(z) + side * off, z];
+// (svQ: how far square it is - 1 beside the walls, easing to 0 over the 40 m from 96 to 136 m out, where the frontage roads end: over 10 m the
+// kerb had to swing out two metres, and stood in a kink)
+const svQ = (z) => (udOf(z) ? 1 - sm(96, 136, abs(z - UD.zc)) : 0);
+const svSide = (z, side, off) => { const w = svQ(z); if (w <= 0) return [roadX(z) + side * off, z];
   const sl = roadSl(z), ca = 1 / Math.sqrt(1 + sl * sl); return [roadX(z) + side * off * mix(1, ca, w), z - side * off * sl * ca * w]; };
 // At an underpass there are two levels one above the other, and which of them a car is on depends on how high it already is (y): udTop is true for a car
 // up at street level over the slab that carries the cross street (16 m either way from the middle, 8.2 m from the road's centre line), or on the
@@ -136,7 +146,7 @@ const pineWt = (z) => zoneOf(floor(z / SEG)) === 3 ? sm(0.55, 0.75, seaW(z)) * s
 const pineAt = (z) => pineWt(z) > 0.5;
 const railGap = (k) => beachW(k * 4) > 0.6 && ((k % 40) + 40) % 40 < 3;        // openings in the guard rail where you can drive down to the sand
 const roadY = (z) => {
-  const pz = z / SEG, hp = hpW(z) > 0 ? 34 * (1 - sm(0.02, 0.24, abs(pz - floor(pz) - 0.5))) : 0;         // the climb to the pass
+  const pz = z / SEG, tg = tgS(floor(pz)), hp = hpW(z) > 0 ? (tg ? 95 : 34) * (1 - sm(0.02, tg ? 0.47 : 0.24, abs(pz - floor(pz) - 0.5))) : 0;         // the climb to the pass (on a long pass 75 m)
   const base = 5 * sin(z * 0.003 + 0.4) + 2.5 * sin(z * 0.0085 + 2) + hillW(z) * (14 * sin(z * 0.0021) + 6 * sin(z * 0.0057 + 1)) + hp, sea = seaW(z);
   if (isOf(z)) { const dz = abs(z - IS.zc), t = (dz - 150) / 370;          // the island crossing: the road 9 m above the sea on the island, rising 6 m more over the middle of each bridge
     return mix(base, SEA + 9 + (t > 0 && t < 1 ? 6 * sin(PI * t) : 0), 1 - sm(520, 592, dz)); }
@@ -159,8 +169,13 @@ const vergeAt = (z) => mix(VERGE, 8.5, flwW(z));      // (flowers come right up 
 // Looked up once a lane and kept; and what rivOf leaves behind it (RV) is put back, for this is asked from inside ground() and soiD(), in the
 // middle of other work that has its own river in RV.
 const LRV = new Map(), laneRiv = (b) => { let v = LRV.get(b); if (v === undefined) { const keep = Object.assign({}, RV), zl = b * 36 + 34; v = !!(rivOf(zl) && abs(zl - RV.zr) < RV.W / 2 + 16); Object.assign(RV, keep); if (LRV.size > 4000) LRV.clear(); LRV.set(b, v); } return v; };
+// Not every lane crosses the street: four in ten go off on one side only, and meet the street at a T - laneSd(b): 0 both sides, 1 only on the
+// +x side, -1 only on -x. A crossroads with its lights (xroad) always crosses. (lsd in land.wgsl is the same.) xroad is defined below; laneSd is
+// only called once everything is.
+const laneSd = (b) => (xroad(b) ? 0 : ph(b, 531) < 0.4 ? (ph(b, 532) < 0.5 ? 1 : -1) : 0);
 const soiD = (x, z) => { const s0 = roadX(z + 0.5) - roadX(z - 0.5), b0 = Math.round((z + s0 * (x - roadX(z)) - 34) / 36); let o = 99;
   for (let b = b0 - 1; b <= b0 + 1; b++) { const zl = b * 36 + 34, s = (roadX(zl + 1) - roadX(zl - 1)) / 2; if (laneRiv(b)) continue;
+    { const sd = laneSd(b); if (sd && ((x - roadX(zl)) - (z - zl) * s) / Math.sqrt(1 + s * s) * sd < -3.05) continue; }      // (not on the side it does not go off on, beyond the road itself: see soi in land.wgsl)
     o = min(o, abs(((x - roadX(zl)) * s + z - zl) / sqrt(1 + s * s)) - (xroad(b) ? 1.65 : 0)); }      // (a cross street is 3.3 m wider than a lane: measured from where a lane's edge would be)
   return o; };
 // plot under a point: [stage 0 flooded / 1 green / 2 ripe / 3 cut, metres to the nearest bund]. A third of the plots lie under water with
@@ -179,11 +194,32 @@ const gw = [0];
 // their second canal (the rice begins again beyond it), with rubber (สวนยางพารา) or with oil palm (สวนปาล์มน้ำมัน) instead of rice. plantW: 1 inside
 // one, falling to 0 at its ends and where a town reaches in; rubW and oilW the same for each kind. (rub and oilp in land.wgsl are the same; the
 // trees are set out in buildChunk.)
-const plSeg = (s) => zoneOf(s) === 0 && !flwS(s) && ph(s, 63) >= 0.25, rubSeg = (s) => plSeg(s) && ph(s, 66) < 0.7;
+// (and of those, three in ten are not planted but rice, with an avenue of golden shower trees (ราชพฤกษ์) down the road, which flower in the hot
+// season: kunAt. The rest are the plantations.)
+const kunSeg = (s) => zoneOf(s) === 0 && !flwS(s) && ph(s, 63) >= 0.25 && ph(s, 67) < 0.3, kunAt = (z) => kunSeg(floor(z / SEG));
+const plSeg = (s) => zoneOf(s) === 0 && !flwS(s) && ph(s, 63) >= 0.25 && ph(s, 67) >= 0.3, rubSeg = (s) => plSeg(s) && ph(s, 66) < 0.7;
 const plantW = (z) => { const p = z / SEG, s = floor(p), q = p - s; if (!plSeg(s)) return 0; const e = 0.72 + (ph(s, 72) - 0.5) * 0.12; return sm(0.04, 0.09, q) * (1 - sm(e - 0.03, e - 0.006, q)) * (1 - sm(0, 0.3, townW(z))); };
 const rubW = (z) => rubSeg(floor(z / SEG)) ? plantW(z) : 0, oilW = (z) => rubSeg(floor(z / SEG)) ? 0 : plantW(z);
 const seaSeg = (s) => { const k = zoneOf(s); return k === 3 || k === 5; };
 const seaZ = (z) => { const p = z / SEG, s = floor(p), q = (p - s) * SEG; return seaSeg(s) ? 1 : max(seaSeg(s - 1) ? 1 - sm(0, 40, q) : 0, seaSeg(s + 1) ? 1 - sm(0, 40, SEG - q) : 0); };
+// Temples in the country (วัด): some stretches of plain and of hill have one, standing well back from the road - 70 to 150 m - at the end of an
+// earth track of its own. watOf(s): the temple of stretch s, or null - where it stands (x, z), which side of the road, which way it faces (its
+// front to the road), its great image (kind: 0 a seated Buddha, 1 a standing one, 2 a reclining one, 3 a great chedi), and y, the level its
+// ground is made (the land's own height there, found the first time it is asked). Its ground is levelled by ground(), below; the buildings are
+// made in buildChunk. (Towns have their temples in the street: see the blocks of a town.)
+const WATS = new Map(); let watOff = false;
+const watOf = (s) => { let T = WATS.get(s); if (T !== undefined) return T; T = null; const k = zoneOf(s);
+  // (Looked for at two places in the stretch, near its beginning and near its end, the one drawn by lot first: the first that is clear of towns,
+  // rivers, switchbacks and tunnels. On a hill always on the side away from the reservoirs.)
+  if ((k === 0 || k === 1) && ph(s, 801) < 0.9) for (let t = 0; t < 2 && !T; t++) { const first = (ph(s, 802) < 0.5) === (t === 0), q = first ? 0.12 + 0.07 * ph(s, 803) : 0.81 + 0.07 * ph(s, 803), z = Math.round((s + q) * SEG / 2) * 2, side = k === 1 ? -1 : ph(s, 804) < 0.5 ? -1 : 1;
+    const dist = k === 1 ? 95 + 55 * ph(s, 805) : flwS(s) ? 170 + 45 * ph(s, 805) : 72 + 46 * ph(s, 805), x =      // (among the flower fields a temple stands far back: the flowers keep the roadside)
+      Math.round((roadX(z) + side * dist) / 2) * 2;
+    if (townW(z) < 0.02 && townW(z - 60) < 0.02 && townW(z + 60) < 0.02 && !(rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 70) && hpW(z) <= 0 && hpW(z - 150) <= 0 && hpW(z + 150) <= 0 && !(tunOf(z) && abs(z - TN.zc) < TN.hl + 50))
+      T = { s, x, z, side, hill: k === 1, yaw: -side * PI / 2, kind: k === 1 ? [0, 1, 3, 0][floor(ph(s, 806) * 3.99)] : floor(ph(s, 806) * 3.99), paved: k === 0 && ph(s, 807) < 0.5, y: null }; }
+  if (WATS.size > 400) WATS.clear(); WATS.set(s, T); return T; };
+// (the level: the land as it would be without the temple; on the plain a little above the road, clear of the paddies' water. A place that turns
+// out to be under a reservoir has no temple.)
+const watY = (T) => { if (T.y === null) { watOff = true; const g = ground(T.x, T.z), wet = gw[0] > 0; watOff = false; T.y = T.hill ? g : roadY(T.z) + 0.3; if (wet) { T.dead = true; } } return T.y; };
 function ground(x, z) {
   const rx = roadX(z), d = abs(rdist(x, z)), zr = rzs, hpz = hpW(z), tw = townW(z), hw = hillW(z) * (1 - tw), sea = seaW(z), fv = flwW(z), pad = sm(mix(VERGE - 8, 6.5, fv), mix(VERGE + 4, 8.5, fv), d) * (1 - sm(0, 0.15, hillW(z))) * (1 - tw) * (1 - seaZ(z)) * (1 - plantW(z)) * (1 - sm(0, 0.15, snowW(z)));
   let h = (hpz > 0 ? mix(roadY(zr), roadY(z), sm(8, 40, d)) : roadY(z)) + sm(5, 30, d) * (1 - pad) * (1 - tw) * (fbm(x * 0.03 + 7, z * 0.03, 3) - 0.5) * 1.3;
@@ -249,14 +285,34 @@ function ground(x, z) {
   // wall and came up through the cutting's floor in a row of white spikes. So placed, the lowest point of any slope is at least 5 m out: inside
   // the wall or behind it. Out past that the ground is made dead level a hand below the street, under the frontage road (left to its own
   // gentle rise and fall it came up through that road's surface in places).
-  { const dp = udip(z); if (dp > 0) { const sl = roadSl(z), k = sm(7.0, 8.2, d / Math.sqrt(1 + sl * sl)); h += dp * k;
+  // (where the road is less than 20 cm down there are no walls nor frontage slabs yet: the ground is the frontage road, at the street's level from 4.4 m out)
+  { const dp = udip(z); if (dp > 0) { const sl = roadSl(z), dq = d / Math.sqrt(1 + sl * sl), k = dp < 0.2 ? sm(4.0, 4.6, dq) : sm(6.0, 7.2, dq); h += dp * k;
+      // (The ground's 2 m squares cannot step: they slope from the cutting's floor to the street. That slope is kept wholly under the frontage
+      // road's slab, 6 to 7.2 m out - no square reaches from it past the kerb at 9.15, where it showed as a dark nick, nor far enough in for its
+      // corner to stand up inside the cutting higher than the kerb along the wall's foot.)
       // (In the mouth of a lane, or of the street that crosses over the underpass, the ground is that lane's own surface, running up to the frontage road:
       // there it is kept only a finger below, not a hand, or the frontage road stood a step above the street that joins it.)
-      if (dp > 0.02) { const low = d > 8 ? mix(0.025, 0.07, sm(2.3, 4.3, soiD(x, z))) : 0.07;
-        h = mix(h, roadY(z) + dp - low, sm(0.02, 0.3, dp) * k * (1 - sm(12, 15, d))); } } }
+      // (The level is the street's where it is abreast of the point - at the foot of the square from it to the road, zf - not at the point's own z:
+      // the frontage road is laid square to the road, and on a slanting road that climbs, the ground 10 m out, levelled to the street at its
+      // own z, stood up to 15 cm proud of the frontage road's surface - poking through it in a saw-toothed edge, and leaving the road's end a step.)
+      // (and wholly from where the frontage road begins - dp 0.003 - not eased in over its first 50 m: there the ground stood up through its end)
+      if (dp > 0.003) { const low = d > 8 ? mix(0.025, 0.07, sm(2.3, 4.3, soiD(x, z))) : 0.07, zf = z + (x - roadX(z)) * sl / (1 + sl * sl), dpf = udip(zf);
+        // (only under the frontage road's slab - to 9.15 m out - is it kept low; the footpath beyond its kerb is at the street's level, as
+        // footpaths are everywhere in town: kept low with the rest, it lay a hand below the road beside it)
+        const lw2 = dp < 0.2 ? 0.02 : mix(low, 0, sm(7.0, 8.2, dq));      // (up from 8.2 m, well under the slab: the ground's 2 m squares sloped up to the street in jagged dark nicks along the kerb, eased in where they show)
+        h = mix(h, roadY(zf) + dpf - lw2 - 0.012, sm(0.003, 0.03, dp) * k * (1 - sm(12, 15, d))); udOf(z); } } }
+  if (isBr(z) && d < 6.5) h = min(h, roadY(z) - 1.8);      // (under an island bridge's deck - its underside 1.4 m down - the ground keeps below it)
   { const w = ism(x, z); if (w > -46) { const k = isBr(z) ? 1 : sm(9.5, 22, d);          // (the road runs out to the bridge's end on a bank of its own, whatever the shore does beside it)
       if (w > 0) { h = mix(h, SEA, k); if (k > 0.97) gw[0] = 1; } else h = mix(h, SEA + 0.3, k * sm(-mix(16, 46, sm(9, 34, d)), 0, w)); } }      // (a long easy slope, but for the embankment that carries the road to the bridge)
   //      // the sea round the island, and the shore going down to it
+  // a temple's ground: level over its whole compound (30 m to front and back of its middle, 25 m to either side), eased into the land over 9 m
+  // (and the track from the road to its gate runs on a low bank of its own - 7.5 m to either side of its line, eased off over 4.5 more - rising
+  // evenly from the road's level to the temple's: across paddies it would otherwise lie under their water)
+  if (!watOff) { const T = watOf(floor(z / SEG)); if (T && abs(z - T.z) < 34) { const xr = roadX(T.z), a = (x - xr) * T.side, L = abs(T.x - xr);
+      if (a > 3 && a < L + 39) { const y = watY(T); if (!T.dead) {
+          if (a < L - 28 && abs(z - T.z) < 12) { const k = (1 - sm(7.5, 12, abs(z - T.z))) * sm(3, 9, a);      // (the bank is 15 m wide on top: the way, and a verge each side with its row of trees)
+          h = mix(h, mix(roadY(T.z), y, clamp((a - 6) / (L - 36), 0, 1)), k); if (k > 0.5) gw[0] = 0; }
+          if (abs(x - T.x) < 39) { const k = (1 - sm(30, 39, abs(x - T.x))) * (1 - sm(25, 34, abs(z - T.z))); h = mix(h, y, k); if (k > 0.5) gw[0] = 0; } } } } }
   return h;
 }
 // The speed limit in force at z (km/h): 50 in town, 40 on the switchbacks, 60 on hill roads and in snow, 80 along the coast, 90 in open country.

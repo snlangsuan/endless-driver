@@ -12,8 +12,17 @@ function initSound() {
   const band = (src, type, f, q, out = master) => { const fl = AC.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const gn = AC.createGain(); gn.gain.value = 0; src.connect(fl); fl.connect(gn); gn.connect(out); return { f: fl.frequency, g: gn.gain, node: gn }; };
   // cicadas: a narrow band of hiss high up, chopped fast; two of them a little apart in pitch
   const cic = (f, rate) => { const b = band(noise(), 'bandpass', f, 14, AC.createGain()), am = AC.createGain(), lfo = AC.createOscillator(), out = AC.createGain(); b.g.value = 1; am.gain.value = 0.5; lfo.type = 'square'; lfo.frequency.value = rate; const depth = AC.createGain(); depth.gain.value = 0.5; lfo.connect(depth); depth.connect(am.gain); lfo.start(); b.node.connect(am); am.connect(out); out.gain.value = 0; out.connect(master); return out.gain; };
-  SND = { master, fx, wind: band(noise(), 'bandpass', 380, 0.5), leaves: band(noise(), 'bandpass', 2600, 0.8), rush: band(noise(), 'lowpass', 300, 0.4),
-    nb, rain: band(noise(), 'bandpass', 5200, 0.35), rainLow: band(noise(), 'lowpass', 900, 0.3), sea: band(noise(), 'lowpass', 480, 0.3), foam: band(noise(), 'highpass', 2200, 0.3), cic1: cic(5200, 92), cic2: cic(6100, 71), tBird: 0, tCrick: 0, tDog: 0, vill: 0, tVill: 0 };
+  // The tyres in a drift, made after a recording of one (its engine left out): not a clean note, nor hiss either, but a rough band about
+  // 850 Hz as wide as a hand, wandering up and down by a hundred or so, with a second near 1.5 kHz that comes and goes over seconds, and a
+  // faint scrub above to 3 kHz - made of a saw-tooth note and hiss cut to the same band together. (Hiss cut to narrow bands at 1-2 kHz alone,
+  // as first made, sounded like wind whistling; a clean note alone, like a siren. Balanced as the recording is: the 1.5 kHz band 8 dB under
+  // the main one, the scrub 13.)
+  const squeal = (vr, fr) => { const o = AC.createOscillator(), vib = AC.createOscillator(), vd = AC.createGain(), bp = AC.createBiquadFilter(), am = AC.createGain(), fl = AC.createOscillator(), fd = AC.createGain(), out = AC.createGain();
+    o.type = 'sawtooth'; o.frequency.value = 800; vib.frequency.value = vr; vd.gain.value = 22; vib.connect(vd); vd.connect(o.frequency);
+    bp.type = 'bandpass'; bp.frequency.value = 1900; bp.Q.value = 1.4; am.gain.value = 0.7; fl.type = 'triangle'; fl.frequency.value = fr; fd.gain.value = 0.3; fl.connect(fd); fd.connect(am.gain);
+    out.gain.value = 0; o.connect(bp); bp.connect(am); am.connect(out); out.connect(master); o.start(); vib.start(); fl.start(); return { f: o.frequency, g: out.gain, bp: bp.frequency }; };
+  SND = { master, fx, tq1: squeal(23, 31), tq2: squeal(17, 43), wind: band(noise(), 'bandpass', 380, 0.5), leaves: band(noise(), 'bandpass', 2600, 0.8), rush: band(noise(), 'lowpass', 300, 0.4),
+    nb, rain: band(noise(), 'bandpass', 5200, 0.35), rainLow: band(noise(), 'lowpass', 900, 0.3), sea: band(noise(), 'lowpass', 480, 0.3), foam: band(noise(), 'highpass', 2200, 0.3), cic1: cic(5200, 92), cic2: cic(6100, 71), spray: band(noise(), 'highpass', 2600, 0.4), sq1: band(noise(), 'bandpass', 850, 5), sq2: band(noise(), 'bandpass', 1500, 6), sqLow: band(noise(), 'bandpass', 2600, 1.2), gut: band(noise(), 'lowpass', 140, 0.8), tBird: 0, tCrick: 0, tDog: 0, vill: 0, tVill: 0 };
 }
 // one short voice: an oscillator whose pitch follows a list of [time, Hz] and whose loudness follows [time, level]; pan -1..1
 function voice(type, t0, fq, env, vol, pan = 0, bp = 0) {
@@ -25,6 +34,15 @@ function voice(type, t0, fq, env, vol, pan = 0, bp = 0) {
   out.connect(SND.fx); const end = t0 + env[env.length - 1][0] + 0.05; o.start(t0); o.stop(end);
 }
 const rnd = (a, b) => a + Math.random() * (b - a);
+// A wheel dropping into a gutter (down) or climbing out of it: a dull thud - a short low note falling away - and the clack of the tyre on the edge.
+function gutThump(k, down) {
+  if (!SND || AC.state !== 'running') return; const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain(), n = AC.createBufferSource(), f = AC.createBiquadFilter(), ng = AC.createGain();
+  // (a thud pitched up into what small speakers can play - at 45-95 Hz it went unheard on a laptop - with a clack of the tyre on the edge over it)
+  o.type = 'triangle'; o.frequency.setValueAtTime(down ? 190 : 230, t); o.frequency.exponentialRampToValueAtTime(down ? 85 : 110, t + 0.16);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.18 * k, t + 0.008); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22); o.connect(g); g.connect(SND.master); o.start(t); o.stop(t + 0.25);
+  n.buffer = SND.nb; f.type = 'bandpass'; f.frequency.value = down ? 900 : 1300; f.Q.value = 1.2; ng.gain.setValueAtTime(0.22 * k, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+  n.connect(f); f.connect(ng); ng.connect(SND.master); n.start(t, Math.random() * 4); n.stop(t + 0.1);
+}
 function thunder(t, vol) {      // a crack that falls away into a long rumble
   const n = AC.createBufferSource(), f = AC.createBiquadFilter(), gn = AC.createGain(); n.buffer = SND.nb; n.loop = true; f.type = 'lowpass';
   f.frequency.setValueAtTime(1100, t); f.frequency.exponentialRampToValueAtTime(70, t + 2.4);
@@ -114,6 +132,7 @@ function dogVoice(t, vol, test = '') {
   if (isBark) { barks(t, v * 0.6, dest); return; }
   let a = t; for (let i = 0, n = 1 + floor(rnd(0, 2)); i < n; i++) { const d = rnd(1.4, 3); howl(a, rnd(360, 560), d, v * 0.5, dest); a += d + rnd(0.6, 1.9); }
 }
+const TQ = 0.053, SQ1 = 0.48, SQ2 = 0.3, SQ3 = 0.045;      // (the drift's levels: see initSound)
 function updateSound(dt) {
   if (!SND || AC.state !== 'running') { if (AC && AC.state === 'suspended') AC.resume(); return; }
   const t = AC.currentTime, px = fly.on ? fly.x : car.x, pz = fly.on ? fly.z : car.z, set = (prm, v, tc = 0.25) => prm.setTargetAtTime(v, t, tc);
@@ -124,6 +143,26 @@ function updateSound(dt) {
   set(SND.wind.g, (0.003 + 0.011 * w * w * 0.5) * out, 0.5); set(SND.wind.f, 140 + 90 * w, 0.5);
   set(SND.leaves.g, 0.004 * w * w * trees * 0.5 * out, 0.4); set(SND.leaves.f, 2200 + 500 * w);
   const sp = fly.on ? 0 : abs(car.v); set(SND.rush.g, 0.0004 * sp * sp ** 0.5 * (1 + 1.6 * coverK), 0.15); set(SND.rush.f, 180 + sp * 14, 0.15);      // air and tyres at speed
+  // The tyres, sliding: a screech as the car goes sideways - two narrow bands of hiss up at 1 to 2 kHz, wavering as the rubber grips and lets go,
+  // (The levels are high because the bands are narrow: a band a hundred hertz wide keeps a few per cent of the hiss it is cut from - at the
+  // first levels the screech was all but lost under the wind.)
+  // over a lower scrubbing roar - loudest well into a drift and at speed, faint on dirt; and the rumble of a wheel run along a gutter, beating
+  // on the joints of the channel's sections as the wheel runs over them.
+  // (On a wet road the tyres hardly screech - the water takes it - and hiss through the spray instead, the more so sideways; on snow a duller,
+  // lower scrub.)
+  const wt = AT.wet || 0, slick = 1 - (car.grip === undefined ? 1 : car.grip), snowy = max(0, slick - 0.3 * wt) / 0.55;
+  set(SND.spray.g, fly.on ? 0 : wt * 0.0009 * sp * (1 + 2.5 * abs(Math.sin(car.slip || 0))) * (1 - 0.7 * coverK), 0.1);
+  { const sl = fly.on ? 0 : abs(Math.sin(car.slip || 0)), on = typeof onRoad === 'undefined' || onRoad ? 1 : 0.2, k = sm(0.1, 0.55, sl) * sm(3, 12, sp) * on * (1 - 0.65 * wt) * (1 - 0.5 * snowy), wob = vnoise(time * 7.3, 3.1) - 0.5, wob2 = vnoise(time * 11.1, 7.7) - 0.5;
+    // (A drift's screech swells in over about half a second as the slide builds - it came in at full strength at once - and dies away quickly
+    // when the slide is caught, so that the next one swells in again.)
+    SND.dOn = k > 0.05 ? min(1, (SND.dOn || 0) + dt / 0.6) : max(0, (SND.dOn || 0) - dt / 0.3); const kd = k * sm(0, 1, SND.dOn);
+    const cen = (830 + 220 * (vnoise(time * 1.1, 5.5) - 0.5) + 50 * wob + 70 * sl) * (1 - 0.35 * snowy), on15 = 0.25 + 0.75 * sm(0.4, 0.65, vnoise(time * 0.3, 9.1));
+    set(SND.tq1.g, TQ * kd * (0.8 + 0.4 * wob2), 0.05); set(SND.tq1.f, cen, 0.04); set(SND.tq1.bp, cen * 1.15, 0.1);
+    set(SND.tq2.g, TQ * 0.6 * kd * on15, 0.05); set(SND.tq2.f, cen * 1.012 + 15 * wob2, 0.04); set(SND.tq2.bp, cen * 1.8, 0.1);
+    set(SND.sq1.g, SQ1 * kd * (0.8 + 0.4 * wob2), 0.06); set(SND.sq1.f, cen, 0.05);
+    set(SND.sq2.g, SQ2 * kd * on15, 0.06); set(SND.sq2.f, cen * 1.8, 0.05);
+    set(SND.sqLow.g, SQ3 * kd * (1 - 0.5 * snowy), 0.08);
+    set(SND.gut.g, fly.on ? 0 : 0.4 * (car.gut || 0) * sm(2, 10, sp) * (0.7 + 0.3 * sin(time * sp * 3.1)), 0.03); }
   // the sea: each swell builds, breaks and hisses back down the sand
   let sv = 0; if (sea > 0.01) { const d = shoreX(pz) - (px - roadX(pz)); sv = sea * clamp(1 - max(d, 0) / 150, 0, 1) ** 2; }
   const ph1 = time * 0.85 + sin(time * 0.23) * 1.3, sw = Math.pow(0.5 + 0.5 * sin(ph1), 2.2), fm = Math.pow(0.5 + 0.5 * sin(ph1 - 0.9), 4);
