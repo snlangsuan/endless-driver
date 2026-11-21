@@ -939,7 +939,12 @@ function buildChunk(cx, cz) {
     // (on the side the power line runs down, the mouth of the drive is kept 4 m clear of the poles - one every 40 m - and of the kilometre stone)
     if (side > 0) { const p0 = Math.round(z / 40) * 40, p = rp(p0, 5.6)[1]; if (abs(z - p) < 4.5) z = Math.round((p + (z >= p ? 4.5 : -4.5)) / GS + (z >= p ? 0.5 : -0.5)) * GS;      // (measured where the pole really stands: on a bend square off the road it is carried along z)
       const s = Math.round((z - 3) / 1000) * 1000 + 3; if (abs(z - s) < 4) z = s + 5; }
-    const x = roadX(z) + side * (17 + H() * 13);
+    let x = roadX(z) + side * (17 + H() * 13);
+    // (the yard's wall reaches 9 m toward the road and 10 m along it each way of the house: where the road bends toward the yard, a corner or the
+    // wall along the side stood on the road. Every point of the wall is kept 7 m from the road's middle - the house moves back as far as it must.)
+    for (let it = 0; it < 4; it++) { let dm = 1e9;
+      for (let lx = -10; lx <= 10; lx += 2.5) for (const lz of [9, 1, -7]) { const wx = x - side * lz, wz = z + side * lx; dm = min(dm, side * (wx - roadX(wz))); }
+      if (dm >= 7) break; x += side * (7 - dm + 0.5); }
     return ok && plainRow && x > qx * CH + 11 && x < qx * CH + CH - 11 && !(rivOf(z) && abs(z - RV.zr) < RV.W / 2 + 48) && ism(x, z) < -50 ? [x, z, side] : null; };      // (and not in the sea, nor on the shore of the island crossing)
   // (a path is a straight run from a to b; what is marked is the distance to it, the least where several meet)
   const pathSeg = (ax, az, bx, bz) => { const ux = bx - ax, uz = bz - az, L2 = ux * ux + uz * uz || 1;
@@ -1303,18 +1308,22 @@ function buildChunk(cx, cz) {
   };
   roadSigns();
   // The gutters of a mountain road (ร่องน้ำ): a shallow open concrete channel along both edges of the switchbacks, right against the asphalt -
-  // 3.85 to 4.45 m out, 60 cm wide and 12 deep, so that a wheel can be run along it without the car's underside touching (drive.js lets it drop
+  // 3.85 to 4.45 m out, 60 cm wide and 20 deep, so that a wheel can be run along it without the car's underside touching (drive.js lets it drop
   // in): a thin face down from the road's edge, a floor, a low lip on the outer side, in lengths of 2 m that follow the road, closed at each end.
   // The ground is not drawn over it (terrain.wgsl), so the channel is open to the sky.
-  if (hwc > 0.4) { const gw = (z) => hpW(z) > 0.05 && !inTun(z);
-    for (let k = Math.ceil(oz / 2) - 1; k * 2 < oz + CH + 2; k++) { const z0 = k * 2, z1 = z0 + 2, zm = z0 + 1; if (!gw(zm)) continue;
+  { const gw = (z) => hpW(z) > 0.15 && !inTun(z);      // (wherever the ground is opened for it - terrain.wgsl asks only hpw: gated on the chunk being hill country as well, the gutter was left out where a pass runs on into the plain, and the open channel showed the sky)
+    // (a length is this chunk's if its middle is - and on a bend, 4.15 m out square to the road, that middle is up to 4 m along z from the road's
+    // own z: lengths of road from 6 m before the chunk to 6 m after it are gone through, or those whose middle fell over the edge were nobody's)
+    for (let k = Math.ceil(oz / 2) - 4; k * 2 < oz + CH + 6; k++) { const z0 = k * 2, z1 = z0 + 2, zm = z0 + 1; if (!gw(zm)) continue;
       const ya = roadY(z0), yb = roadY(z1), my = (ya + yb) / 2;
       for (const sd of [-1, 1]) { const G = sd * 4.15, [x0, za] = rp(z0, G), [x1, zb] = rp(z1, G), mx = (x0 + x1) / 2, mz = (za + zb) / 2; if (!inside(mx, mz)) continue;
         const L = hypot(x1 - x0, zb - za), yw = atan2(x1 - x0, zb - za), tl = -atan2(yb - ya, L), c = cos(yw), sn = sin(yw), at = (o) => [mx + sd * o * c, mz - sd * o * sn];
-        { const q = at(-0.32); boxes.push(q[0], my - 0.09, q[1], yw, 0.06, 0.18, L + 0.06, tl, 2, 0, 0.18, 0); }      // the face down from the road's edge
-        boxes.push(mx, my - 0.16, mz, yw, 0.62, 0.08, L + 0.06, tl, 48, 0, 0.08, 0);      // the floor, old wet concrete, 12 cm down
-        { const q = at(0.34); boxes.push(q[0], my - 0.05, q[1], yw, 0.1, 0.22, L + 0.06, tl, 2, 0, 0.22, 0); }      // the outer lip, a hand above the road
-        for (const [e, zz, yy] of [[gw(zm - 2), z0, ya], [gw(zm + 2), z1, yb]]) if (!e) { const q = rp(zz, G); boxes.push(q[0], yy - 0.07, q[1], yw, 0.7, 0.14, 0.08, 0, 2, 0, 0.14, 0); } } } }
+        // (material 53, scene.wgsl: the seed says which piece and which side of the road, the last number the length, so the joints can be drawn)
+        const sg = sd > 0 ? 1 : 0, Lw = 20 + L;
+        { const q = at(-0.32); boxes.push(q[0], my - 0.14, q[1], yw, 0.06, 0.28, L + 0.06, tl, 53, 2 + sg, 0.28, Lw); }      // the face down from the road's edge
+        boxes.push(mx, my - 0.24, mz, yw, 0.62, 0.08, L + 0.06, tl, 53, sg, 0.08, Lw);      // the floor, 20 cm down
+        { const q = at(0.34); boxes.push(q[0], my - 0.12, q[1], yw, 0.1, 0.32, L + 0.06, tl, 53, 4 + sg, 0.32, Lw); }      // the outer lip, a little above the road
+        for (const [e, zz, yy] of [[gw(zm - 2), z0, ya], [gw(zm + 2), z1, yb]]) if (!e) { const q = rp(zz, G); boxes.push(q[0], yy - 0.14, q[1], yw, 0.7, 0.28, 0.08, 0, 53, 6 + sg, 0.28, 20.2); } } } }
   // steel guard rail on the hill road where it runs along a drop
   // (railOn: is there a length of it from z0 to z1 - not where the stretch has none, nor in a tunnel, nor across the mouth of a drive or a temple's
   // way. Where it stops, it ends on a post: the beam runs post to post and stops at the last - no end bent down into the ground.)

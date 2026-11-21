@@ -94,11 +94,17 @@ fn svw(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.; var bd = 1
       if (!(r.y > 0. && abs(zc - r.x) < r.y * .5 + 112.) && !(zoneOf(si) == 5 && di > 38. && di < 632.)) { o = 5.4 * (1. - ss(96., 136., dz)); bd = dz; } } }
   return o; }
 // signed distance from the road's centre line, measured square to the road on the switchbacks
-fn rdist(P: vec2f) -> f32 {
-  let dx = P.x - roadX(P.y); let e = hpw(P.y); if (e <= 0.) { return dx; }
-  let s = roadX(P.y + .5) - roadX(P.y - .5); let zs = P.y + clamp(dx * s / (1. + s * s), -40., 40.);
-  let s2 = roadX(zs + .5) - roadX(zs - .5);
-  return mix(dx, ((P.x - roadX(zs)) - s2 * (P.y - zs)) / sqrt(1. + s2 * s2), ss(0., .15, e));
+fn rdist(P: vec2f) -> f32 { return rdz(P).x; }
+// rdist, and the z of the road's point it is measured from (rzs in land.js): x the distance, y that z
+fn rdz(P: vec2f) -> vec2f {
+  // (as rdist in land.js: the road's points tried every 5 m along z over |dx| (up to 60 m), the nearest refined by three steps, and the distance to it, signed by side)
+  let dx = P.x - roadX(P.y); let e = hpw(P.y); if (e <= 0.) { return vec2f(dx, P.y); }
+  let W = min(abs(dx), 60.); let n = i32(ceil(W / 5.)); var zs = P.y; var bd = 1e18;
+  for (var i = -n; i <= n; i++) { var q = P.y; if (n > 0) { q = P.y + W * f32(i) / f32(n); } let ex = P.x - roadX(q); let d2 = ex * ex + (P.y - q) * (P.y - q); if (d2 < bd) { bd = d2; zs = q; } }
+  for (var it = 0; it < 3; it++) { let s1 = roadX(zs + .5) - roadX(zs - .5); zs += clamp(((P.x - roadX(zs)) * s1 + (P.y - zs)) / (1. + s1 * s1), -5., 5.); }
+  let s2 = roadX(zs + .5) - roadX(zs - .5); let n2 = sqrt(1. + s2 * s2); let ex = P.x - roadX(zs); let ez = P.y - zs;
+  let dp = (ex - s2 * ez) / n2; let tq = (ex * s2 + ez) / n2; let k = ss(0., .15, e);
+  return vec2f(mix(dx, select(1., -1., dp < 0.) * min(length(vec2f(dp, tq)), sqrt(bd)), k), mix(P.y, zs, k));
 }
 fn rivOf(z: f32) -> vec4f {          // x: where it crosses, y: width (0: none here), z: seed, w: how much it winds
   let p = z / SEG; let s = floor(p); let si = i32(s); let zn = zoneOf(si); if (zn != 0 && zn != 2) { return vec4f(0.); }

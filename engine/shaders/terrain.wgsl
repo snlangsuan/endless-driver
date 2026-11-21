@@ -35,7 +35,10 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   // cutting as white spikes along the foot of the wall. Nothing of the ground that steep and that close to the wall is drawn: the wall stands
   // there (4.5 to 5.2 m out, square to the road), and the frontage road's slab beyond it.
   // (the gutters along both edges of the switchbacks - chunks.js: the ground is not drawn over their channels, 3.85 to 4.45 m out)
-  { if (hpw(wp.z) > .05 && tunk(wp.z) < .5) { let rg = abs(rdist(P)); if (rg > 3.86 && rg < 4.42) { discard; } } }
+  // (opened exactly where chunks.js lays a length of it: by the 2 m length of road the point is square to, and only where the pass has fully
+  // taken over - hpw .15 and up, where distances are square to the road as the gutter's are; below that they are still partly along x, and the
+  // opening stood off the gutter, a strip of sky beside it)
+  { if (hpw(wp.z) > .02) { let r = rdz(P); let zm = floor(r.y / 2.) * 2. + 1.; let rg = abs(r.x); if (rg > 3.86 && rg < 4.42 && hpw(zm) > .15 && tunk(zm) < .5) { discard; } } }
   // (wherever the walls stand - the road 20 cm and more below the street - and whatever the slope's own smoothed normal says: it was shaded as
   // if level, and the spikes stayed)
   { if (isb(wp.z) > .5 && abs(rdist(P)) < 5.4) { discard; } }      // (none under an island bridge's deck: near its ends, on the road's bank, the ground came up through the deck)

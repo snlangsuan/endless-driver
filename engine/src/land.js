@@ -52,10 +52,20 @@ const hpX = (z) => { const e = hpW(z); return e <= 0 ? 0 : e * 100 * sin(0.0262 
 const roadSl = (z) => roadX(z + 0.5) - roadX(z - 0.5);
 const rp = (z, off) => { const sl = roadSl(z), n = Math.sqrt(1 + sl * sl); return [roadX(z) + off / n, z - off * sl / n]; };
 let rzs = 0;
+// (On a pass the road winds back and forth, so the nearest point of it may be well along z from the point asked about. It is found by looking:
+// the road's points are tried every 5 m along z over as far as the point is from the road straight across (|dx| - the nearest can be no further
+// along than that), up to 60 m, and the nearest of them is then refined by three steps along the road. What is returned is the distance to that
+// point of the road, with the sign of the side. A single step from a guess was not enough: on the far side of a hairpin it ran on past the point
+// and called it a few metres from the road (a piece of road and its gutter painted on a hilltop, the ground cut down to the road); and taken
+// further from that one guess, the steps could end on the wrong leg of the road and call a point 100 m further than it was (the ground,
+// which rises away from the road, stood up there in a column).)
 const rdist = (x, z) => {
   const dx = x - roadX(z), e = hpW(z); rzs = z; if (e <= 0) return dx;
-  const sl = roadSl(z), zs = z + clamp(dx * sl / (1 + sl * sl), -40, 40), s2 = roadSl(zs), k = sm(0, 0.15, e);
-  rzs = mix(z, zs, k); return mix(dx, ((x - roadX(zs)) - s2 * (z - zs)) / Math.sqrt(1 + s2 * s2), k);
+  const W = Math.min(abs(dx), 60), n = Math.ceil(W / 5); let zs = z, bd = 1e18;
+  for (let i = -n; i <= n; i++) { const q = n ? z + W * i / n : z, ex = x - roadX(q), d2 = ex * ex + (z - q) * (z - q); if (d2 < bd) { bd = d2; zs = q; } }
+  for (let it = 0; it < 3; it++) { const s1 = roadSl(zs), n1 = 1 + s1 * s1; zs += clamp(((x - roadX(zs)) * s1 + (z - zs)) / n1, -5, 5); }
+  const s2 = roadSl(zs), n2 = Math.sqrt(1 + s2 * s2), ex = x - roadX(zs), ez = z - zs, dp = (ex - s2 * ez) / n2, tq = (ex * s2 + ez) / n2, k = sm(0, 0.15, e);
+  rzs = mix(z, zs, k); return mix(dx, (dp < 0 ? -1 : 1) * Math.min(Math.hypot(dp, tq), Math.sqrt(bd)), k);
 };
 // Rivers and canals cross the plain: in every plain stretch a river (20-30 m wide, winding) and further on a canal (8 m, nearly straight).
 // rivOf(z) finds the one belonging to this part of the road and leaves it in RV; rivM is its winding (how far its middle is from zr at x).
@@ -246,9 +256,12 @@ function ground(x, z) {
     h += hw * (1 - pad) * sm(7, 70, d) * ((fbm(x * 0.005, z * 0.005) - 0.44) * 58 + (fbm(x * 0.021 + 3, z * 0.021, 3) - 0.5) * 7);
     // reservoirs lie in basins on one side of the road, about a kilometre apart, each at its own level
     const ph0 = z * 0.006 + 1, lake = hw * (1 - hpz) * (1 - sm(0, 0.1, tt)) * sm(60, 120, x - rx) * (1 - sm(270, 340, x - rx)) * sm(0.45, 0.8, 0.5 + 0.5 * sin(ph0));
-    if (lake > 0.02) {
-      const zc = ((Math.round((ph0 - PI / 2) / TAU) * TAU + PI / 2) - 1) / 0.006, wl = roadY(zc) - 6.5;
-      h -= lake * 26; if (h < wl) { h = wl; gw[0] = 1; }
+    // (Its level is taken from the road abreast of its middle. Where the road climbs fast - a pass, or its foot - that can be far above the road
+    // here, and the water stood up out of the plain in a column 50 m high. So there is no reservoir on a pass, and none where the road here
+    // runs lower than a few metres above the water.)
+    const zc = ((Math.round((ph0 - PI / 2) / TAU) * TAU + PI / 2) - 1) / 0.006, wl = roadY(zc) - 6.5, lk = lake * (1 - sm(0, 0.02, hpz)) * sm(wl + 3, wl + 8, roadY(z));
+    if (lk > 0.02) {
+      h -= lk * 26; if (h < wl) { h = wl; gw[0] = 1; }
     }
   }
   if (tt > 0) {          // the mountain the tunnel goes through: it stands over the road too. Where the ground at a mouth lies inside the tunnel's own

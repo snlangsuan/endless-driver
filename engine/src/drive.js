@@ -194,9 +194,9 @@ function drive(dt) {
   // worked out afresh from the road's slant, at a hairpin's apex - the road there running nearly across z - the car was put back where it had
   // been, frame after frame, and stood still at speed.)
   const sideOff = (lo, hi, fromIn) => { const r1 = rdist(nx, nz), zs = rzs, a1 = abs(r1), ac = clamp(a1, lo, hi); if (ac === a1 || (fromIn && a1 < lo)) return false; const sl = roadSl(zs), n = Math.sqrt(1 + sl * sl), ex = (a1 - ac) * Math.sign(r1); nx -= ex / n; nz += ex * sl / n; return true; };
-  if (auto.on && auto.gLock && !onBr && hpW(nz) > 0.05) sideOff(3.3, 3.5, false);
-  if (!onBr && hpW(nz) > 0.05) { const r0 = abs(rdist(car.x, car.z)); if (r0 > 3.0 && r0 < 3.75 && sideOff(0, max(r0, 3.68), true)) car.v *= 1 - min(1, dt * 0.25); }
-  const gut0 = car.gut || 0; car.gut = 0; if (!onBr && hpW(nz) > 0.05) { const rg = abs(rdist(nx, nz)) + 0.75; if (rg > 3.8 && rg < 4.5) { car.gut = sm(3.84, 3.98, rg) * (1 - sm(4.3, 4.45, rg));      // (by where the outer wheels run, 0.75 m out from the car's middle: the channel is 3.86 to 4.42 m out)
+  if (auto.on && auto.gLock && !onBr && hpW(nz) > 0.15) sideOff(3.3, 3.5, false);
+  if (!onBr && hpW(nz) > 0.15) { const r0 = abs(rdist(car.x, car.z)); if (r0 > 3.0 && r0 < 3.75 && sideOff(0, max(r0, 3.68), true)) car.v *= 1 - min(1, dt * 0.25); }
+  const gut0 = car.gut || 0; car.gut = 0; if (!onBr && hpW(nz) > 0.15) { const rg = abs(rdist(nx, nz)) + 0.75; if (rg > 3.8 && rg < 4.5) { car.gut = sm(3.84, 3.98, rg) * (1 - sm(4.3, 4.45, rg));      // (by where the outer wheels run, 0.75 m out from the car's middle: the channel is 3.86 to 4.42 m out)
     gy -= 0.06 * car.gut + 0.008 * sin(nz * 3.1); } }      // (car.gut: its rumble, sound.js)
   // (a wheel going down into the gutter, or coming up out of it, is felt and heard: a jolt through the car and a thump - main.js, sound.js)
   // (and through a game pad's motors: a thud going in or out, and a tick at every joint of the channel's 2 m sections the wheel runs over)

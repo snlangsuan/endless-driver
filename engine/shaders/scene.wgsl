@@ -523,6 +523,38 @@ fn pal(h: f32) -> vec3f {
     cc *= mix((.9 + .1 * step(.06, fract(q.y / .45))) * (.9 + .1 * ss(0., .01, abs(fract(q.x / 6.) - .5))), 1., flat_);
     alb = cc; gloss = .08 + .25 * run;
   }
+  else if (mat == 53) {      // a switchback's gutter (chunks.js): precast concrete, weathered grey on top; inside dark and damp, stained by the water, silt and leaves on its floor
+    // (seed: which piece - 0 the floor, 1 the face down from the road, 2 the outer lip, 3 an end - times 2, plus 1 on the road's +x side; m.w: 20 + the piece's length)
+    let kind = floor(sd * .5 + .01); let sg = (sd - kind * 2.) * 2. - 1.; let q = i.wp.xz + vec2f(i.wp.y * .7, 0.);
+    var cc = vec3f(.40, .39, .36) * (.78 + .32 * vn(q * 2.3 + 4.)) * (.9 + .2 * vn(q * 19.));
+    cc = mix(cc, vec3f(.22, .20, .17), ss(.5, .85, vn(q * .7 + 11.)) * .5);
+    var inner = 0.; var dep = 0.;
+    if (kind < .5) { inner = step(.5, i.ln.y); dep = .2; }
+    else if (kind < 1.5) { inner = step(.5, -i.ln.x * sg); dep = i.m.z * .5 - i.lp.y; }
+    else if (kind < 2.5) { inner = step(.5, i.ln.x * sg); dep = i.m.z * .5 - i.lp.y - .04; }
+    if (inner > .5) {
+      // inside: darker the deeper, a tide line of grime where the water runs, green slime low down
+      var ic = vec3f(.17, .16, .14) * (.75 + .4 * vn(q * 6. + 2.)) * mix(1., .5, ss(.0, .2, dep));
+      ic = mix(ic, vec3f(.07, .065, .05), ss(.11, .15, dep) * .7);
+      ic = mix(ic, vec3f(.06, .09, .035), ss(.12, .2, dep) * ss(.4, .7, vn(q * 1.3 + 7.)) * .8);
+      if (kind < .5) {
+        // the floor: silt and grit in the middle, fallen leaves caught in drifts, darkest along the foot of each wall
+        let a = abs(i.lp.x);
+        ic = mix(ic, vec3f(.13, .10, .07) * (.8 + .4 * vn(q * 9.)), ss(.35, .7, vn(q * 1.7 + 3.)) * .7);
+        let lv = ss(.62, .8, vn(q * 5.5 + 13.)) * ss(.3, .6, vn(q * .6 + 21.));
+        ic = mix(ic, mix(vec3f(.16, .08, .03), vec3f(.22, .15, .05), vn(q * 23.)), lv * .85);
+        ic *= mix(.45, 1., ss(.31, .2, a));
+        gloss = .06 + .5 * g.amb.w; ic *= 1. - .35 * g.amb.w;
+      }
+      cc = ic;
+    } else if (kind > .5 && kind < 2.5 && i.ln.y > .5) {
+      // the top of a wall: a worn edge, darker where tyres have run over it
+      cc *= .85 + .15 * vn(q * 8.); cc = mix(cc, vec3f(.10, .10, .10), ss(.5, .8, vn(vec2f(q.x * .3, q.y * 3.) + 5.)) * .35);
+    }
+    // the joints between the 2 m lengths, dark lines across
+    cc *= mix(.35, 1., ss(.0, .025, (i.m.w - 20.) * .5 - abs(i.lp.z)));
+    alb = cc;
+  }
   else if (mat == 47) {      // a concrete slab carrying a road along its length (local x): asphalt down the middle with a broken yellow centre line and white edge lines; bare concrete beside it and on its sides
     let n4 = vn(i.wp.xz * 14.); alb = vec3f(.40, .39, .37) * (.8 + .3 * n4) * (.9 + .15 * vn(uv * 1.3));
     if (i.ln.y > .5) {
