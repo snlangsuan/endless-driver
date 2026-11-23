@@ -18,6 +18,7 @@ Removed from the settings dialog of `engine/endless.html`. The four models are u
 - "Mini bicycle" by Absolute Pen: https://sketchfab.com/3d-models/mini-bicycle-056e8466659f4df5888d4b92d6891e67
 - "Carry Pickup | Suzuki | Game ready" by by__Rx: https://sketchfab.com/3d-models/carry-pickup-suzuki-game-ready-e1654a399b9d448a9a7ce200410ac91d
 - "Ford Ranger Next-Gen 2023 Sport" by Asadawut.Kaewma: https://sketchfab.com/3d-models/ford-ranger-next-gen-2023-sport-e93ac097ee9a46a4a9decca9aceed03c
+- "2016 Mazda MX-5 Miata" by Galaxy Car Showroom: https://sketchfab.com/3d-models/2016-mazda-mx-5-miata-922ff6fec90340ed8cf5aabe38dd1ad2 (the player's car, `engine/assets/mx5.bin`, made by `scripts/mx5.py`: mirrored to right-hand drive, badges left out, colours baked into the vertices; added 2026-11-24, not yet in the dialog paragraph below)
 - License: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/
 - Changes made: the models were simplified and split into paintable parts for the game.
 

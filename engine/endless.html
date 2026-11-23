@@ -43,6 +43,10 @@
     <div class="seg" id="dvAs" style="grid-template-columns:1fr 1fr"><button type="button" data-v="1" title="ก้านหรือพวงมาลัยกำหนดทางที่รถไป ระบบไถลให้ตามแรงเหวี่ยง คันเร่งเปิดมุม เบรกมือเตะท้าย">ช่วยคุม (กึ่งอัตโนมัติ)</button><button type="button" data-v="0" title="หัวรถหมุนตามพวงมาลัย ยางเกาะดึงรถกลับเอง ต้องคุมการไถลเองทั้งหมด">อิสระ</button></div>
     <div class="skL">ตัวช่วยสอนดริฟต์</div>
     <div class="seg" id="dvCo" style="grid-template-columns:1fr 1fr 1fr"><button type="button" data-v="0" title="ไม่แสดงคำแนะนำและไอคอนสถานะรถ">ปิด</button><button type="button" data-v="L" title="คำแนะนำและไอคอนสถานะรถที่มุมซ้ายล่าง">มุมซ้าย</button><button type="button" data-v="C" title="คำแนะนำและไอคอนสถานะรถกลางจอด้านล่าง">กลางจอ</button></div>
+    <div class="skL" title="การหมุนมุมมองด้วยเมาส์หรือก้านขวาของจอย">การหมุนมุมมอง</div>
+    <div class="seg" id="dvCf" style="grid-template-columns:1fr 1fr"><button type="button" data-v="1" title="หมุนนุ่มและช้าลง กล้องหันกลับหน้ารถช้าลง ภาพไม่สั่นและเอียงน้อยตอนดริฟต์">ลดอาการเวียนหัว</button><button type="button" data-v="0" title="หมุนไวตามมือ ภาพเอียงและสั่นตามแรงเหวี่ยงตอนดริฟต์">ปกติ</button></div>
+    <label class="skL" for="dvLk">ความไวการหมุนมุมมอง <span id="dvLv" class="skV"></span></label>
+    <div class="skWr"><input id="dvLk" type="range" min="40" max="160" step="5" value="100"></div>
     <div class="skL">ระบบขับอัตโนมัติ <span id="dvOv" class="skV"></span></div>
     <div class="skWr"><button type="button" id="dvOn" style="flex:1" title="รถเกาะเลนซ้าย รักษาความเร็ว ชะลอเข้าโค้ง และหยุดรอไฟแดงเอง (P)">เปิดขับอัตโนมัติ</button></div>
     <label class="skL" for="dvSp">ความเร็วขับอัตโนมัติ <span id="dvSv" class="skV"></span></label>
@@ -87,7 +91,7 @@
   <div id="cst" aria-hidden="true"><svg viewBox="-20 -27 40 54"><path class="ar" d="M0 24 L0 -23 M-4 -18 L0 -24 L4 -18"/><g id="cstC"><g id="cstF0" transform="translate(-8 -9)"><rect id="cstW0" x="-1.6" y="-3" width="3.2" height="6" rx="1"/></g><g id="cstF1" transform="translate(8 -9)"><rect id="cstW1" x="-1.6" y="-3" width="3.2" height="6" rx="1"/></g><rect id="cstW2" x="-9.6" y="6" width="3.2" height="6" rx="1"/><rect id="cstW3" x="6.4" y="6" width="3.2" height="6" rx="1"/><rect class="bd" x="-6.5" y="-14" width="13" height="28" rx="4"/><rect class="ws" x="-5" y="-7.5" width="10" height="4" rx="1.2"/></g></svg><div id="cstT"></div><div id="cstK"></div></div>
   <div id="clk">--:--</div>
   <div id="look" aria-live="polite"><svg viewBox="-12 -12 24 24"><rect x="-3" y="-5" width="6" height="10" rx="1.6"/><path id="lookV" d="M0 0 L-5 -11 A12 12 0 0 1 5 -11 Z"/></svg><span id="lookT"></span></div>
-  <div id="keys">W A S D ขับ · Shift เร่ง · Space เบรก · P ขับอัตโนมัติ · - / + ความเร็วขับอัตโนมัติ (กดค้าง ทีละ 5) · คลิกจอเพื่อจับเมาส์มองรอบ (Esc ปล่อย) · L ไฟหน้า · F กล้องบิน (Q/E ลงขึ้น) · M เสียง · G หรือปุ่มมุมขวาบน เต็มจอ · H ซ่อน/แสดงข้อความ</div>
+  <div id="keys">W A S D ขับ · Shift เร่ง · Space เบรก · P ขับอัตโนมัติ · - / + ความเร็วขับอัตโนมัติ (กดค้าง ทีละ 5) · คลิกจอเพื่อจับเมาส์มองรอบ (Esc ปล่อย) · L ไฟหน้า · V มุมกล้องหลังรถ · F กล้องบิน (Q/E ลงขึ้น) · M เสียง · G หรือปุ่มมุมขวาบน เต็มจอ · H ซ่อน/แสดงข้อความ</div>
 </div>
 <div id="err"></div>
 <script src="src/boot.js"></script>

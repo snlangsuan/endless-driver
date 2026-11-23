@@ -9,7 +9,7 @@ const wwInFlight = new Set(), wwDone = [], wwGrass = []; let wwReady = false, ww
 if (WW) {
   WW.onmessage = (e) => { const m = e.data; if (m.t === 'ready') wwReady = true; else if (m.t === 'chunk') wwDone.push(m); else if (m.t === 'grass') wwGrass.push(m); else if (m.t === 'err') fail('world worker: ' + m.m); };
   WW.onerror = (e) => fail('world worker: ' + e.message);
-  const as = {}; for (const k in ASSET) as[k] = ASSET[k].slice(0);
+  const as = {}; for (const k in ASSET) if (k !== 'mx5') as[k] = ASSET[k].slice(0);
   WW.postMessage({ t: 'init', parts: wwParts, assets: as, game: { parts: GAME.parts, worldParts: GAME.worldParts } });
   // (a chunk is let go: the worker lets go of its copy too)
   const drop0 = dropChunk; dropChunk = (c) => { drop0(c); if (c.key) WW.postMessage({ t: 'drop', k: c.key }); };

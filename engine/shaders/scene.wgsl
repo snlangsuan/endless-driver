@@ -77,7 +77,7 @@ fn fhead(ft: f32, q: vec2f, yv: f32, sd: f32, col: vec3f) -> vec4f {
   var n = normalize(i.n); if (!ff) { n = -n; }
   let L = g.sun.xyz; let V = normalize(g.cam.xyz - i.wp);
   var alb = i.col * mix(.50, 1.18, i.uv.y) * (.74 + .26 * ss(0., .3, abs(i.uv.x)));
-  var trv = i.pr.y;
+  var trv = i.pr.y; var fl = 0.;      // (fl: 1 for a flower head)
   if (i.pr.y > 89.) {          // a chain of golden shower flowers (ราชพฤกษ์), hanging from its stalk: open flowers crowded along it, five round
     // yellow petals each, smaller toward the tip, which ends in a few green-yellow buds
     let sd = (i.pr.y - 91.) / 4.; trv = .5; let v = i.uv.y; let ax = i.uv.x;
@@ -155,7 +155,11 @@ fn fhead(ft: f32, q: vec2f, yv: f32, sd: f32, col: vec3f) -> vec4f {
     alb = mix(alb, vec3f(.24, .17, .07), ss(.8, 1., ax / max(wv, .05)) * ss(.45, .9, sd) * .8);
   } else
   if (i.pr.y > 19.) {          // a flower head, cut from a card that faces the eye: which flower is in pr.y (see leafV)
-    trv = .7; let fv = (i.pr.y - 20.) / 2.; let h4 = fhead(floor(fv), vec2f(i.uv.x, i.uv.y * 2. - 1.), i.uv.y, clamp((fract(fv) - .05) / .8, 0., 1.), i.col); if (h4.w < .5) { discard; } alb = h4.rgb;
+    // (A flower is a card turned to face the eye, so it is lit as if face on to whatever lights it: given a leaf's glow through it from behind,
+    // the pale and bright kinds - white lilies, yellow marigolds and sunflowers - shone as if lit from within, looking toward the sun or not.
+    // So less of the light comes through a petal, and none is brighter than real ones are, 85% at most.)
+    trv = .4; let fv = (i.pr.y - 20.) / 2.; let h4 = fhead(floor(fv), vec2f(i.uv.x, i.uv.y * 2. - 1.), i.uv.y, clamp((fract(fv) - .05) / .8, 0., 1.), i.col); if (h4.w < .5) { discard; }
+    alb = h4.rgb * min(1., .85 / max(max(h4.r, max(h4.g, h4.b)), 1e-3)); fl = 1.;
   } else
   if (i.pr.y > 9.) {           // casuarina: a hanging spray of long thin needles
     trv = 1.;
@@ -192,7 +196,7 @@ fn fhead(ft: f32, q: vec2f, yv: f32, sd: f32, col: vec3f) -> vec4f {
   var c = alb * E * (max(ndl, 0.) + through * vec3f(1.35, 1.3, .65));
   c += alb * (sky(n) + sky(-n) * .45) * ao;
   c += (E + sky(n) * .6) * pow(max(dot(n, normalize(V + L)), 0.), 28.) * (.10 + .55 * g.amb.w) * max(ndl, .15 * g.amb.w);      // wet leaves glisten
-  c += E * alb * pow(max(dot(-V, L), 0.), 5.) * .5 * ao;
+  c += E * alb * pow(max(dot(-V, L), 0.), 5.) * .5 * ao * (1. - .8 * fl);
   c += alb * head(i.wp, n) * 1.2;
   return vec4f(fogged(c, i.wp), 1.);
 }
@@ -806,6 +810,18 @@ fn pal(h: f32) -> vec3f {
   let E = g.sunCol.rgb * shadow(i.wp + n * .1);
   if (i.m.w > 4.5 && i.m.w < 5.5) { alb *= .30; emi += alb * vec3f(1.25, 1.05, .75) * .9; }      // (shape 5) inside a tunnel: dim concrete under the yellow of its lamps, not the light of the sky
   if (i.m.w > 2.5 && i.m.w < 3.5) { emi += alb * (.36 + .7 * night); }      // (shape 3) indoors under the shop's own lights, which are on all the time
+  // Snow lying - in the snowfield in the cool season, or everywhere when snow is chosen (camM.z), as on the ground (terrain.wgsl) - on what is
+  // built too: the top of every wall, rail, roof and deck under the open sky, and on the roads that are built rather than painted on the
+  // ground (bridge decks, the slab over an underpass, the frontage roads) the same cover as the road beside them, worn away in the wheel
+  // tracks. (Left bare, every bridge was a dark strip across a white land.) Not in a tunnel, nor indoors.
+  { let snw = max(nw(i.wp.z) * g.ssn.x, g.camM.z);
+    if (snw > .01 && n.y > .6 && tunk(i.wp.z) < .5 && !(i.m.w > 2.5 && i.m.w < 5.5) && mat != 10) {
+      let roadM = mat == 30 || mat == 47 || mat == 49 || mat == 51;
+      var cov = snw * ss(.3, .6, vn(i.wp.xz * .45) + select(.45, .15, roadM));
+      var sc = vec3f(.70, .73, .80);
+      if (roadM) { let rd = abs(rdist(i.wp.xz)); cov *= .85 * (1. - ss(.55, .25, min(abs(rd - .95), abs(rd - 2.55)))); sc = vec3f(.56, .58, .63); }
+      alb = mix(alb, sc * (.9 + .1 * vn(i.wp.xz * 7.)), cov); gloss = mix(gloss, .3, cov); emi *= 1. - .8 * cov;
+    } }
   var c = alb * (E * ndl + sky(n) * ao) + E * pow(max(dot(n, normalize(V + L)), 0.), 40.) * ndl * gloss + alb * head(i.wp, n) + emi;
   // Rain on the roads that are built rather than painted on the ground - bridge decks, the slab over an underpass, the frontage roads beside
   // it, a tunnel's apron: wet as the road either side of them is (they stayed dry, a dry strip across a shining road). The same darkening,
@@ -883,4 +899,56 @@ struct SO { @builtin(position) cp: vec4f, @location(0) q: vec2f };
     if (m > .001) { outc = mix(outc, seaC(hp, -rd, 1.), m); }
   }
   return vec4f(outc, 1.);
+}
+// The player's car (vsPc, playercar.js): lit as the world is - sun with the world's shadows on it, the sky - with a sheen to each kind of
+// surface: the paint deep red under a clear coat that gives back the sky, the glass dark and mirror-like, chrome and the wheels' metal bright,
+// tyres matte; the head lamps lit with the lights, the tail lamps with the lights and brighter on the brake.
+@fragment fn fsPc(i: PcO) -> @location(0) vec4f {
+  let V = normalize(g.cam.xyz - i.wp); var n = normalize(i.n); if (dot(n, V) < 0.) { n = -n; }
+  let k = i.k; let L = g.sun.xyz; let lights = g.misc.x;
+  var alb = pow(i.c, vec3f(2.2)); var spec = .25; var refl = .05; var sh = 24.; var em = vec3f(0.);
+  if (k == 0u) { alb = vec3f(.24, .006, .010); spec = 1.2; refl = .45; sh = 90.; }
+  else if (k == 2u) { alb = vec3f(.008, .009, .011); spec = 2.; refl = .9; sh = 300.; }
+  else if (k == 3u) { alb = max(alb, vec3f(.05)); spec = 1.; refl = .45; sh = 60.; }
+  else if (k == 4u) { alb *= .55; spec = .04; refl = .01; sh = 8.; }
+  else if (k == 5u) { alb = vec3f(.10, .105, .11); spec = 2.; refl = .85; sh = 250.; em = vec3f(1., .94, .82) * lights * 5.; }
+  else if (k == 6u) { alb = vec3f(.30, .01, .01); spec = 1.5; refl = .5; sh = 160.; em = vec3f(1., .04, .02) * (lights * 1.2 + pu.wh.z * 4.); }
+  else if (k == 7u) { alb = vec3f(.45, .18, .02); spec = 1.5; refl = .5; sh = 160.; }
+  else if (k == 8u) { spec = .08; refl = .02; }
+  else if (k == 9u) { alb = vec3f(.012); spec = .7; refl = .3; sh = 60.; }
+  else if (k == 10u) { alb = vec3f(.035, .033, .03); spec = .4; refl = .12; sh = 30.; }
+  let E = g.sunCol.rgb * shadowF(i.wp + n * .05); let ndl = max(dot(n, L), 0.);
+  var c = alb * (E * ndl + sky(n));
+  let R = reflect(-V, n); let fr = mix(refl * .12, refl, pow(1. - max(dot(V, n), 0.), 5.));
+  var env = mix(horizon(R), g.zen.rgb, ss(0., .7, max(R.y, 0.))); if (R.y < 0.) { env = mix(env, g.amb.rgb * .25, ss(0., -.25, R.y)); }
+  c += env * fr + E * pow(max(dot(R, L), 0.), sh) * spec * ndl;
+  return vec4f(fogged(c + em, i.wp), 1.);
+}
+// Tyre smoke (playercar.js): each puff a disc turned to face the eye, soft at its edge and lumpy within, lit by the sky and the sun - white smoke,
+// or brown dust off the road - and fogged with the distance.
+struct SmO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) a: f32, @location(2) wp: vec3f, @location(3) sd: f32, @location(4) du: f32 };
+@vertex fn vsSmoke(@builtin(vertex_index) vi: u32, @location(0) ps: vec4f, @location(1) at: vec4f) -> SmO {
+  var cn = array<vec2f, 6>(vec2f(-1., -1.), vec2f(1., -1.), vec2f(1., 1.), vec2f(-1., -1.), vec2f(1., 1.), vec2f(-1., 1.)); let q = cn[vi];
+  let rel = ps.xyz + (g.right.xyz * q.x + g.up.xyz * q.y) * ps.w;
+  var o: SmO; o.cp = g.vp * vec4f(rel, 1.); o.uv = q; o.a = at.x; o.wp = rel + g.cam.xyz; o.sd = at.z; o.du = at.y; return o;
+}
+@fragment fn fsSmoke(i: SmO) -> @location(0) vec4f {
+  let r = length(i.uv); if (r > 1.) { discard; }
+  let nz = vn(i.uv * 2.2 + i.sd * 17.) * .6 + vn(i.uv * 4.7 + i.sd * 31.) * .4;
+  let a = i.a * ss(1., .15, r) * (.45 + .8 * nz);
+  let col = mix(vec3f(.78, .78, .80), vec3f(.52, .42, .30), i.du) * (g.amb.rgb * 1.15 + g.sunCol.rgb * .5);
+  return vec4f(fogged(col, i.wp), clamp(a, 0., 1.));
+}
+// Tyre marks (playercar.js): a strip from a to b on the road, w wide; dark rubber, streaked along its length by the tread, softer at its edges.
+struct MkO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) a: f32, @location(2) wp: vec3f };
+@vertex fn vsMark(@builtin(vertex_index) vi: u32, @location(0) aw: vec4f, @location(1) ba: vec4f) -> MkO {
+  var cn = array<vec2f, 6>(vec2f(0., -1.), vec2f(1., -1.), vec2f(1., 1.), vec2f(0., -1.), vec2f(1., 1.), vec2f(0., 1.)); let q = cn[vi];
+  let d = ba.xyz - aw.xyz; let sd = normalize(vec3f(-d.z, 0., d.x) + vec3f(1e-6, 0., 0.)) * aw.w * .5;
+  let rel = mix(aw.xyz, ba.xyz, q.x) + sd * q.y;
+  var o: MkO; o.cp = g.vp * vec4f(rel, 1.); o.uv = vec2f(q.x, q.y); o.a = ba.w; o.wp = rel + g.cam.xyz; return o;
+}
+@fragment fn fsMark(i: MkO) -> @location(0) vec4f {
+  let edge = ss(1., .55, abs(i.uv.y)); let tread = .7 + .3 * step(.5, fract(i.uv.y * 3.5 + .25));
+  let a = i.a * edge * tread * (.75 + .25 * vn(i.wp.xz * 3.));
+  return vec4f(fogged(vec3f(.012, .012, .013) * (g.amb.rgb + g.sunCol.rgb * .3), i.wp), clamp(a, 0., .85));
 }

@@ -47,21 +47,25 @@ function frame(now) {
       else if (fps > up && (scale < rLid || lodK < 1)) { if (++upOK >= 6) { if (scale < 0.92 || lodK >= 1) scale = min(rLid, scale * 1.05); else lodK = min(1, lodK * 1.08); upOK = 0; rSince = 0; } }
       else upOK = 0;
     }
-    hud.textContent = hudText ? hudText() : `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${hudInfo()}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
+    // (with the words hidden (H) the frame rate alone stays, at the top left)
+    hud.textContent = hudText ? hudText() : document.body.classList.contains('noui') ? `${fps.toFixed(0)} fps` : `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${hudInfo()}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
     fN = 0; fT = 0; fWorst = 0;
   }
   resize();
-  pollPad(dt); crushRecover(dt); if (fly.on) flyMove(dt); else onRoad = drive(dt);
+  pollPad(dt); if (typeof lookStep === 'function') lookStep(dt); crushRecover(dt); if (fly.on) flyMove(dt); else onRoad = drive(dt);
   updateSound(dt); if (SHOW_CAR) placeCar(dt);
   if (gameTick) gameTick(dt);      // a game's own doings each frame (it may fill EXTRA with boxes that move: see render.js)
   // camera
   let ex, ey, ez, yaw, pit;
   if (fly.on) { ex = fly.x; ey = fly.y; ez = fly.z; yaw = fly.yaw; pit = fly.pit; }
+  else if (view3 && typeof PCAR !== 'undefined' && PCAR) { [ex, ey, ez, yaw, pit] = pcCam(dt); }      // (behind the player's car: playercar.js)
   else if (SHOW_CAR && view3) { const ya = car.yaw + car.ly; ex = car.x - sin(ya) * 6.5; ez = car.z - cos(ya) * 6.5; ey = max(car.y + 2.5, ground(ex, ez) + 0.8); yaw = ya; pit = -0.13 + car.lp; }
   else { const so = SHOW_CAR ? 1 : 0; ex = car.x - so * (0.36 * cos(car.yaw) + 0.1 * sin(car.yaw)); ez = car.z + so * (0.36 * sin(car.yaw) - 0.1 * cos(car.yaw)); ey = car.y + 1.24 + (onRoad ? 0 : (sin(car.bump) * 0.035 + sin(car.bump * 2.7) * 0.02) * min(1, abs(car.v))) - (car.jolt || 0) * 0.06 * cos((1 - (car.jolt || 0)) * 30); yaw = car.yaw + car.ly; pit = car.pit * 0.85 + car.lp;
     // (drifting: the eye looks a third of the way round toward where the car is going, and the view leans out of the turn with the slide and shakes with it)
-    if (DRIFT) { const sl = car.slip || 0; yaw -= sl * 0.35; ey += (sin(time * 37) + sin(time * 23)) * 0.012 * min(1, abs(sl) * 2) * min(1, abs(car.v) / 15); } }
+    // (in comfort mode it looks round less far into the slide, and does not shake)
+    if (DRIFT) { const sl = car.slip || 0; yaw -= sl * (COMFORT ? 0.2 : 0.35); if (!COMFORT) ey += (sin(time * 37) + sin(time * 23)) * 0.012 * min(1, abs(sl) * 2) * min(1, abs(car.v) / 15); } }
   updateChunks(ex, ez, 1);
+  if (typeof pcUpdate === 'function') { pcUpdate(dt); smokeStep(dt, Math.fround(ex), Math.fround(ey), Math.fround(ez)); marksStep(dt, Math.fround(ex), Math.fround(ey), Math.fround(ez)); }
   // The car's state, drawn from above at the foot of the screen (there is no bonnet or boot in the picture to tell by): the car turned against
   // the way it is going by its slide, its front wheels by the steering, the rear wheels red under the handbrake, one side's wheels blue down in a
   // gutter; and the gear (the pad's, or by the way the car rolls) and how far it is sideways.
@@ -77,7 +81,8 @@ function frame(now) {
   ex = Math.fround(ex); ey = Math.fround(ey); ez = Math.fround(ez);      // the eye exactly as the shaders will have it (they subtract it from every position)
   const cp = cos(pit), f = [sin(yaw) * cp, sin(pit), cos(yaw) * cp], e = [ex, ey, ez], O3 = [0, 0, 0]; let r = nrm3(cross(f, [0, 1, 0])), u = cross(r, f);
   // the lean: rolled about the line of sight, out of the turn - with the slide, and with how hard the wheel is over at speed
-  { const roll = !fly.on && !view3 && DRIFT ? clamp((car.slip || 0) * 0.22 + (car.steer || 0) * 0.05 * min(1, abs(car.v) / 20), -0.28, 0.28) : 0; if (roll) { const c = cos(roll), s = sin(roll); const r2 = r.map((v, j) => v * c + u[j] * s), u2 = u.map((v, j) => v * c - r[j] * s); r = r2; u = u2; } }
+  // (in comfort mode a third as much, and none while the driver is looking round: a view that rolls as it turns is the worst for sickness)
+  { const rk = COMFORT ? 0.33 * clamp(1 - (abs(car.ly - Math.round(car.ly / TAU) * TAU) - 0.15) / 0.3, 0, 1) : 1, roll = !fly.on && !view3 && DRIFT ? rk * clamp((car.slip || 0) * 0.22 + (car.steer || 0) * 0.05 * min(1, abs(car.v) / 20), -0.28, 0.28) : 0; if (roll) { const c = cos(roll), s = sin(roll); const r2 = r.map((v, j) => v * c + u[j] * s), u2 = u.map((v, j) => v * c - r[j] * s); r = r2; u = u2; } }
   view(mV, O3, f, r, u);            // all matrices are for positions relative to the eye
   const asp = W / H; mP.fill(0); mP[0] = 1 / (TANH * asp); mP[5] = 1 / TANH; mP[10] = FAR / (NEAR - FAR); mP[11] = -1; mP[14] = NEAR * FAR / (NEAR - FAR);
   mul(UB, mP, mV);
@@ -191,6 +196,7 @@ function frame(now) {
   if (EXTRA.nBox) { p.setPipeline(pBoxS); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, EXTRA.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, EXTRA.nBox); }
   for (const c of chunks.values()) if (c.nMesh && hypot(c.x - sc[0], c.z - sc[2]) < SHR * 1.45 + CH + 60) { const A = c.nMeshA ?? c.nMesh, Fr = c.nMeshFar ?? c.nMesh; p.setPipeline(pMeshS); p.setVertexBuffer(0, c.meshB); p.setIndexBuffer(c.meshIB, 'uint32'); if (hypot(c.x - ex, c.z - ez) < 75 + CH) { if (A) p.drawIndexed(A); if (c.nMesh > Fr) p.drawIndexed(c.nMesh - Fr, 1, Fr); } else if (Fr) p.drawIndexed(Fr); }
   if (SHOW_CAR) { p.setPipeline(pCarS); p.setVertexBuffer(0, carVB); p.setIndexBuffer(carIB, 'uint16'); p.drawIndexed(CAR.idx.length); }
+  if (typeof pcDraw === 'function') pcDraw(p, true);
   p.end();
   // 1b. what the mirrors see: the land behind the car, drawn small and without the finest detail (only from the driver's seat)
   if (SHOW_CAR && !fly.on && !view3) {
@@ -221,6 +227,7 @@ function frame(now) {
     depthStencilAttachment: { view: vDepth, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard' } });
   p.setBindGroup(0, bgScene); tris = 0;
   if (SHOW_CAR) { p.setPipeline(pCar); p.setVertexBuffer(0, carVB); p.setIndexBuffer(carIB, 'uint16'); p.drawIndexed(CAR.idx.length); }
+  if (typeof pcDraw === 'function') pcDraw(p, false);
   for (const c of seenC) {
     const d = c.dd;
     // (sculpted things: the small ones - a parked motorcycle's body - come last in the buffer and are drawn only within 75 m)
@@ -245,6 +252,8 @@ function frame(now) {
   // the ground last (but for the sky): its paint is the dearest there is, and this way none is spent where a tree or a house stands in front of it
   p.setPipeline(pTerrain); p.setIndexBuffer(ibGrid, 'uint16'); for (const c of seenC) { p.setVertexBuffer(0, c.vb); p.drawIndexed(gridI.length); tris += GN * GN * 2; }
   p.setPipeline(pSky); p.draw(3);
+  if (typeof marksDraw === 'function') marksDraw(p);      // (tyre marks on the road, then the smoke over them)
+  if (typeof smokeDraw === 'function') smokeDraw(p);      // (see-through, so after all else)
   p.end();
   // 3. bloom: bright parts spread down a chain of smaller images and added back up
   const pass = (v, pipe, bg, load = 'clear') => { const q = enc.beginRenderPass({ colorAttachments: [{ view: v, clearValue: [0, 0, 0, 1], loadOp: load, storeOp: 'store' }] }); q.setPipeline(pipe); q.setBindGroup(0, bg); q.draw(3); q.end(); };

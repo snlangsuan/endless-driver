@@ -29,7 +29,7 @@ const townW = (z) => { const p = z / SEG, s0 = floor(p); let w = 0;
 const hillW = (z) => zw(z, 1, 0.46, 0.7), seaW = (z) => zw(z, 3, 0.45, 0.5), snowW = (z) => zw(z, 4, 0.46, 0.6);
 // พญาเสือโคร่ง (wild Himalayan cherry) in bloom: 1 on a hill stretch whose woods and roadside are mostly cherry, 2 on a flat stretch with an avenue of them
 const chyAt = (z) => { const s = floor(z / SEG), k = zoneOf(s); return k === 1 && ph(s, 61) < 0.55 ? 1 : k === 0 && !flwAt(z) && ph(s, 63) < 0.25 ? 2 : 0; };
-const flwS = (s) => s === 0 || s === -2 || ph(s, 51) < 0.5, flwAt = (z) => { const s = floor(z / SEG); return zoneOf(s) === 0 && flwS(s); };        // a plain stretch where many plots are flower fields
+const flwS = (s) => s === 0 || s === -2 || ph(s, 51) < 0.3, flwAt = (z) => { const s = floor(z / SEG); return zoneOf(s) === 0 && flwS(s); };        // a plain stretch where many plots are flower fields
 // A flower stretch is cut in three by its two canals, and each part between them is one place growing one flower, the whole of it: 0 sunflowers,
 // 1 hydrangeas, 2 tulips (in bands of colour), 3 lilies - those four flower in the cool season - or, one part in four, 4 marigolds (ดาวเรือง),
 // which are the hot season's: watered, they stay green and flower through it. (fkind in land.wgsl.)
@@ -201,13 +201,14 @@ const gw = [0];
 // the sea beside it - the coast road, the island crossing - nor in the first 40 m of the stretches next to those. seaZ: 1 on such land, 0 inland.
 // (What grows there instead is what grows on Thai shores: coconut, casuarina, scrub - see buildChunk. seaz in land.wgsl is the same.)
 // Plantations: some of the plain's stretches - those that are neither flower fields nor a cherry avenue - are planted, from their start as far as
-// their second canal (the rice begins again beyond it), with rubber (สวนยางพารา) or with oil palm (สวนปาล์มน้ำมัน) instead of rice. plantW: 1 inside
+// their second canal (the rice begins again beyond it) - about half of them (flower fields were half the plain and plantations one stretch in
+// twelve; now flowers are three in ten) - with rubber (สวนยางพารา) or with oil palm (สวนปาล์มน้ำมัน) instead of rice. plantW: 1 inside
 // one, falling to 0 at its ends and where a town reaches in; rubW and oilW the same for each kind. (rub and oilp in land.wgsl are the same; the
 // trees are set out in buildChunk.)
 // (and of those, three in ten are not planted but rice, with an avenue of golden shower trees (ราชพฤกษ์) down the road, which flower in the hot
 // season: kunAt. The rest are the plantations.)
 const kunSeg = (s) => zoneOf(s) === 0 && !flwS(s) && ph(s, 63) >= 0.25 && ph(s, 67) < 0.3, kunAt = (z) => kunSeg(floor(z / SEG));
-const plSeg = (s) => zoneOf(s) === 0 && !flwS(s) && ph(s, 63) >= 0.25 && ph(s, 67) >= 0.3, rubSeg = (s) => plSeg(s) && ph(s, 66) < 0.7;
+const plSeg = (s) => zoneOf(s) === 0 && !flwS(s) && ph(s, 63) >= 0.25 && ph(s, 67) >= 0.3, rubSeg = (s) => plSeg(s) && ph(s, 66) < 0.55;
 const plantW = (z) => { const p = z / SEG, s = floor(p), q = p - s; if (!plSeg(s)) return 0; const e = 0.72 + (ph(s, 72) - 0.5) * 0.12; return sm(0.04, 0.09, q) * (1 - sm(e - 0.03, e - 0.006, q)) * (1 - sm(0, 0.3, townW(z))); };
 const rubW = (z) => rubSeg(floor(z / SEG)) ? plantW(z) : 0, oilW = (z) => rubSeg(floor(z / SEG)) ? 0 : plantW(z);
 const seaSeg = (s) => { const k = zoneOf(s); return k === 3 || k === 5; };

@@ -2,7 +2,7 @@
 // These must match src/land.js. (A game with another land brings its own file in place of this one: see boot.js.)
 const SEA = -6.;
 const SEG = 1200.;
-fn flws(s: i32) -> bool { return s == 0 || s == -2 || ph(vec2i(s, 51)) < .5; }      // a plain stretch that is flower fields (flwS in land.js)
+fn flws(s: i32) -> bool { return s == 0 || s == -2 || ph(vec2i(s, 51)) < .3; }      // a plain stretch that is flower fields (flwS in land.js)
 fn zoneRaw(s: i32) -> i32 { if (s == 0 || s == -2) { return 0; } if (s == 1) { return 3; } if (s == 2) { return 1; } if (((s % 4) + 4) % 4 == 3) { return 2; } let h = ph(vec2i(s, 913)); if (h < .25) { return 1; } if (h < .44) { return 2; } if (h < .63) { return 3; } if (h < .74) { return 4; } if (h < .82) { return 5; } return 0; }
 fn zoneOf(s: i32) -> i32 { let r = zoneRaw(s); if (s != 1 && r == zoneRaw(s - 1)) { return 0; } return r; }
 fn zw(z: f32, T: i32, w: f32, f: f32) -> f32 { let p = z / SEG; let s = floor(p); if (zoneOf(i32(s)) != T) { return 0.; } return 1. - ss(w * f, w, abs(p - s - .5)); }
@@ -21,7 +21,7 @@ fn tulc(h: f32) -> vec3f { if (h < .24) { return vec3f(.78, .05, .06); } if (h <
 // plantations: plw 1 inside one of either kind (plantW in land.js); rub and oilp for rubber and for oil palm
 fn plw(z: f32) -> f32 { let p = z / SEG; let s = i32(floor(p)); let q = p - floor(p); if (zoneOf(s) != 0 || flws(s) || ph(vec2i(s, 63)) < .25 || ph(vec2i(s, 67)) < .3) { return 0.; }
   let e = .72 + (ph(vec2i(s, 72)) - .5) * .12; return ss(.04, .09, q) * (1. - ss(e - .03, e - .006, q)) * (1. - ss(0., .3, tw(z))); }
-fn rubk(z: f32) -> f32 { return step(ph(vec2i(i32(floor(z / SEG)), 66)), .7); }
+fn rubk(z: f32) -> f32 { return step(ph(vec2i(i32(floor(z / SEG)), 66)), .55); }
 fn rub(z: f32) -> f32 { return plw(z) * rubk(z); }
 fn oilp(z: f32) -> f32 { return plw(z) * (1. - rubk(z)); }
 fn seas(s: i32) -> bool { let k = zoneOf(s); return k == 3 || k == 5; }

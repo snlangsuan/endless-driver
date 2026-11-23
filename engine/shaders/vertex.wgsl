@@ -43,3 +43,31 @@ struct CO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
 // A sculpted thing (a temple's image): a mesh of its own, each vertex a place, a normal and a material (as the made tubes number them: 6 whitewash, 7 gilding). Painted by fsBranch.
 @vertex fn vsMesh(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) m: f32) -> BO { var o: BO; o.wp = p; o.n = n; o.uv = vec2f(p.x + p.z, p.y); o.m = m + 1.; o.cp = g.vp * vec4f(p - g.cam.xyz, 1.); return o; }
 @vertex fn vsBranch(@location(0) v: vec3f, @location(1) p0: vec4f, @location(2) p1: vec4f, @location(3) h: vec2f) -> BO { return branchV(v, p0, p1, h); }
+// ---- the player's car (playercar.js): its place relative to the eye (hi - eye + lo: its whole metres and the rest apart, for precision),
+// heading (hi.w) and pitch (lo.w); wh: x the wheels' turn as they roll, y the front wheels' steer, z the brake lamps, w the body's lean on its
+// springs; hub: each wheel's hub (and hub[0].w the body's nose dip, hub[1].w its rise and fall on the road, hub[2].w the sideways tilt of the surface it stands on).
+struct PcU { hi: vec4f, lo: vec4f, wh: vec4f, hub: array<vec4f, 4> };
+@group(1) @binding(0) var<uniform> pu: PcU;
+struct PcO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) c: vec3f, @location(3) @interpolate(flat) k: u32, @location(4) lp: vec3f };
+@vertex fn vsPc(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) c: vec4f, @location(3) k: vec4u) -> PcO {
+  var q = p; var m = n; let w = k.y;
+  if (w > 0u) {
+    let h = pu.hub[w - 1u].xyz; var d = q - h; var dn = m;
+    let ca = cos(pu.wh.x); let sa = sin(pu.wh.x);
+    d = vec3f(d.x, d.y * ca - d.z * sa, d.y * sa + d.z * ca); dn = vec3f(dn.x, dn.y * ca - dn.z * sa, dn.y * sa + dn.z * ca);
+    if (w <= 2u) { let cs = cos(pu.wh.y); let sn = sin(pu.wh.y); d = vec3f(d.x * cs + d.z * sn, d.y, -d.x * sn + d.z * cs); dn = vec3f(dn.x * cs + dn.z * sn, dn.y, -dn.x * sn + dn.z * cs); }
+    q = h + d; m = dn;
+  } else {
+    // (the body, not the wheels: leaned and dipped about a point between the axles at about the height of its springs)
+    let pv = vec3f(0., .45, 0.); var d = q - pv; var dn = m; let cr = cos(pu.wh.w); let sr = sin(pu.wh.w);
+    d = vec3f(d.x * cr - d.y * sr, d.x * sr + d.y * cr, d.z); dn = vec3f(dn.x * cr - dn.y * sr, dn.x * sr + dn.y * cr, dn.z);
+    let cd = cos(pu.hub[0].w); let sd = sin(pu.hub[0].w); d = vec3f(d.x, d.y * cd + d.z * sd, d.z * cd - d.y * sd); dn = vec3f(dn.x, dn.y * cd + dn.z * sd, dn.z * cd - dn.y * sd);
+    q = pv + d + vec3f(0., pu.hub[1].w, 0.); m = dn;
+  }
+  // (the whole car, wheels and all, tilted sideways to the surface under its wheels: hub[2].w)
+  { let cg = cos(pu.hub[2].w); let sg = sin(pu.hub[2].w); q = vec3f(q.x * cg - q.y * sg, q.x * sg + q.y * cg, q.z); m = vec3f(m.x * cg - m.y * sg, m.x * sg + m.y * cg, m.z); }
+  let cp = cos(pu.lo.w); let sp = sin(pu.lo.w); let y2 = q.y * cp + q.z * sp; let z2 = q.z * cp - q.y * sp; let ny2 = m.y * cp + m.z * sp; let nz2 = m.z * cp - m.y * sp;
+  let c0 = cos(pu.hi.w); let s0 = sin(pu.hi.w);
+  let rel = (pu.hi.xyz - g.cam.xyz) + pu.lo.xyz + vec3f(q.x * c0 + z2 * s0, y2, -q.x * s0 + z2 * c0);
+  var o: PcO; o.cp = g.vp * vec4f(rel, 1.); o.wp = rel + g.cam.xyz; o.n = vec3f(m.x * c0 + nz2 * s0, ny2, -m.x * s0 + nz2 * c0); o.c = c.rgb; o.k = k.x; o.lp = q; return o;
+}

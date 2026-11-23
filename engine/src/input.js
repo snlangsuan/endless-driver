@@ -7,6 +7,10 @@ let DRIFT = false; try { DRIFT = localStorage.getItem('endless.drift') === '1'; 
 // DASSIST: drifting by hand with the help (drive.js): the stick steers the path and the slide is laid over it, as the self-driving's is; off,
 // the nose is swung against the tyres' grip and the slide must be held by hand
 let DASSIST = true; try { DASSIST = localStorage.getItem('endless.dassist') !== '0'; } catch (e) {}
+// COMFORT: easing the turning of the view for those whom it makes sick - on by default (see LOOK below, drive.js, main.js); LOOK_K: how far
+// a given push of the mouse or the right stick turns it, 0.4..1.6
+let COMFORT = true; try { COMFORT = localStorage.getItem('endless.comfort') !== '0'; } catch (e) {}
+let LOOK_K = 1; try { const v = Number(localStorage.getItem('endless.lookk')); if (v >= 0.4 && v <= 1.6) LOOK_K = v; } catch (e) {}
 let COACH_AT = 'L'; try { const v = localStorage.getItem('endless.coach'); if (v === '0' || v === 'L' || v === 'C') COACH_AT = v; } catch (e) {}
 const auto = { on: false, limit: 90, signs: true };   // self-driving: keeps the left lane and holds the speed set for it (limit, km/h, 0-200), and no more than the signs beside the road say unless signs is off
 try { const v = localStorage.getItem('endless.limit'); if (v !== null && v !== '') auto.limit = clamp(Math.round(Number(v)) || 0, 0, 200); auto.signs = localStorage.getItem('endless.signs') !== '0'; } catch (e) {}
@@ -137,7 +141,9 @@ const drvRead = () => { $('drvB').classList.toggle('on', auto.on); if (!$('drv')
   $('dvOn').setAttribute('aria-pressed', auto.on); $('dvOn').textContent = auto.on ? 'ปิดขับอัตโนมัติ' : 'เปิดขับอัตโนมัติ'; $('dvOv').textContent = auto.on ? 'เปิดอยู่' : 'ปิดอยู่';
   $('dvSp').value = auto.limit; $('dvSv').textContent = auto.limit + ' km/h'; $('dvSg').setAttribute('aria-pressed', auto.signs); if ($('dvMd')) for (const b of $('dvMd').children) b.setAttribute('aria-pressed', String(b.dataset.v === (DRIFT ? '1' : '0')));
   if ($('dvCo')) for (const b of $('dvCo').children) b.setAttribute('aria-pressed', String(b.dataset.v === COACH_AT));
-  if ($('dvAs')) for (const b of $('dvAs').children) b.setAttribute('aria-pressed', String(b.dataset.v === (DASSIST ? '1' : '0'))); };
+  if ($('dvAs')) for (const b of $('dvAs').children) b.setAttribute('aria-pressed', String(b.dataset.v === (DASSIST ? '1' : '0')));
+  if ($('dvCf')) for (const b of $('dvCf').children) b.setAttribute('aria-pressed', String(b.dataset.v === (COMFORT ? '1' : '0')));
+  if ($('dvLk')) { $('dvLk').value = Math.round(LOOK_K * 100); $('dvLv').textContent = Math.round(LOOK_K * 100) + '%'; } };
 const setLimit = (v) => { auto.limit = clamp(Math.round(v), 0, 200); try { localStorage.setItem('endless.limit', String(auto.limit)); } catch (e) {} drvRead(); };
 let stepT = 0, stepI = 0;
 const stepStop = () => { clearTimeout(stepT); clearInterval(stepI); stepT = stepI = 0; };
@@ -148,6 +154,8 @@ const stepStart = (dir) => { stepStop(); setLimit(auto.limit + dir); stepT = set
   $('dvSp').addEventListener('input', () => setLimit(Number($('dvSp').value)));
   if ($('dvMd')) $('dvMd').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; DRIFT = b.dataset.v === '1'; try { localStorage.setItem('endless.drift', DRIFT ? '1' : '0'); } catch (err) {} drvRead(); });
   if ($('dvAs')) $('dvAs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; DASSIST = b.dataset.v === '1'; try { localStorage.setItem('endless.dassist', DASSIST ? '1' : '0'); } catch (err) {} drvRead(); });
+  if ($('dvCf')) $('dvCf').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; COMFORT = b.dataset.v === '1'; try { localStorage.setItem('endless.comfort', COMFORT ? '1' : '0'); } catch (err) {} drvRead(); });
+  if ($('dvLk')) $('dvLk').addEventListener('input', () => { LOOK_K = clamp(Number($('dvLk').value) / 100, 0.4, 1.6); try { localStorage.setItem('endless.lookk', String(LOOK_K)); } catch (err) {} drvRead(); });
   if ($('dvCo')) $('dvCo').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; COACH_AT = b.dataset.v; try { localStorage.setItem('endless.coach', COACH_AT); } catch (err) {} drvRead(); });
   $('dvSg').addEventListener('click', () => { auto.signs = !auto.signs; try { localStorage.setItem('endless.signs', auto.signs ? '1' : '0'); } catch (e) {} drvRead(); });
   for (const [id, dir] of [['dvM', -1], ['dvP', 1]]) { const b = $(id);
@@ -187,7 +195,7 @@ addEventListener('keydown', (e) => {
       // of the place instead, in the left lane for the way it faces.
       let x = fly.x, z = fly.z; ground(x, z); const wet = gw[0] !== 0, y0 = surf(x, z, fly.y);
       if (wet || solidAt(x, z, y0) > 0 || (inTun(z) && !tunAt(x, z))) { const dir = cos(fly.yaw) >= 0 ? 1 : -1, q = rp(z, 1.7 * dir); x = q[0]; z = q[1]; car.yaw = atan2(roadSl(z) * dir, dir); } else car.yaw = fly.yaw;
-      car.x = x; car.z = z; car.y = surf(x, z, fly.y); car.v = 0; car.sm = 0; car.ly = 0; car.lp = 0; auto.on = false; } }
+      car.x = x; car.z = z; car.y = surf(x, z, fly.y); car.v = 0; car.sm = 0; car.ly = 0; car.lp = 0; LOOK.dy = LOOK.dp = 0; auto.on = false; } }
 });
 addEventListener('keyup', (e) => { keys.delete(e.code); if (STEP_KEY[e.code]) stepStop(); });
 addEventListener('blur', () => { keys.clear(); stepStop(); });
@@ -196,6 +204,15 @@ let drag = false;
 // Esc lets it go again (the browser does that). A finger on a touch screen still drags to look.
 const held = () => document.pointerLockElement === canvas;
 let lookT = 0;      // (when the mouse last turned the eye: see drive.js)
+// Turning the view. What the mouse and the stick ask for is not put on at once: it is kept owing (LOOK.dy, dp) and paid out each frame
+// (lookStep), so the view starts and stops turning smoothly - snapped round and stopped dead with the hand, it made people sick. In comfort
+// mode the easing is longer (~0.1 s) and the stick turns the view less fast; LOOK_K scales both.
+const LOOK = { dy: 0, dp: 0 };
+const lookAdd = (dy, dp) => { LOOK.dy += dy; LOOK.dp += dp; lookT = performance.now(); };
+function lookStep(dt) {
+  const k = 1 - Math.exp(-dt / (COMFORT ? 0.1 : 0.035)), ty = LOOK.dy * k, tp = LOOK.dp * k; LOOK.dy -= ty; LOOK.dp -= tp;
+  if (fly.on) { fly.yaw += ty; fly.pit = clamp(fly.pit + tp, -1.5, 1.5); } else { car.ly += ty; car.lp = clamp(car.lp + tp, -1.1, 1.1); }
+}
 canvas.addEventListener('pointerdown', (e) => { initSound();
   if (e.pointerType === 'mouse') { if (!held() && canvas.requestPointerLock) { try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) {} } }
   else { drag = true; canvas.setPointerCapture(e.pointerId); } });
@@ -203,8 +220,7 @@ document.addEventListener('pointerlockchange', () => { document.body.classList.t
 canvas.addEventListener('pointerup', () => { drag = false; });
 canvas.addEventListener('pointermove', (e) => {
   if (!drag && !held()) return;
-  if (fly.on) { fly.yaw -= e.movementX * 0.004; fly.pit = clamp(fly.pit - e.movementY * 0.004, -1.5, 1.5); }
-  else { car.ly -= e.movementX * 0.004; car.lp = clamp(car.lp - e.movementY * 0.004, -1.1, 1.1); lookT = performance.now(); }
+  const s = 0.004 * LOOK_K * (COMFORT ? 0.8 : 1); lookAdd(-e.movementX * s, -e.movementY * s);
 });
 // A game controller (a PlayStation pad, or any the browser maps the standard way): the left stick steers, R2 is the throttle and L2 the brake
 // - by how far they are pushed, not all or nothing - and Cross the throttle and Square the handbrake (HB: drive.js) as buttons, as racing
@@ -244,7 +260,8 @@ function pollPad(dt) {
     if (code) ev(on ? 'keydown' : 'keyup', code); }
   // (taking the wheel or braking hands the self-driving's control back, as the keys do)
   if (auto.on && !fly.on && (abs(lx) > 0.5 || brk > 0.5 || B(2) > 0.5 || PAD.gear === 'R' && gas > 0.5)) { auto.on = false; if (typeof drvRead === 'function') drvRead(); }
-  if (rx || ry) { if (fly.on) { fly.yaw -= rx * dt * 2.2; fly.pit = clamp(fly.pit - ry * dt * 1.8, -1.5, 1.5); } else { car.ly -= rx * dt * 2.6; car.lp = clamp(car.lp - ry * dt * 2, -1.1, 1.1); lookT = performance.now(); } }
+  // (the right stick on a curve: a small push turns the view slowly, only a full one fast - and in comfort mode at most 1.5 rad/s, not 2.6)
+  if (rx || ry) { const cv = (v) => Math.sign(v) * v * v, ky = (COMFORT ? 1.5 : 2.6) * LOOK_K, kp = (COMFORT ? 1.1 : 2) * LOOK_K; lookAdd(-cv(rx) * dt * ky, -cv(ry) * dt * kp); }
 }
 addEventListener('gamepadconnected', () => { initSound(); });
 // a word at the foot of the picture for a few seconds: the pad found, or lost
