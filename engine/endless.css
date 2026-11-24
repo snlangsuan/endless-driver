@@ -76,3 +76,9 @@ body.noui #hud{background:none;padding:0;left:12px;top:10px;text-shadow:0 1px 2p
 #look svg{width:30px;height:30px}
 #look rect{fill:none;stroke:#e8edf4;stroke-width:1.4}
 #look path{fill:rgba(110,231,183,.75)}
+/* the cinematic view (cinema.js): the writing over the picture goes, and the buttons too until the mouse is moved */
+.seg button:disabled{opacity:.4;cursor:default} .seg button:disabled:hover{background:transparent}
+#hud,#bl,#spd,#mp,#fs,#skyB,#cfgB,#drvB{transition:opacity .5s}
+body.cine #hud,body.cine #bl,body.cine #spd,body.cine #mp{opacity:0!important;pointer-events:none}
+body.cine:not(.cineui) #fs,body.cine:not(.cineui) #skyB,body.cine:not(.cineui) #cfgB,body.cine:not(.cineui) #drvB{opacity:0;pointer-events:none}
+body.cine:not(.cineui) canvas{cursor:none}

@@ -48,8 +48,9 @@ struct CO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
 // springs; hub: each wheel's hub (and hub[0].w the body's nose dip, hub[1].w its rise and fall on the road, hub[2].w the sideways tilt of the surface it stands on).
 struct PcU { hi: vec4f, lo: vec4f, wh: vec4f, hub: array<vec4f, 4> };
 @group(1) @binding(0) var<uniform> pu: PcU;
-struct PcO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) c: vec3f, @location(3) @interpolate(flat) k: u32, @location(4) lp: vec3f };
-@vertex fn vsPc(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) c: vec4f, @location(3) k: vec4u) -> PcO {
+// (uv: the place on the model's textures; tl: the layers of the texture array to take the colour and the normal from, 255 for none)
+struct PcO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) c: vec4f, @location(3) @interpolate(flat) k: u32, @location(4) lp: vec3f, @location(5) uv: vec2f, @location(6) @interpolate(flat) tl: vec2u };
+@vertex fn vsPc(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) c: vec4f, @location(3) k: vec4u, @location(4) uv: vec2f) -> PcO {
   var q = p; var m = n; let w = k.y;
   if (w > 0u) {
     let h = pu.hub[w - 1u].xyz; var d = q - h; var dn = m;
@@ -69,5 +70,5 @@ struct PcO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) 
   let cp = cos(pu.lo.w); let sp = sin(pu.lo.w); let y2 = q.y * cp + q.z * sp; let z2 = q.z * cp - q.y * sp; let ny2 = m.y * cp + m.z * sp; let nz2 = m.z * cp - m.y * sp;
   let c0 = cos(pu.hi.w); let s0 = sin(pu.hi.w);
   let rel = (pu.hi.xyz - g.cam.xyz) + pu.lo.xyz + vec3f(q.x * c0 + z2 * s0, y2, -q.x * s0 + z2 * c0);
-  var o: PcO; o.cp = g.vp * vec4f(rel, 1.); o.wp = rel + g.cam.xyz; o.n = vec3f(m.x * c0 + nz2 * s0, ny2, -m.x * s0 + nz2 * c0); o.c = c.rgb; o.k = k.x; o.lp = q; return o;
+  var o: PcO; o.cp = g.vp * vec4f(rel, 1.); o.wp = rel + g.cam.xyz; o.n = vec3f(m.x * c0 + nz2 * s0, ny2, -m.x * s0 + nz2 * c0); o.c = c; o.k = k.x; o.lp = q; o.uv = uv; o.tl = k.zw; return o;
 }

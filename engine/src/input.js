@@ -12,8 +12,8 @@ let DASSIST = true; try { DASSIST = localStorage.getItem('endless.dassist') !== 
 let COMFORT = true; try { COMFORT = localStorage.getItem('endless.comfort') !== '0'; } catch (e) {}
 let LOOK_K = 1; try { const v = Number(localStorage.getItem('endless.lookk')); if (v >= 0.4 && v <= 1.6) LOOK_K = v; } catch (e) {}
 let COACH_AT = 'L'; try { const v = localStorage.getItem('endless.coach'); if (v === '0' || v === 'L' || v === 'C') COACH_AT = v; } catch (e) {}
-const auto = { on: false, limit: 90, signs: true };   // self-driving: keeps the left lane and holds the speed set for it (limit, km/h, 0-200), and no more than the signs beside the road say unless signs is off
-try { const v = localStorage.getItem('endless.limit'); if (v !== null && v !== '') auto.limit = clamp(Math.round(Number(v)) || 0, 0, 200); auto.signs = localStorage.getItem('endless.signs') !== '0'; } catch (e) {}
+const auto = { on: false, limit: 90, signs: true };   // self-driving: keeps the left lane and holds the speed set for it (limit, km/h, 0-220: the car's top speed), and no more than the signs beside the road say unless signs is off
+try { const v = localStorage.getItem('endless.limit'); if (v !== null && v !== '') auto.limit = clamp(Math.round(Number(v)) || 0, 0, 220); auto.signs = localStorage.getItem('endless.signs') !== '0'; } catch (e) {}
 // The drive starts somewhere different each time: any stretch within about 14 km of the origin (further out the ground's fine grain, which is worked out from world position, begins to lose precision), in the left lane, facing along the road.
 const SPAWN = (floor(Math.random() * 24) - 12 + 0.15 + Math.random() * 0.7) * SEG, SP = rp(SPAWN, 1.7);
 const car = { x: SP[0], z: SP[1], y: 0, yaw: atan2(roadSl(SPAWN), 1), v: 0, pit: 0, ly: 0, lp: 0, bump: 0 };
@@ -133,7 +133,7 @@ const cfgRead = () => { for (const b of $('skQ').children) b.setAttribute('aria-
   document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement && D.open) D.close(); });
   $('cfgB').addEventListener('click', (e) => { e.currentTarget.blur(); if (D.open) { D.close(); return; } if ($('sky').open) $('sky').close(); if ($('drv').open) $('drv').close(); cfgRead(); D.show(); if (D.contains(document.activeElement)) document.activeElement.blur(); });
 }
-// The driving panel (the steering wheel, top right): self-driving on or off (as P does), the speed it holds - 0 to 200 km/h - and whether it
+// The driving panel (the steering wheel, top right): self-driving on or off (as P does), the speed it holds - 0 to 220 km/h - and whether it
 // keeps to the signs. The speed is set three ways that all go through setLimit: the slider, the panel's - and + buttons, and the - and + keys.
 // A press of a button or a key changes it by 1; held down, after a moment it changes by 5 once, pauses briefly so that a single step of 5 is easy
 // to stop on, and only then goes on changing by 5 at a time until let go (stepStart, stepStop).
@@ -144,7 +144,7 @@ const drvRead = () => { $('drvB').classList.toggle('on', auto.on); if (!$('drv')
   if ($('dvAs')) for (const b of $('dvAs').children) b.setAttribute('aria-pressed', String(b.dataset.v === (DASSIST ? '1' : '0')));
   if ($('dvCf')) for (const b of $('dvCf').children) b.setAttribute('aria-pressed', String(b.dataset.v === (COMFORT ? '1' : '0')));
   if ($('dvLk')) { $('dvLk').value = Math.round(LOOK_K * 100); $('dvLv').textContent = Math.round(LOOK_K * 100) + '%'; } };
-const setLimit = (v) => { auto.limit = clamp(Math.round(v), 0, 200); try { localStorage.setItem('endless.limit', String(auto.limit)); } catch (e) {} drvRead(); };
+const setLimit = (v) => { auto.limit = clamp(Math.round(v), 0, 220); try { localStorage.setItem('endless.limit', String(auto.limit)); } catch (e) {} drvRead(); };
 let stepT = 0, stepI = 0;
 const stepStop = () => { clearTimeout(stepT); clearInterval(stepI); stepT = stepI = 0; };
 const stepStart = (dir) => { stepStop(); setLimit(auto.limit + dir); stepT = setTimeout(() => { setLimit(auto.limit + 5 * dir); stepT = setTimeout(() => { stepI = setInterval(() => setLimit(auto.limit + 5 * dir), 140); }, 400); }, 420); };
@@ -230,7 +230,7 @@ canvas.addEventListener('pointermove', (e) => {
 // the D-pad up L (the lights), left and right the self-driving's speed - and +; L1/R1 the gears, R and D (in the flying camera down and up, Q and E);
 // Share F (the flying camera), Options H (the text over the picture). PAD: what it gives this frame.
 const PAD = { on: false, v: {}, b: [], look: [0, 0], gear: 'D' };
-const PAD_KEY = { 3: 'KeyP', 1: 'KeyV', 12: 'KeyL', 14: 'Minus', 15: 'Equal', 8: 'KeyF', 9: 'KeyH', 17: 'Tab' };
+const PAD_KEY = { 3: 'KeyP', 1: 'KeyV', 13: 'KeyC', 12: 'KeyL', 14: 'Minus', 15: 'Equal', 8: 'KeyF', 9: 'KeyH', 17: 'Tab' };
 function pollPad(dt) {
   // (Any pad the browser shows - it shows none until a button has been pressed with the page open. Most map a PlayStation pad the standard
   // way; some - Firefox on a Mac, among others - hand over its raw layout instead, which is put into the standard order here.)

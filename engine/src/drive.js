@@ -7,9 +7,11 @@ let hold = false;
 // on its tyres. slide: how far the tail swings out (1: up to 60 degrees); snap: how quickly the nose follows into the slide; scrub: how much
 // speed a slide costs; grip: how hard it can corner sideways on a pass, m/s2 per unit of the road's grip.
 const CARS = {
-  mx5: { gutter: false, slide: 0.72, snap: 1.35, scrub: 0.8, grip: 9.0 },      // light, short, rear-driven: a quick, tidy slide, not a big angle
-  truck: { gutter: true, slide: 1, snap: 1, scrub: 1, grip: 9.4 },              // (the earlier tuning, kept for a taller car)
+  mx5: { gutter: false, slide: 0.72, snap: 1.35, scrub: 0.8, grip: 9.0, top: 220, acc: 7, pw: 105 },      // light, short, rear-driven: a quick, tidy slide, not a big angle
+  truck: { gutter: true, slide: 1, snap: 1, scrub: 1, grip: 9.4, top: 180, acc: 5.5, pw: 85 },              // (the earlier tuning, kept for a taller car)
 };
+// (top: its top speed, km/h; acc: the most the driven wheels give pulling away, m/s²; pw: its power over its weight, W/kg - what it pulls
+// with falls as the speed rises, power over speed, until the air's drag, with the square of the speed, takes it all at the top speed)
 let CARP = CARS.mx5;
 const alongRoad = (h) => (cos(h - Math.atan2(roadSl(car.z), 1)) >= 0 ? 1 : -1);      // +1 going the way z grows along the road, -1 the other
 // The weather in the tyres. grip: 1 on a dry road; a wet one - in the rain and for a while after, as long as the road stays wet - grips at 70%,
@@ -134,8 +136,13 @@ function drive(dt) {
   }
   if (K('Space')) thr = min(thr, 0);      // (braking, the foot is off the throttle - the self-driving's too)
   const hb = K('HB'); if (hb > 0) thr *= 1 - 0.8 * hb;      // (the handbrake on: the driven wheels held - see below)
-  car.v += (thr > 0 ? (K('ShiftLeft') ? 13 : 8) * thr : thr < 0 ? (car.v > 0.5 ? (auto.on ? -7 : -18) * grip : auto.on && !(auto.back > 0) ? 0 : -5) : 0) * dt;
-  car.v -= (car.v * (onRoad ? 0.2 : 0.9) + Math.sign(car.v) * (onRoad ? 0.35 : 1.4)) * dt;
+  // Pulling: as much as the tyres give at low speed (more with Shift, the pedal to the floor), then the engine's power over the speed. Held
+  // back by the air, with the square of the speed - set so that power and drag meet at the car's top speed, 220 km/h for the MX-5 - by the
+  // tyres rolling, by the engine's braking with the throttle let go, and off the road by the rough ground. (Before, a drag that grew only with
+  // the speed held the car to 138 km/h on the throttle and 228 with Shift, and lifting off slowed it like a brake.)
+  const vA = abs(car.v), vTop = CARP.top / 3.6, cd = (CARP.pw / vTop - 0.15) / (vTop * vTop), push = min(K('ShiftLeft') ? CARP.acc * 1.3 : CARP.acc, CARP.pw / max(vA, 1));
+  car.v += (thr > 0 ? push * thr : thr < 0 ? (car.v > 0.5 ? (auto.on ? -7 : -18) * grip : auto.on && !(auto.back > 0) ? 0 : -min(5, push)) : 0) * dt;
+  car.v -= (Math.sign(car.v) * (cd * vA * vA + 0.15 + (thr <= 0.02 ? 0.035 * vA : 0)) + (onRoad ? 0 : car.v * 0.7 + Math.sign(car.v) * 1.05)) * dt;
   // Space: the brake - hard (8 m/s², a little short of locking the wheels; less on rough ground), in either direction, down to a standstill and no
   // further (it never drives the car backwards); it overrides the throttle and the self-driving, which takes up again when it is let go.
   if (K('Space')) { const b = (onRoad ? 8 : 5.5) * grip * dt; car.v = abs(car.v) <= b ? 0 : car.v - Math.sign(car.v) * b; }
@@ -182,8 +189,11 @@ function drive(dt) {
     // (Tuned again: the pull is taken over the last third of a second - a quick correction on a straight, a tap of the key or a flick of the
     // stick, no longer kicks the tail out; a turn held does - and the tail steps out sooner than before, at 3.2 m/s2 and fully by 7, sooner
     // still on the throttle.)
+    // (And again: with the throttle held, as it is on keys, the tail stepped out from 2 m/s2 - a touch of the key at speed asks some 11 - so a
+    // slight press already had the car sideways. Now from 4.2 m/s2 on the throttle (5.2 off it), easing in - a little over gives a little
+    // slide, not a third of it at once - and fully by 5 m/s2 beyond.)
     car.latF = (car.latF || 0) + (lat - (car.latF || 0)) * (1 - exp(-dt / 0.35));
-    const pw = auto.on ? 0.5 : max(0, thr), l0 = (3.2 - 1.2 * pw) * grip, over = Math.sign(car.latF) * clamp((abs(car.latF) - l0) / (3.8 * grip), 0, 1);
+    const pw = auto.on ? 0.5 : max(0, thr), l0 = (5.2 - 1.0 * pw) * grip, oq = clamp((abs(car.latF) - l0) / (5 * grip), 0, 1), over = Math.sign(car.latF) * oq * oq * (3 - 2 * oq);
     // (the self-driving's own steering adds to the slide - less on the switchbacks, and the bend's pull a little less too: swinging across the
     // road for the gutter, it had the car 50 degrees sideways before the bend, and then snatched back as the wheels went in)
     const hpS = hpW(car.z) > 0.05, base = auto.on ? clamp(lat / (5.5 * grip), -1, 1) * (hpS ? 0.66 : 0.75) + st * (hpS ? 0.3 : 0.55) : over * 0.85, kick = auto.on ? 0 : 0.55 * hb * (Math.sign(st || car.slip || 0));
@@ -204,11 +214,17 @@ function drive(dt) {
     // the car is sideways, so that held through a hairpin the slide settles at 30 to 40 degrees instead of going round: on the first try a
     // driver steering into a U-bend spun off the road into the trees. Steering the other way, the slide is caught quickly.)
     let sl0 = wr(car.yaw - car.hd); const into = st * sl0 > 0 ? 1 - min(1, abs(sl0) / (0.65 + 0.45 * pw)) : 1;
-    car.yaw += st * dt * 1.15 * sp * Math.sign(car.v) * (hb > 0 ? 1 : into) * (1 + 0.6 * (1 - grip)) * (1 + 1.6 * hb) * (1 + 0.7 * pw);      // (on a slippery road the tail steps out more readily)
+    // (The tyres hold first. Up to what they grip - the sideways pull the stick asks, as the ordinary steering sizes it, from 4.2 m/s2 on the
+    // throttle and 5.2 off it, over the last third of a second - the car steers as it does without the drift, the travel along with the nose;
+    // only beyond that, easing in, does the stick swing the nose against the tyres. Before, any touch did: the travel trailed the nose, and 30%
+    // of the stick at 80 km/h held the tail 17 degrees out. The handbrake still kicks it out at once.)
+    const rq = min(1.7, 11 / max(abs(car.v), 1)); car.latF = (car.latF || 0) + (abs(car.v) * st * rq - (car.latF || 0)) * (1 - exp(-dt / 0.35));
+    const oq = clamp((abs(car.latF) - (5.2 - pw) * grip) / (5 * grip), 0, 1), fr = hb > 0 ? 1 : max(oq * oq * (3 - 2 * oq), sm(0.08, 0.25, abs(sl0))), gh = 1 - fr;
+    car.yaw += st * dt * Math.sign(car.v) * (gh * rq + fr * 1.15 * sp * (hb > 0 ? 1 : into) * (1 + 0.6 * (1 - grip)) * (1 + 1.6 * hb) * (1 + 0.7 * pw));      // (on a slippery road the tail steps out more readily)
     // (A wheel run in a switchback's gutter on the inside of the turn - the car 3 to 3.7 m out on the side it is turning toward - is held by
     // it like a rail: the slide is checked and less speed is scrubbed. That is the gutter trick of the mountain passes.)
     const rg = rdist(car.x, car.z) * alongRoad(car.hd), inG = hpW(car.z) > 0.05 && CARP.gutter && rg * st > 0 ? sm(2.8, 3.1, abs(rg)) * (1 - sm(3.7, 3.95, abs(rg))) : 0;      // (by degrees, likewise)
-    const k = ((1.6 + 3.2 * (1 - abs(st)) + 3.5 * abs(sl0) * (1 - 0.7 * pw) + (st * sl0 < 0 ? 3 : 0)) + 5 * inG * (0.6 + 0.4 * grip)) * (1 - 0.5 * pw); car.hd += wr(car.yaw - car.hd) * (1 - exp(-dt * k * grip * (1 - 0.75 * hb)));
+    const k = 14 * gh + ((1.6 + 3.2 * (1 - abs(st)) + 3.5 * abs(sl0) * (1 - 0.7 * pw) + (st * sl0 < 0 ? 3 : 0)) + 5 * inG * (0.6 + 0.4 * grip)) * (1 - 0.5 * pw); car.hd += wr(car.yaw - car.hd) * (1 - exp(-dt * k * grip * (1 - 0.75 * hb)));
     const slMax = (0.75 + 0.2 * pw) * (0.4 + 0.6 * CARP.slide); let sl = wr(car.yaw - car.hd); if (abs(sl) > slMax) { car.hd = car.yaw - Math.sign(sl) * slMax; sl = Math.sign(sl) * slMax; }
     car.slip = sl; car.v *= 1 - min(1, abs(sin(sl)) * (0.32 - 0.2 * inG) * (0.5 + 0.5 * grip) * dt); }
   else { car.hd = car.yaw; car.slip = (car.slip || 0) * exp(-dt * 6); }

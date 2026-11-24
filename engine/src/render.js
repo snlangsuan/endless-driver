@@ -96,7 +96,7 @@ const postPipe = (fs, blend) => device.createRenderPipeline({ layout: 'auto', ve
 const ADD = { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } };
 const pBright = postPipe('fsBright'), pDown = postPipe('fsDown'), pUp = postPipe('fsUp', ADD);
 const pFinal = device.createRenderPipeline({ layout: 'auto', vertex: { module: mFinal, entryPoint: 'vs' }, fragment: { module: mFinal, entryPoint: 'fs', targets: [{ format: FMT }] } });
-const uFinal = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+const uFinal = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
 // For a game on this engine with things of its own (see main.js): EXTRA is a buffer of boxes drawn every frame besides the chunks' (things that move -
 // the game refills it); gameTick(dt), if set, is called once a frame; deadWorld = 1 puts every lamp and lit window out (a place without power).

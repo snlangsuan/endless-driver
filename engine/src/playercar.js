@@ -7,12 +7,22 @@
 const PCAR = (() => {
   if (!ASSET.mx5) return null;
   const B = ASSET.mx5, dv = new DataView(B), nv = dv.getUint32(4, true), ni = dv.getUint32(8, true), hub = new Float32Array(B, 12, 12);
-  const vb = vbuf(new Uint8Array(B, 60, nv * 32)), ib = vbuf(new Uint32Array(B, 60 + nv * 32, ni), GPUBufferUsage.INDEX);
+  // (the model's textures, colour and normal maps, as one array of 1024 x 1024 layers with their smaller sizes below them for the distance - each
+  // image decoded and put in as it comes, the car drawn meanwhile with what is there; see scripts/mx5.py)
+  const nt = dv.getUint32(60, true), imgs = []; let o = 64;
+  for (let i = 0; i < nt; i++) { const l = dv.getUint32(o, true); imgs.push(new Uint8Array(B, o + 4, l)); o += 4 + l; }
+  const TS = 1024, mips = Math.log2(TS) + 1, tex = device.createTexture({ size: [TS, TS, max(nt, 1)], mipLevelCount: mips, format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  imgs.forEach(async (d, li) => { try { const bm = await createImageBitmap(new Blob([d]), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+    for (let m = 0, s = TS; m < mips; m++, s >>= 1) { const q = m ? await createImageBitmap(bm, { resizeWidth: s, resizeHeight: s, resizeQuality: 'high', colorSpaceConversion: 'none', premultiplyAlpha: 'none' }) : bm;
+      Q.copyExternalImageToTexture({ source: q }, { texture: tex, origin: [0, 0, li], mipLevel: m }, [s, s]); } } catch (e) { console.warn('mx5 texture', li, e); } });
+  const smp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', maxAnisotropy: 8 });
+  const vb = vbuf(new Uint8Array(B, o, nv * 40)), ib = vbuf(new Uint32Array(B, o + nv * 40, ni), GPUBufferUsage.INDEX);
   const ub = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }), U = new Float32Array(28);
   for (let w = 0; w < 4; w++) U.set([hub[w * 3], hub[w * 3 + 1], hub[w * 3 + 2], 0], 12 + w * 4);
-  const bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {} }] });
-  const bg = device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: ub } }] });
-  const LB = [{ arrayStride: 32, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'unorm8x4' }, { shaderLocation: 3, offset: 28, format: 'uint8x4' }] }];
+  const bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {} },
+    { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { viewDimension: '2d-array' } }, { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: {} }] });
+  const bg = device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: ub } }, { binding: 2, resource: tex.createView({ dimension: '2d-array' }) }, { binding: 3, resource: smp }] });
+  const LB = [{ arrayStride: 40, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'unorm8x4' }, { shaderLocation: 3, offset: 28, format: 'uint8x4' }, { shaderLocation: 4, offset: 32, format: 'float32x2' }] }];
   const pipe = scenePipe('vsPc', 'fsPc', LB, 'triangle-list', 1, 'less', 4, device.createPipelineLayout({ bindGroupLayouts: [bglScene, bgl] }));
   const pipeS = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [bglShadow, bgl] }), vertex: { module: mShadow, entryPoint: 'vsPc', buffers: LB },
     primitive: { topology: 'triangle-list', cullMode: 'none' }, depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less', depthBias: 2, depthBiasSlopeScale: 2.5 } });
@@ -40,8 +50,9 @@ function pcUpdate(dt, ex, ey, ez) {
   const wr = (q) => q - Math.round(q / TAU) * TAU, hd = car.hd !== undefined ? car.hd : car.yaw, yr = C.phd === null || dt <= 0 ? 0 : wr(hd - C.phd) / dt; C.phd = hd;
   const aLat = clamp(car.v * yr, -12, 12), aLon = clamp(-dec, -10, 10), sp = (x, v, t, w) => { const a = (t - x) * w * w - 2 * 0.55 * w * v; v += a * dt; return [x + v * dt, v]; };
   // (drifting the body leans further - the tyres sideways, the weight thrown onto the outer pair - up to 6 degrees, and swings more on its springs)
-  const dr = DRIFT && abs(car.slip || 0) > 0.08 ? 1 : 0;
-  if (dt > 0 && dt < 0.2) { [C.roll, C.rollV] = sp(C.roll, C.rollV, clamp(aLat * (dr ? 0.0085 : 0.0062), dr ? -0.105 : -0.07, dr ? 0.105 : 0.07), dr ? 6.5 : 8); [C.dive, C.diveV] = sp(C.dive, C.diveV, clamp(aLon * 0.0035, -0.035, 0.035), 9); }
+  // (by degrees with the slide, from 5 to 17 degrees sideways: switched on at 5 the body jumped from the one lean to the other)
+  const dr = DRIFT ? sm(0.08, 0.3, abs(car.slip || 0)) : 0, rc = 0.07 + 0.035 * dr;
+  if (dt > 0 && dt < 0.2) { [C.roll, C.rollV] = sp(C.roll, C.rollV, clamp(aLat * (0.0062 + 0.0023 * dr), -rc, rc), 8 - 1.5 * dr); [C.dive, C.diveV] = sp(C.dive, C.diveV, clamp(aLon * 0.0035, -0.035, 0.035), 9); }
   // The front wheels turned as far as the car's travel is bending - the wheelbase over the radius (2.31 m) - and, sliding, pointed along the
   // travel rather than the nose: the wheel held against the slide, as a driver holds it. (Turned by the steering itself they stood 29 degrees
   // over at any speed, and the wrong way in a drift.)
@@ -53,6 +64,7 @@ function pcUpdate(dt, ex, ey, ez) {
   // so that no wheel sinks into it or stands off it. (Placed by one height under its middle and its pitch alone, it stood level across a
   // cambered road or a slope - one side sunk, the other in the air - and up to 10 cm off over crests and hollows.)
   const cy = cos(car.yaw), sy = sin(car.yaw), WH = [[0.735, 1.194], [-0.733, 1.194], [0.735, -1.114], [-0.733, -1.114]], hy4 = WH.map(([lx, lz]) => pcSurfY(car.x + ox + lx * cy + lz * sy, car.z + oz - lx * sy + lz * cy, car.y + 1));
+  C.hy4 = hy4; C.wx = WH.map(([lx, lz]) => [car.x + ox + lx * cy + lz * sy, car.z + oz - lx * sy + lz * cy]);
   const yM = (hy4[0] + hy4[1] + hy4[2] + hy4[3]) / 4 + 0.012, pit = Math.atan2((hy4[0] + hy4[1] - hy4[2] - hy4[3]) / 2, 2.308), rl = Math.atan2((hy4[0] + hy4[2] - hy4[1] - hy4[3]) / 2, 1.468);
   if (C.gy === undefined || dt > 0.3 || abs(C.gy - yM) > 1.5) { C.gy = yM; C.gp = pit; C.gr = rl; }
   const kq = 1 - Math.exp(-dt * 25); C.gy += (yM - C.gy) * kq; C.gp += (pit - C.gp) * kq; C.gr += (rl - C.gr) * kq;
@@ -68,7 +80,7 @@ function pcUpdate(dt, ex, ey, ez) {
 // drawn into the shadow map always (from the driver's seat its shadow lies on the road beside it), and into the picture when it can be seen
 function pcDraw(p, shadow) {
   const C = PCAR; if (!C) return;
-  if (!shadow && !(view3 || fly.on)) return;
+  if (!shadow && !(view3 || fly.on || (typeof cineOn === 'function' && cineOn()))) return;
   p.setPipeline(shadow ? C.pipeS : C.pipe); p.setBindGroup(1, C.bg); p.setVertexBuffer(0, C.vb); p.setIndexBuffer(C.ib, 'uint32'); p.drawIndexed(C.ni);
 }
 // The camera behind the car (view3), as from a following car: it swings round after the car's heading - mostly its nose, a third of the way to
@@ -138,18 +150,29 @@ function marksStep(dt, ex, ey, ez) {
   const M = MARKS; if (!M) return;
   const C = PCAR, sl = abs(car.slip || 0), v = abs(car.v), brk = K('Space') > 0.5 && v > 9 ? 0.55 : 0;
   const k = max(DRIFT && v > 6 ? clamp((sl - 0.12) / 0.35, 0, 1) : 0, brk) * (1 - 0.6 * ((typeof AT !== 'undefined' && AT.wet) || 0));
-  const c = cos(car.yaw), s = sin(car.yaw), hubs = [[0.735, 1.194], [-0.733, 1.194], [0.735, -1.114], [-0.733, -1.114]];
+  // (each wheel's place and the height of the road under it as pcUpdate laid the car on them - at the car's own height one side of a
+  // cambered road, or a crest, had the mark under the road, and it was lost there)
+  if (!C.wx) return;
+  const live = [];
   for (let w = 0; w < 4; w++) {
-    const lx = hubs[w][0], lz = hubs[w][1], x = car.x + C.ox + lx * c + lz * s, z = car.z + C.oz - lx * s + lz * c, y = car.y + 0.012;
-    const a = k * (w < 2 ? 0.35 : 0.8), L = M.last[w];
-    if (a < 0.03 || fly.on) { M.last[w] = null; continue; }
+    const x = C.wx[w][0], z = C.wx[w][1], y = C.hy4[w] + 0.008, L = M.last[w];
+    // (a streak once begun runs on until the slide has nearly gone, not cut off and begun again as the slip wavers round where it starts, which
+    // broke it into dashes)
+    const a = k * (w < 2 ? 0.35 : 0.8);
+    if (fly.on || (L ? a < 0.012 : a < 0.03)) { M.last[w] = null; continue; }
     if (!L) { M.last[w] = [x, y, z, a]; continue; }
-    const d = Math.hypot(x - L[0], z - L[2]); if (d < 0.3) continue;
-    if (d < 3) { const o = M.head * 8; M.seg.set([L[0], L[1], L[2], x, y, z, 0.2, (a + L[3]) / 2], o); M.head = (M.head + 1) % M.N; M.count = min(M.N, M.count + 1); }
+    const d = Math.hypot(x - L[0], z - L[2]);
+    if (d > 3) { M.last[w] = [x, y, z, a]; continue; }
+    if (d < 0.3) { if (d > 0.01) live.push([L[0], L[1], L[2], x, y, z, 0.2, (a + L[3]) / 2]); continue; }
+    const o = M.head * 8; M.seg.set([L[0], L[1], L[2], x, y, z, 0.2, (a + L[3]) / 2], o); M.head = (M.head + 1) % M.N; M.count = min(M.N, M.count + 1);
     M.last[w] = [x, y, z, a];
   }
   let n = 0;
-  for (let i = 0; i < M.count; i++) { const j = (M.head - 1 - i + M.N) % M.N, o = j * 8, q = n * 8, dx = M.seg[o] - ex, dz = M.seg[o + 2] - ez; if (dx * dx + dz * dz > 250 * 250) continue;
+  // (and the length still being laid, from the last laid point up to the tyre itself, drawn each frame - or the streak ended up to 30 cm behind
+  // the wheel, apart from it)
+  for (const g of live) { const q = n * 8; M.inst[q] = g[0] - ex; M.inst[q + 1] = g[1] - ey; M.inst[q + 2] = g[2] - ez; M.inst[q + 3] = g[6];
+    M.inst[q + 4] = g[3] - ex; M.inst[q + 5] = g[4] - ey; M.inst[q + 6] = g[5] - ez; M.inst[q + 7] = g[7]; n++; }
+  for (let i = 0; i < M.count && n < M.N; i++) { const j = (M.head - 1 - i + M.N) % M.N, o = j * 8, q = n * 8, dx = M.seg[o] - ex, dz = M.seg[o + 2] - ez; if (dx * dx + dz * dz > 250 * 250) continue;
     const age = i / M.N, fade = 1 - sm(0.75, 1, age);
     M.inst[q] = dx; M.inst[q + 1] = M.seg[o + 1] - ey; M.inst[q + 2] = dz; M.inst[q + 3] = M.seg[o + 6];
     M.inst[q + 4] = M.seg[o + 3] - ex; M.inst[q + 5] = M.seg[o + 4] - ey; M.inst[q + 6] = M.seg[o + 5] - ez; M.inst[q + 7] = M.seg[o + 7] * fade; n++; }

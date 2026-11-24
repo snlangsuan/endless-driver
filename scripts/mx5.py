@@ -3,10 +3,17 @@
 # In the game's car measure: x to the left, y up from the ground under the tyres, z ahead, metres; mirrored to right-hand drive. The badges are
 # left out. Each vertex gets its colour from its material's texture (or plain colour), and a material class the shader lights it by:
 # 0 body paint, 1 plain (its own colour, matte), 2 window glass, 3 metal, 4 tyre, 5 headlamp, 6 tail lamp, 7 indicator, 8 cabin, 9 black gloss,
-# 10 the exhaust's tips (dark, sooty metal).
-# Format "PCR1": vertex and index counts (uint32), the four wheels' hubs (front left, front right, rear left, rear right: 12 float32), then per
-# vertex place (3 float32), normal (3 float32), colour (4 uint8, sRGB), class and wheel (uint8: class, wheel 0 none / 1-4, two to spare);
-# then the triangles (uint32).
+# 10 the exhaust's tips (dark, sooty metal), 11 the black print round the windscreen's edge and behind the mirror (the frit).
+# The model's own textures go with it - the colour maps of the underbody and grille, the lamps' insides, the cabin and the tyres, and the normal
+# maps of the tyres, the wheels, the hood's cloth, the cabin and the underbody - each made 1024 x 1024 and stored as a JPEG (PNG where it has a
+# cut-out) for the game to put into one texture array (playercar.js); a vertex on a textured part carries its place on the texture and which of
+# the array's layers to take its colour and its normal from (its colour then is the material's own factor, the texture's taken in the shader).
+# (Before, each vertex took the one colour of its texture under it, and every detail smaller than a triangle - the grille's mesh, the lettering
+# on the tyres, the treads - was lost.) The engine's maps are left out: it is not seen.
+# Format "PCR2": vertex and index counts (uint32), the four wheels' hubs (front left, front right, rear left, rear right: 12 float32), the number
+# of texture layers (uint32) and for each its length in bytes (uint32) and the image, padded to 4 bytes; then per vertex place (3 float32),
+# normal (3 float32), colour (4 uint8, sRGB; the fourth, on the frit, how far it is from the clear glass, 0-10 cm), class, wheel, colour layer and normal layer (uint8: class; wheel 0 none / 1-4; layers 255 none),
+# place on the texture (2 float32); then the triangles (uint32).
 import sys, json, struct, io
 import numpy as np
 from PIL import Image
@@ -20,6 +27,14 @@ def acc(i):
     off = bv.get('byteOffset', 0) + a.get('byteOffset', 0); st = bv.get('byteStride', dt.itemsize * n)
     raw = np.frombuffer(BIN, dtype=np.uint8, count=st * (a['count'] - 1) + dt.itemsize * n, offset=off)
     return np.lib.stride_tricks.as_strided(raw, shape=(a['count'], dt.itemsize * n), strides=(st, 1)).copy().view(dt).reshape(a['count'], n)
+# the texture layers: the images used, in the order first met (index in the glTF -> layer)
+LAYER = {}; SKIP_IMG = set()
+def layer(ti):
+    if ti is None: return 255
+    im = J['textures'][ti]['source']
+    if im in SKIP_IMG: return 255
+    if im not in LAYER: LAYER[im] = len(LAYER)
+    return LAYER[im]
 TEX = {}
 def tex(mi):
     if mi in TEX: return TEX[mi]
@@ -39,7 +54,8 @@ def klass(name):
     n = name.lower()
     if 'badge' in n: return None
     if n.startswith('m_carpaintnormal'): return 0
-    if 'trim_plasticsmoothblack' in n or 'plasticsmoothblack' in n or n == 'black' or n == 'screen' or 'windowsurround' in n: return 9
+    if 'windowsurround' in n: return 11
+    if 'trim_plasticsmoothblack' in n or 'plasticsmoothblack' in n or n == 'black' or n == 'screen': return 9
     if 'glass_windowfront' in n: return 2
     if 'lightglassnormal_red' in n: return 6
     if 'lightglassnormal_orange' in n: return 7
@@ -48,7 +64,7 @@ def klass(name):
     if 'tire' in n: return 4
     if 'interior' in n or 'fabric' in n or n == 'tiled': return 8
     return 1
-Vs, Ns, Cs, Ks, Ws, Is = [], [], [], [], [], []; base = 0
+Vs, Ns, Cs, Ks, Ws, Is, UVs, LCs, LNs = [], [], [], [], [], [], [], [], []; base = 0
 def walk(i, P, path):
     global base
     nd = J['nodes'][i]; W = P @ mat(nd); path = path + [nd.get('name', '')]
@@ -60,7 +76,11 @@ def walk(i, P, path):
             A = p['attributes']; v = acc(A['POSITION']).astype(np.float64); idx = acc(p['indices']).reshape(-1, 3).astype(np.int64) if 'indices' in p else np.arange(len(v)).reshape(-1, 3)
             v = (np.c_[v, np.ones(len(v))] @ W.T)[:, :3]
             n = acc(A['NORMAL']).astype(np.float64) @ np.linalg.inv(W[:3, :3]).T if 'NORMAL' in A else None
-            t, f = tex(mi)
+            t, f = tex(mi); M = J['materials'][mi]; eng = 'engine' in name.lower()
+            uv0 = acc(A['TEXCOORD_0']).astype(np.float64) if 'TEXCOORD_0' in A else np.zeros((len(v), 2))
+            lc = 255 if eng else layer(M.get('pbrMetallicRoughness', {}).get('baseColorTexture', {}).get('index'))
+            ln = 255 if eng or 'TEXCOORD_0' not in A else layer(M.get('normalTexture', {}).get('index'))
+            if 'TEXCOORD_0' not in A: lc = 255
             if t is not None and 'TEXCOORD_0' in A:
                 uv = np.mod(acc(A['TEXCOORD_0']).astype(np.float64), 1); s = t.shape[0]
                 c = t[np.clip((uv[:, 1] * s).astype(int), 0, s - 1), np.clip((uv[:, 0] * s).astype(int), 0, s - 1)] * f
@@ -68,10 +88,13 @@ def walk(i, P, path):
             if 'interior' in name.lower():      # (cut-out parts of the cabin's texture: triangles that are mostly clear are left out)
                 idx = idx[c[idx, 3].mean(1) > 0.3]
             wheel = 1 if any(('Wheel' in q or 'Tire' in q) for q in path) else 0
+            if lc != 255: c = np.tile(f, (len(v), 1))
+            UVs.append(uv0); LCs.append(np.full(len(v), lc)); LNs.append(np.full(len(v), ln))
             Vs.append(v); Ns.append(n); Cs.append(c[:, :3]); Ks.append(np.full(len(v), k)); Ws.append(np.full(len(v), wheel)); Is.append(idx + base); base += len(v)
     for c in nd.get('children', []): walk(c, W, path)
 for r in J['scenes'][J.get('scene', 0)]['nodes']: walk(r, np.eye(4), [])
 V = np.concatenate(Vs); C = np.concatenate(Cs); K = np.concatenate(Ks); WH = np.concatenate(Ws); I = np.concatenate(Is)
+UV = np.concatenate(UVs); LC = np.concatenate(LCs); LN = np.concatenate(LNs)
 N = []
 for v, n in zip(Vs, Ns): N.append(n if n is not None else np.zeros_like(v))
 N = np.concatenate(N)
@@ -106,9 +129,29 @@ for qi, (sx, sz) in enumerate([(1, 1), (-1, 1), (1, -1), (-1, -1)]):
     m = (WH > 0) & (np.sign(V[:, 0]) == sx) & (np.sign(V[:, 2]) == sz); WH[m & (WH > 0)] = qi + 1
     q = V[m]; HUB.append([(q[:, 0].min() + q[:, 0].max()) / 2, (q[:, 1].min() + q[:, 1].max()) / 2, (q[:, 2].min() + q[:, 2].max()) / 2])
 print('verts', len(V), 'tris', len(I), 'size', (V.max(0) - V.min(0)).round(3), 'hubs', np.round(HUB, 3).tolist())
-rec = np.zeros(len(V), dtype=[('p', '<f4', 3), ('n', '<f4', 3), ('c', 'u1', 4), ('k', 'u1', 4)])
+rec = np.zeros(len(V), dtype=[('p', '<f4', 3), ('n', '<f4', 3), ('c', 'u1', 4), ('k', 'u1', 4), ('uv', '<f4', 2)])
 rec['p'] = V; rec['n'] = N; rec['c'][:, :3] = np.clip(np.round(np.clip(C, 0, 1) ** (1 / 2.2) * 255), 0, 255); rec['c'][:, 3] = 255
-rec['k'][:, 0] = K; rec['k'][:, 1] = WH
+rec['k'][:, 0] = K; rec['k'][:, 1] = WH; rec['k'][:, 2] = LC; rec['k'][:, 3] = LN; rec['uv'] = UV
+# The frit's distance from the clear glass, for the band of dots along its edge (the shader's): from each of its vertices to the nearest point of
+# the glass's triangles' edges, sampled every few millimetres.
+fm = K == 11
+if fm.any():
+    gt = I[K[I[:, 0]] == 2]; E = np.concatenate([gt[:, [0, 1]], gt[:, [1, 2]], gt[:, [2, 0]]]); tt = np.linspace(0, 1, 9)[None, :, None]
+    G = (V[E[:, 0]][:, None, :] * (1 - tt) + V[E[:, 1]][:, None, :] * tt).reshape(-1, 3)
+    fd = np.array([np.sqrt(((G - p) ** 2).sum(1)).min() for p in V[fm]])
+    rec['c'][fm, 3] = np.clip(np.round(fd / 0.1 * 255), 0, 255); print('frit verts', fm.sum(), 'distance to glass m: min', fd.min().round(4), 'max', fd.max().round(3))
+# the layers' images, 1024 square: JPEG, or PNG where there is a cut-out to keep (the cabin's)
+IMGS = []
+for im, li in sorted(LAYER.items(), key=lambda q: q[1]):
+    bv = J['bufferViews'][J['images'][im]['bufferView']]; P = Image.open(io.BytesIO(BIN[bv.get('byteOffset', 0):bv.get('byteOffset', 0) + bv['byteLength']]))
+    alpha = P.mode in ('RGBA', 'LA') or (P.mode == 'P' and 'transparency' in P.info)
+    P = P.convert('RGBA' if alpha else 'RGB').resize((1024, 1024), Image.LANCZOS); o2 = io.BytesIO()
+    if alpha: P.save(o2, 'PNG', optimize=True)
+    else: P.save(o2, 'JPEG', quality=92, subsampling=0)
+    d = o2.getvalue(); IMGS.append(d + b'\0' * (-len(d) % 4)); print('layer', li, 'image', im, 'alpha' if alpha else 'jpeg', len(d))
 with open(out, 'wb') as fo:
-    fo.write(struct.pack('<4sII', b'PCR1', len(V), I.size)); fo.write(np.array(HUB, dtype='<f4').tobytes()); fo.write(rec.tobytes()); fo.write(I.astype('<u4').tobytes())
-print('bytes', 12 + 48 + rec.nbytes + I.size * 4)
+    fo.write(struct.pack('<4sII', b'PCR2', len(V), I.size)); fo.write(np.array(HUB, dtype='<f4').tobytes())
+    fo.write(struct.pack('<I', len(IMGS)))
+    for d in IMGS: fo.write(struct.pack('<I', len(d))); fo.write(d)
+    fo.write(rec.tobytes()); fo.write(I.astype('<u4').tobytes())
+print('bytes', 64 + sum(4 + len(d) for d in IMGS) + rec.nbytes + I.size * 4)

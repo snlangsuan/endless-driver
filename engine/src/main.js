@@ -12,7 +12,7 @@ let capT = 0, last = performance.now(), time = 0, fN = 0, fT = 0, fWorst = 0, fp
 let glassF = 0;      // how misted the inside of the windscreen is
 let glassP = 0;      // how much snow has piled on the windscreen of the standing car
 let glassR = 0, glassS = 0; const glassSl = [0, 0, 0], glassV = [1, 1, 1], glassUp = [0, 0, 0];      // how wet the windscreen is, how much snow lies on it; for its big, middling and small drops: how far the running ones have slid, which way they go, how far the standing ones have crept up
-const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0, coverK = 0, lodK = 1; const ordC = [], seenC = [];      // lodK: 1 = full drawing distances for leaves, twigs and grass; lowered (to 0.9 at least) when the frame rate cannot be held otherwise
+const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let TANV = TANH, shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0, coverK = 0, lodK = 1; const ordC = [], seenC = [];      // lodK: 1 = full drawing distances for leaves, twigs and grass; lowered (to 0.9 at least) when the frame rate cannot be held otherwise
 updateChunks(car.x, car.z, 30);
 function frame(now) {
   requestAnimationFrame(frame);
@@ -57,7 +57,10 @@ function frame(now) {
   if (gameTick) gameTick(dt);      // a game's own doings each frame (it may fill EXTRA with boxes that move: see render.js)
   // camera
   let ex, ey, ez, yaw, pit;
+  // (TANV: the lens this frame - the crew's, in the cinematic view, else the usual one)
+  const cin = typeof cineCam === 'function' ? cineCam(dt) : null, ext = view3 || !!cin; TANV = cin ? CINE.tan : TANH;
   if (fly.on) { ex = fly.x; ey = fly.y; ez = fly.z; yaw = fly.yaw; pit = fly.pit; }
+  else if (cin) { [ex, ey, ez, yaw, pit] = cin; }
   else if (view3 && typeof PCAR !== 'undefined' && PCAR) { [ex, ey, ez, yaw, pit] = pcCam(dt); }      // (behind the player's car: playercar.js)
   else if (SHOW_CAR && view3) { const ya = car.yaw + car.ly; ex = car.x - sin(ya) * 6.5; ez = car.z - cos(ya) * 6.5; ey = max(car.y + 2.5, ground(ex, ez) + 0.8); yaw = ya; pit = -0.13 + car.lp; }
   else { const so = SHOW_CAR ? 1 : 0; ex = car.x - so * (0.36 * cos(car.yaw) + 0.1 * sin(car.yaw)); ez = car.z + so * (0.36 * sin(car.yaw) - 0.1 * cos(car.yaw)); ey = car.y + 1.24 + (onRoad ? 0 : (sin(car.bump) * 0.035 + sin(car.bump * 2.7) * 0.02) * min(1, abs(car.v))) - (car.jolt || 0) * 0.06 * cos((1 - (car.jolt || 0)) * 30); yaw = car.yaw + car.ly; pit = car.pit * 0.85 + car.lp;
@@ -82,9 +85,9 @@ function frame(now) {
   const cp = cos(pit), f = [sin(yaw) * cp, sin(pit), cos(yaw) * cp], e = [ex, ey, ez], O3 = [0, 0, 0]; let r = nrm3(cross(f, [0, 1, 0])), u = cross(r, f);
   // the lean: rolled about the line of sight, out of the turn - with the slide, and with how hard the wheel is over at speed
   // (in comfort mode a third as much, and none while the driver is looking round: a view that rolls as it turns is the worst for sickness)
-  { const rk = COMFORT ? 0.33 * clamp(1 - (abs(car.ly - Math.round(car.ly / TAU) * TAU) - 0.15) / 0.3, 0, 1) : 1, roll = !fly.on && !view3 && DRIFT ? rk * clamp((car.slip || 0) * 0.22 + (car.steer || 0) * 0.05 * min(1, abs(car.v) / 20), -0.28, 0.28) : 0; if (roll) { const c = cos(roll), s = sin(roll); const r2 = r.map((v, j) => v * c + u[j] * s), u2 = u.map((v, j) => v * c - r[j] * s); r = r2; u = u2; } }
+  { const rk = COMFORT ? 0.33 * clamp(1 - (abs(car.ly - Math.round(car.ly / TAU) * TAU) - 0.15) / 0.3, 0, 1) : 1, roll = !fly.on && !ext && DRIFT ? rk * clamp((car.slip || 0) * 0.22 + (car.steer || 0) * 0.05 * min(1, abs(car.v) / 20), -0.28, 0.28) : 0; if (roll) { const c = cos(roll), s = sin(roll); const r2 = r.map((v, j) => v * c + u[j] * s), u2 = u.map((v, j) => v * c - r[j] * s); r = r2; u = u2; } }
   view(mV, O3, f, r, u);            // all matrices are for positions relative to the eye
-  const asp = W / H; mP.fill(0); mP[0] = 1 / (TANH * asp); mP[5] = 1 / TANH; mP[10] = FAR / (NEAR - FAR); mP[11] = -1; mP[14] = NEAR * FAR / (NEAR - FAR);
+  const asp = W / H; mP.fill(0); mP[0] = 1 / (TANV * asp); mP[5] = 1 / TANV; mP[10] = FAR / (NEAR - FAR); mP[11] = -1; mP[14] = NEAR * FAR / (NEAR - FAR);
   mul(UB, mP, mV);
   // the shadow map: a box of light around the area in front of the camera
   if (!tHold) { tday += dt / 720; if (tday >= 1) { tday -= 1; dayN++; } }      // (unless an hour was chosen in the sky panel)
@@ -102,8 +105,8 @@ function frame(now) {
   mO.fill(0); mO[0] = 1 / SHR; mO[5] = 1 / SHR; mO[10] = 1 / (1 - 700); mO[14] = 1 / (1 - 700); mO[15] = 1;
   mul(UBS, mO, mL); UB.set(UBS.subarray(0, 16), 16);
   const hl = (headOn === -1 ? (T.night > 0.5 ? 1 : 0) : headOn) * 1.6;
-  UB.set([ex, ey, ez, time, L[0], L[1], L[2], T.rain, T.sun[0], T.sun[1], T.sun[2], abs(car.v) * 3.6, f[0], f[1], f[2], LT.seed, r[0], r[1], r[2], TANH * asp, u[0], u[1], u[2], TANH,
-    T.fog, 360 * viewK, T.cover, T.dry, W, H, car.yaw, fly.on || view3 ? 0 : 1, T.amb[0], T.amb[1], T.amb[2], T.wet, hl, T.wind, T.ex, T.night, T.zen[0], T.zen[1], T.zen[2], T.flash, T.hor[0], T.hor[1], T.hor[2], LT.az], 32);
+  UB.set([ex, ey, ez, time, L[0], L[1], L[2], T.rain, T.sun[0], T.sun[1], T.sun[2], abs(car.v) * 3.6, f[0], f[1], f[2], LT.seed, r[0], r[1], r[2], TANV * asp, u[0], u[1], u[2], TANV,
+    T.fog, 360 * viewK, T.cover, T.dry, W, H, car.yaw, fly.on || ext ? 0 : 1, T.amb[0], T.amb[1], T.amb[2], T.wet, hl, T.wind, T.ex, T.night, T.zen[0], T.zen[1], T.zen[2], T.flash, T.hor[0], T.hor[1], T.hor[2], LT.az], 32);
   UB[80] = ((ex % 256) + 256) % 256; UB[81] = ((ez % 256) + 256) % 256;      // where the eye stands in its 256 m tile (camM)
   UB[82] = T.snowG; UB[83] = deadWorld;      // (camM.z: snow lying everywhere, from snow chosen by hand)
   UB[148] = T.cool;      // (ssn.x: the cool season - the snowfield's snow lies only then)
@@ -140,8 +143,8 @@ function frame(now) {
   // in a few seconds, quicker the faster the car goes; when the snow stops it melts away slowly.
   { const sn = T.snow * (1 - coverK), sp = abs(car.v);
     glassP = clamp(glassP + dt * (sp > 1.5 ? -(0.05 + sp * 0.02) : sn > 0.05 ? sn / 45 : -1 / 40), 0, 1); }
-  const onGlass = !fly.on && !view3 ? 1 : 0;
-  Q.writeBuffer(uFinal, 0, new Float32Array([T.ex, (T.snow > T.rain ? -T.snow : T.rain) * (1 - coverK), time, 0.25 + 0.12 * T.wind, glassR * onGlass, glassS * onGlass, abs(car.v), W / H, ...glassSl, glassF * onGlass, ...glassV, glassP * onGlass, ...glassUp, 0]));
+  const onGlass = !fly.on && !ext ? 1 : 0;
+  Q.writeBuffer(uFinal, 0, new Float32Array([T.ex, (T.snow > T.rain ? -T.snow : T.rain) * (1 - coverK), time, 0.25 + 0.12 * T.wind, glassR * onGlass, glassS * onGlass, abs(car.v), W / H, ...glassSl, glassF * onGlass, ...glassV, glassP * onGlass, ...glassUp, 0, typeof CINE !== 'undefined' ? CINE.k : 0, typeof CINE !== 'undefined' ? CINE.bar : 0, 0, 0]));
 
   // Which chunks the picture shows, nearest first, and how finely - worked out before anything is drawn, for the leaves and grass of each are first
   // culled on the graphics card (cull.wgsl) and then drawn from what that leaves.
@@ -157,7 +160,7 @@ function frame(now) {
     if (d > CH) {                          // behind the camera or off to the side of what the screen shows
       // In plan the screen's edge runs at slope k from the eye; a chunk is a disc of radius Rc about its middle (its own corners at 45 m, and the
       // buildings and crowns that stand on its edge and reach beyond), so its middle may be Rc * sqrt(1 + k^2) outside that edge before nothing of it shows.
-      const fh = hypot(f[0], f[2]) || 1, fw = (dx * f[0] + dz * f[2]) / fh, k = TANH * (W / H) / max(cp - TANH * abs(f[1]), 0.05), Rc = 66 + (c.reach || 0);
+      const fh = hypot(f[0], f[2]) || 1, fw = (dx * f[0] + dz * f[2]) / fh, k = TANV * (W / H) / max(cp - TANV * abs(f[1]), 0.05), Rc = 66 + (c.reach || 0);
       if (abs(f[1]) < 0.3 ? (fw < -Rc || Math.sqrt(max(d * d - fw * fw, 0)) > k * max(fw, 0) + Rc * hypot(1, k)) : (dx * f[0] + dz * f[2]) / d < -0.35) continue;
     }
     seenC.push(c);
@@ -199,7 +202,7 @@ function frame(now) {
   if (typeof pcDraw === 'function') pcDraw(p, true);
   p.end();
   // 1b. what the mirrors see: the land behind the car, drawn small and without the finest detail (only from the driver's seat)
-  if (SHOW_CAR && !fly.on && !view3) {
+  if (SHOW_CAR && !fly.on && !ext) {
     const f2 = [-sin(car.yaw), 0, -cos(car.yaw)], r2 = nrm3(cross(f2, [0, 1, 0])), u2 = cross(r2, f2), e2 = [car.x, car.y + 1.3, car.z];
     view(mV2, O3, f2, r2, u2); mP2.fill(0); mP2[0] = 1 / 1.45; mP2[5] = 1 / 0.725; mP2[10] = FAR / (NEAR - FAR); mP2[11] = -1; mP2[14] = NEAR * FAR / (NEAR - FAR);
     UBR.set(UB); mul(UBR, mP2, mV2); UBR.set([e2[0], e2[1], e2[2]], 32); UBR[80] = ((Math.fround(e2[0]) % 256) + 256) % 256; UBR[81] = ((Math.fround(e2[2]) % 256) + 256) % 256;

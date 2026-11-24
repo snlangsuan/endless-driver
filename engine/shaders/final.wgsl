@@ -8,7 +8,8 @@
 // finest stay where they land; small ones are the first to be driven up by the wind; big ones go on running down until the car is fast. So the
 // drops are kept in three sizes - x big, y middling, z small - each with its own:
 // c: how far the running drops have slid (down +); c.w: how misted the inside of the glass is, 0..1 · d: which way they go now (1 down .. -1 up; 0 hanging); d.w: how much snow has piled on the glass, 0..1 · e: how far the standing ones have crept up
-struct U { a: vec4f, b: vec4f, c: vec4f, d: vec4f, e: vec4f };
+// f: x how far into the cinematic view's film look (0..1), y the black bars' part of the height, each (cinema.js)
+struct U { a: vec4f, b: vec4f, c: vec4f, d: vec4f, e: vec4f, f: vec4f };
 @group(0) @binding(3) var<uniform> uu: U;
 struct VO { @builtin(position) cp: vec4f, @location(0) uv: vec2f };
 @vertex fn vs(@builtin(vertex_index) i: u32) -> VO { var o: VO; let p = vec2f(f32(i32(i & 1u) * 4 - 1), f32(i32(i >> 1u) * 4 - 1)); o.cp = vec4f(p, 0., 1.); o.uv = vec2f(p.x * .5 + .5, .5 - p.y * .5); return o; }
@@ -58,7 +59,11 @@ fn vn2(p: vec2f) -> f32 { let i = floor(p); let f = fract(p); let u = f * f * (3
 fn aces(x: vec3f) -> vec3f { return clamp((x * (2.51 * x + .03)) / (x * (2.43 * x + .59) + .14), vec3f(0.), vec3f(1.)); }
 @fragment fn fs(i: VO) -> @location(0) vec4f {
   let u = uu.a; let b = uu.b;
-  var c = textureSampleLevel(tS, s, i.uv, 0.).rgb + textureSampleLevel(tB, s, i.uv, 0.).rgb * .22;
+  let ck = uu.f.x;
+  var c = textureSampleLevel(tS, s, i.uv, 0.).rgb + textureSampleLevel(tB, s, i.uv, 0.).rgb * (.22 + .08 * ck);
+  // (the film look: the red and the blue drawn a hair apart toward the edges, as a lens fringes them)
+  if (ck > .001) { let q0 = (i.uv - .5) * dot(i.uv - .5, i.uv - .5) * .012 * ck;
+    c = vec3f(textureSampleLevel(tS, s, i.uv + q0, 0.).r + textureSampleLevel(tB, s, i.uv + q0, 0.).r * (.22 + .08 * ck), c.g, textureSampleLevel(tS, s, i.uv - q0, 0.).b + textureSampleLevel(tB, s, i.uv - q0, 0.).b * (.22 + .08 * ck)); }
   c *= u.x;
   // the windscreen: water standing on it bends the road behind into little upside-down lenses, lit along their tops; snow settles in flakes that
   // soften into water. Seen only from the driver's seat (b.x, b.y are 0 otherwise).
@@ -189,10 +194,25 @@ fn aces(x: vec3f) -> vec3f { return clamp((x * (2.51 * x + .03)) / (x * (2.43 * 
       c += vec3f(.72, .78, .88) * r * (.05 + lum * .35) * (.5 + .5 * ry);
     }
   }
-  let q = i.uv - .5; c *= 1. - dot(q, q) * .45;
+  let q = i.uv - .5; c *= 1. - dot(q, q) * (.45 + .55 * ck);
   c = aces(c);
   let l = dot(c, vec3f(.2126, .7152, .0722)); c = mix(vec3f(l), c, 1.06);
+  // The film look, by ck: the shadows drawn toward teal and the lights toward a warm amber - set by each pixel's brightness, its own hue kept -
+  // a soft S of contrast about the middle, the blacks lifted a touch as on a print, a shade less colour overall.
+  if (ck > .001) {
+    let lk = dot(c, vec3f(.2126, .7152, .0722)); let sh = 1. - ss(.0, .45, lk); let hi = ss(.4, 1., lk);
+    var g = c * mix(vec3f(1.), vec3f(.86, 1.0, 1.08), sh * .5) * mix(vec3f(1.), vec3f(1.07, 1.0, .88), hi * .55);
+    g = mix(g, g * g * (3. - 2. * g), .55);
+    g = mix(vec3f(dot(g, vec3f(.2126, .7152, .0722))), g, .96);
+    g = g * .985 + vec3f(.004, .007, .01);
+    c = mix(c, clamp(g, vec3f(0.), vec3f(1.)), ck);
+  }
   c = pow(max(c, vec3f(0.)), vec3f(1. / 2.2));
   let n = fract(52.9829189 * fract(dot(i.cp.xy, vec2f(.06711056, .00583715))));
+  // (grain: a fine noise that moves every frame, more in the middle tones than in the lights)
+  if (ck > .001) { let gp = floor(i.cp.xy / 1.5); let gn = fract(sin(dot(gp + fract(u.z * 7.13) * 91.3, vec2f(12.9898, 78.233))) * 43758.5453);
+    let lg = dot(c, vec3f(.333)); c += (gn - .5) * .055 * ck * (1. - .6 * lg); }
+  // (and the black bars, top and bottom, that make the picture 2.39:1)
+  if (i.uv.y < uu.f.y || i.uv.y > 1. - uu.f.y) { c = vec3f(0.); }
   return vec4f(c + (n - .5) / 255., 1.);
 }

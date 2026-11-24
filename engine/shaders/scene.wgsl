@@ -901,27 +901,99 @@ struct SO { @builtin(position) cp: vec4f, @location(0) q: vec2f };
   return vec4f(outc, 1.);
 }
 // The player's car (vsPc, playercar.js): lit as the world is - sun with the world's shadows on it, the sky - with a sheen to each kind of
-// surface: the paint deep red under a clear coat that gives back the sky, the glass dark and mirror-like, chrome and the wheels' metal bright,
-// tyres matte; the head lamps lit with the lights, the tail lamps with the lights and brighter on the brake.
+// surface: the glass dark and mirror-like, chrome and the wheels' metal bright, tyres matte; the head lamps lit with the lights, the tail lamps
+// with the lights and brighter on the brake. Where the model has textures (pcT: one array, scripts/mx5.py) a part takes its colour from its
+// colour map and bends its normal by its normal map - the grille's mesh, the lamps' insides, the lettering and treads of the tyres, the cloth of
+// the hood. The way across and along a normal map is worked out from how the place on the texture changes from pixel to pixel, so no tangents
+// are kept (and the mirrored model needs no care). A layer not yet loaded reads clear (alpha 0) and is passed over.
+@group(1) @binding(2) var pcT: texture_2d_array<f32>;
+@group(1) @binding(3) var pcS: sampler;
+fn h31(p: vec3f) -> f32 { var q = fract(p * vec3f(.1031, .1030, .0973)); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+fn h33(p: vec3f) -> vec3f { var q = fract(p * vec3f(.1031, .1030, .0973)); q += dot(q, q.yxz + 33.33); return fract((q.xxy + q.yxx) * q.zyx); }
+// The street lamps' light on the car at night (the ground has their pools of light, terrain.wgsl; the car had nothing from them and went black
+// in a town at night): the two lamps nearest, every 32 m on the left of the road, their heads 7 m up over the kerb (chunks.js) - in town,
+// and along the coast set further out. Their light (rgb) and the way to each (dir: .xyz; .w how much of it, for the shine).
+struct PcLamp { c0: vec3f, d0: vec3f, c1: vec3f, d1: vec3f };
+fn pcLamps(wp: vec3f) -> PcLamp {
+  var o: PcLamp; o.c0 = vec3f(0.); o.c1 = vec3f(0.); o.d0 = vec3f(0., 1., 0.); o.d1 = vec3f(0., 1., 0.);
+  let twz = tw(wp.z); let swz = sw(wp.z); let k = g.misc.w * max(twz, swz); if (k <= 0.) { return o; }
+  let off = select(3.1, 4.8, swz > twz); let ly = pu.hi.y + pu.lo.y + 7.;
+  let za = round((wp.z - 16.) / 32.) * 32. + 16.; let zb = za + select(-32., 32., wp.z > za);
+  let la = vec3f(roadX(za) - off, ly, za) - wp; let lb = vec3f(roadX(zb) - off, ly, zb) - wp; let da = length(la); let db = length(lb);
+  o.c0 = vec3f(1., .72, .36) * k * 6.4 / (1. + da * da * .03) * ss(28., 6., da); o.d0 = la / da;
+  o.c1 = vec3f(1., .72, .36) * k * 6.4 / (1. + db * db * .03) * ss(28., 6., db); o.d1 = lb / db;
+  return o;
+}
 @fragment fn fsPc(i: PcO) -> @location(0) vec4f {
-  let V = normalize(g.cam.xyz - i.wp); var n = normalize(i.n); if (dot(n, V) < 0.) { n = -n; }
+  let V = normalize(g.cam.xyz - i.wp); var n0 = normalize(i.n); if (dot(n0, V) < 0.) { n0 = -n0; }
   let k = i.k; let L = g.sun.xyz; let lights = g.misc.x;
-  var alb = pow(i.c, vec3f(2.2)); var spec = .25; var refl = .05; var sh = 24.; var em = vec3f(0.);
-  if (k == 0u) { alb = vec3f(.24, .006, .010); spec = 1.2; refl = .45; sh = 90.; }
-  else if (k == 2u) { alb = vec3f(.008, .009, .011); spec = 2.; refl = .9; sh = 300.; }
+  var alb = pow(i.c.rgb, vec3f(2.2)); var spec = .25; var refl = .05; var sh = 24.; var em = vec3f(0.);
+  // (the derivatives taken first, by the whole of each block of pixels as they must be; with them given, the textures are read only by the parts
+  // that have them - most of the car, its paint, has none)
+  let dp1 = dpdx(i.wp); let dp2 = dpdy(i.wp); let du1 = dpdx(i.uv); let du2 = dpdy(i.uv); let fp = length(fwidth(i.lp));
+  // (the frit's dots: the size of a pixel against their 4 mm spacing)
+  let fq = fp / .004;
+  var tc = vec4f(0.); var tn = vec4f(0.);
+  if (i.tl.x != 255u) { tc = textureSampleGrad(pcT, pcS, i.uv, i32(i.tl.x), du1, du2); }
+  if (i.tl.y != 255u) { tn = textureSampleGrad(pcT, pcS, i.uv, i32(i.tl.y), du1, du2); }
+  if (i.tl.x != 255u && tc.a > .001) { alb *= pow(tc.rgb, vec3f(2.2)); if (k == 8u && tc.a < .5) { discard; } }
+  var n = n0;
+  if (i.tl.y != 255u && tn.a > .001) {
+    let q2 = cross(dp2, n0); let q1 = cross(n0, dp1); let T = q2 * du1.x + q1 * du2.x; let Bt = q2 * du1.y + q1 * du2.y;
+    let im = inverseSqrt(max(max(dot(T, T), dot(Bt, Bt)), 1e-20)); let m = tn.rgb * 2. - 1.;
+    n = normalize(T * im * m.x - Bt * im * m.y + n0 * max(m.z, .05)); if (dot(n, V) < 0.) { n = normalize(n - V * dot(n, V) * 1.01); }
+  }
+  let E = g.sunCol.rgb * shadowF(i.wp + n0 * .05); let ndl = max(dot(n, L), 0.); let ndv = max(dot(n, V), 0.);
+  let R = reflect(-V, n);
+  // What the car's shine gives back: the sky above, and below the horizon the land - a dark band of trees and hills along the horizon itself,
+  // then the road and the ground darker still - so that a line of the horizon runs along the doors, as on a real car.
+  var env = mix(horizon(R), g.zen.rgb, ss(0., .7, max(R.y, 0.)));
+  { let land = mix(g.amb.rgb * vec3f(.30, .36, .26), g.amb.rgb * .16, ss(-.02, -.35, R.y)); env = mix(env, land, ss(.035, -.03, R.y)); }
+  if (k == 0u) {
+    // The paint: a deep red metallic under a clear coat. The colour is richer and darker toward the edges, where it is seen through more of the
+    // tinted layer, and lighter face on; within it, flakes of metal - each a speck of its own tilt, fixed to the body - catch the sun as points of
+    // light; a broad warm gleam of the metal under the coat; and on top the coat itself, clear, giving back the sky and the land sharply, with
+    // the sun as a hard small spot.
+    let flop = mix(.42, 1.12, pow(ndv, .55));
+    let base = vec3f(.30, .008, .012) * flop;
+    // (fine - a millimetre - and only near: where a pixel covers more than two or three of them they flickered as grit, so they fade with the
+    // pixel's own size into the broad gleam they make together)
+    let fk = ss(.0035, .0012, fp);
+    let cell = floor(i.lp * 900.); let fn2 = normalize(n + (h33(cell) - .5) * .5); let fon = step(.72, h31(cell + 7.));
+    let flake = pow(max(dot(reflect(-V, fn2), L), 0.), 160.) * fon * 1.3 * fk;
+    var c = base * (E * ndl + sky(n)) + base * E * pow(max(dot(R, L), 0.), 18.) * 1.6 * ndl + vec3f(1., .55, .45) * E * flake * ndl;
+    let fc = .04 + .96 * pow(1. - ndv, 5.);
+    c = mix(c, env * .95, fc * .85) + env * .045 + E * pow(max(dot(R, L), 0.), 1400.) * 22. * ndl;
+    // (and under the street lamps: their light on the red, and each lamp's small hard spot in the coat, sliding along the body as it goes by)
+    { let q = pcLamps(i.wp); let a0 = max(dot(n, q.d0), 0.); let a1 = max(dot(n, q.d1), 0.);
+      c += base * (q.c0 * a0 + q.c1 * a1) * .95 + base * (q.c0 * pow(max(dot(R, q.d0), 0.), 18.) + q.c1 * pow(max(dot(R, q.d1), 0.), 18.)) * 1.4
+        + (q.c0 * pow(max(dot(R, q.d0), 0.), 900.) + q.c1 * pow(max(dot(R, q.d1), 0.), 900.)) * 9. * (.3 + fc); }
+    return vec4f(fogged(c + em, i.wp), 1.);
+  }
+  // The glass: dark, with the dim cabin behind it, and a mirror at a glancing look. The frit round the windscreen's edge and behind the mirror is
+  // black print under the same glass - as glossy - and along its edge with the clear glass it breaks into dots, rows of them staggered every
+  // 4 mm, smaller toward the glass until they are gone, over 2.5 cm (i.c.a: how far from the clear glass, 0-10 cm). Seen from where a dot is
+  // smaller than a pixel the band is drawn as its average shade, not as dots that would shimmer.
+  if (k == 2u) { alb = vec3f(.034, .036, .04); spec = 2.; refl = .9; sh = 300.; }
+  else if (k == 11u) {
+    let d = i.c.a * .1; let cov = ss(.002, .027, d);
+    let q = vec2f(i.lp.x, i.lp.y * .55 + i.lp.z * .83) / .004; let row = floor(q.y); let f = fract(vec2f(q.x + .5 * (row - 2. * floor(row * .5)), q.y)) - .5;
+    let r = sqrt(cov / 3.1416); let aw = max(fq, .04); let dot1 = select(ss(r + aw, r - aw, length(f)), 1., cov > .78);
+    let m = mix(dot1, cov, ss(.35, .9, fq));
+    alb = mix(vec3f(.034, .036, .04), vec3f(.001), m); spec = 2.; refl = .9; sh = 300.;
+  }
   else if (k == 3u) { alb = max(alb, vec3f(.05)); spec = 1.; refl = .45; sh = 60.; }
-  else if (k == 4u) { alb *= .55; spec = .04; refl = .01; sh = 8.; }
-  else if (k == 5u) { alb = vec3f(.10, .105, .11); spec = 2.; refl = .85; sh = 250.; em = vec3f(1., .94, .82) * lights * 5.; }
+  else if (k == 4u) { alb *= .55; spec = .06; refl = .015; sh = 10.; }
+  else if (k == 5u) { alb = vec3f(.10, .105, .11); spec = 2.; refl = .85; sh = 250.; em = vec3f(1., .94, .82) * lights * 2.6; }
   else if (k == 6u) { alb = vec3f(.30, .01, .01); spec = 1.5; refl = .5; sh = 160.; em = vec3f(1., .04, .02) * (lights * 1.2 + pu.wh.z * 4.); }
   else if (k == 7u) { alb = vec3f(.45, .18, .02); spec = 1.5; refl = .5; sh = 160.; }
   else if (k == 8u) { spec = .08; refl = .02; }
   else if (k == 9u) { alb = vec3f(.012); spec = .7; refl = .3; sh = 60.; }
   else if (k == 10u) { alb = vec3f(.035, .033, .03); spec = .4; refl = .12; sh = 30.; }
-  let E = g.sunCol.rgb * shadowF(i.wp + n * .05); let ndl = max(dot(n, L), 0.);
   var c = alb * (E * ndl + sky(n));
-  let R = reflect(-V, n); let fr = mix(refl * .12, refl, pow(1. - max(dot(V, n), 0.), 5.));
-  var env = mix(horizon(R), g.zen.rgb, ss(0., .7, max(R.y, 0.))); if (R.y < 0.) { env = mix(env, g.amb.rgb * .25, ss(0., -.25, R.y)); }
+  let fr = mix(refl * .12, refl, pow(1. - ndv, 5.));
   c += env * fr + E * pow(max(dot(R, L), 0.), sh) * spec * ndl;
+  { let q = pcLamps(i.wp); c += alb * (q.c0 * max(dot(n, q.d0), 0.) + q.c1 * max(dot(n, q.d1), 0.)) + (q.c0 * pow(max(dot(R, q.d0), 0.), sh) + q.c1 * pow(max(dot(R, q.d1), 0.), sh)) * spec * .6; }
   return vec4f(fogged(c + em, i.wp), 1.);
 }
 // Tyre smoke (playercar.js): each puff a disc turned to face the eye, soft at its edge and lumpy within, lit by the sky and the sun - white smoke,
