@@ -15,12 +15,16 @@ addEventListener('unhandledrejection', (e) => fail('JS: ' + (e.reason && (e.reas
 // files for some of the shader texts), say (what the loading screen says at which part). A name with a slash in it is a path from the page (ruin/land);
 // a bare name is a file of the engine (src/core.js, shaders/common.wgsl).
 const GAME = window.GAME || {};
-const PARTS = GAME.parts || ['core', 'land', 'shaders', 'render', 'plants', 'buildings', 'chunks', 'weather', 'input', 'barkdata', 'sound', 'car', 'playercar', 'music', 'collide', 'drive', 'cinema', 'worldclient', 'main'];
+const PARTS = GAME.parts || ['core', 'land', 'shaders', 'render', 'plants', 'buildings', 'chunks', 'weather', 'input', 'barkdata', 'sound', 'car', 'playercar', 'music', 'collide', 'drive', 'rival', 'cinema', 'worldclient', 'main'];
 const SHADERS = Object.assign({ common: 'common', land: 'land', vertex: 'vertex', terrain: 'terrain', scene: 'scene', post: 'post', final: 'final', cull: 'cull' }, GAME.shaders);
 const srcOf = (p) => (p.includes('/') ? p : 'src/' + p) + '.js', wgslOf = (p) => (p.includes('/') ? p : 'shaders/' + p) + '.wgsl';
 const WGSL = {};
 // Binary assets a game uses (name: path), fetched with the shaders and kept as ArrayBuffers in ASSET. Endless: the parked scooters' model.
-const ASSETS = GAME.assets || { scooter: 'assets/scooter.bin', scooterLo: 'assets/scooter_lo.bin', bicycle: 'assets/bicycle.bin', pickup: 'assets/pickup.bin', ranger: 'assets/ranger.bin', rangerLo: 'assets/ranger_lo.bin', mx5: 'assets/mx5.bin' }, ASSET = {};
+// The player's car: one of PCARS, chosen in the garage panel and remembered (playercar.js); only that one is fetched to begin with - each is
+// some megabytes - and another when it is chosen.
+const PCARS = ['mx5', 'gr86'];
+let PCAR_ID = 'mx5'; try { const c = localStorage.getItem('endless.car'); if (PCARS.includes(c)) PCAR_ID = c; } catch (e) {}
+const ASSETS = GAME.assets || { scooter: 'assets/scooter.bin', scooterLo: 'assets/scooter_lo.bin', bicycle: 'assets/bicycle.bin', pickup: 'assets/pickup.bin', ranger: 'assets/ranger.bin', rangerLo: 'assets/ranger_lo.bin', [PCAR_ID]: 'assets/' + PCAR_ID + '.bin' }, ASSET = {};
 let adapter, device;
 // The loading screen (#load in the page) stays up until the first picture has been drawn. The scripts do their work in long unbroken stretches
 // - main.js builds the nearest of the world as it loads - so after each step the browser is given a moment to show the new progress. (The timer

@@ -64,7 +64,7 @@ function birdCall(t, vol) {
 }
 function cricket(t, vol) {      // a chirp of three or four quick pulses
   const f = rnd(4100, 4900), pan = rnd(-1, 1), n = 3 + floor(rnd(0, 2));
-  for (let i = 0; i < n; i++) voice('sine', t + i * 0.034, [[0, f], [0.02, f * 1.01]], [[0.004, 1], [0.016, 0.9], [0.024, 0]], vol * 0.16, pan);
+  for (let i = 0; i < n; i++) voice('sine', t + i * 0.034, [[0, f], [0.02, f * 1.01]], [[0.004, 1], [0.016, 0.9], [0.024, 0]], vol * 0.08, pan);      // (at 0.16 they stood out over everything else at night)
 }
 // Dogs. A voice is not a buzzing tone that slides in pitch (which is how these first sounded: like a toy): it is a rough, breathy source shaped by
 // the mouth. So each sound is made of a harsh tone and a breath of noise together, passed through two resonances that stand for the mouth (they
@@ -175,7 +175,7 @@ function updateSound(dt) {
   set(SND.cic1, 0.05 * cicV, 0.8); set(SND.cic2, 0.035 * cicV * (0.5 + 0.5 * sin(time * 0.17 + 2)), 0.8);
   if (morning * trees * calm > 0.05 && t > SND.tBird) { birdCall(t + 0.05, 0.5 * (0.4 + 0.6 * morning) * trees); SND.tBird = t + rnd(0.3, 2.6) / (0.25 + morning * trees); }
   const crk = sm(0.5, 0.95, dark) * (1 - 0.7 * tn);
-  if (crk > 0.1 && t > SND.tCrick) { cricket(t + 0.03, crk * 0.7); SND.tCrick = t + rnd(0.3, 1.4) / crk; }
+  if (crk > 0.1 && t > SND.tCrick) { cricket(t + 0.03, crk * 0.7); SND.tCrick = t + rnd(0.5, 2.1) / crk; }
   // houses near? (the town, or a house on the plain within earshot) - then at night the dogs
   if (t > SND.tVill) { SND.tVill = t + 1; let v = tn; for (const c of chunks.values()) if (c.house) { const d = hypot(c.house[0] - px, c.house[2] - pz); v = max(v, 1 - d / 220); } SND.vill = v; }
   SND.info = 'เสียง: ลม ' + (w < 0.8 ? 'เบา' : w < 1.8 ? 'ปานกลาง' : 'แรง') + (AT.rain > 0.05 ? ' · ฝน' : '') + (AT.storm > 0.5 ? ' · ฟ้าร้อง' : '') + (sv > 0.05 ? ' · คลื่นทะเล' : '') + (morning * trees * calm > 0.05 ? ' · นก' : '') + (cicV > 0.1 ? ' · จักจั่น' : '') + (crk > 0.1 ? ' · จิ้งหรีด' : '') + (dark > 0.6 && SND.vill > 0.1 ? ' · หมา' : '') + (mute ? ' (ปิดเสียงอยู่)' : '');

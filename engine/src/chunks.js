@@ -174,7 +174,9 @@ function buildChunk(cx, cz) {
   // million triangles to some 19 000 and parted by what it is made of (assets/scooter.bin: see scooter() below). Its paint is in one of eight
   // colours, red and black the commonest; it leans on its side stand. Within 75 m the model itself; beyond, a copy of it cut to 1800 triangles.
   const SCPAL = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 4, 5, 5, 6, 7], SCRGB = [[16, 1, 1], [5, 16, 25], [1, 1, 1], [25, 25, 24], [2, 4, 15], [19, 19, 20], [3, 13, 6], [26, 20, 2]];
-  const mbike = (Wf, yw, y, bx, bz, s2) => { twList.push([...Wf(bx, bz), y, yw, 0]); const { B, M } = twoW(Wf, yw, y, bx, bz, 0.12), k = SCPAL[floor(s2 * SCPAL.length) % SCPAL.length], SM = scooter();
+  // (each two-wheeler solid, as the pickups are (xcol): 0.7 m wide, 1.9 long, to its saddle - a car sliding by on the footpath swept its tail
+  // through the row of them)
+  const mbike = (Wf, yw, y, bx, bz, s2) => { twList.push([...Wf(bx, bz), y, yw, 0]); { const q = Wf(bx, bz); xcol.push(q[0], q[1], yw, 0.35, 0.95, y, y + 1.15); } const { B, M } = twoW(Wf, yw, y, bx, bz, 0.12), k = SCPAL[floor(s2 * SCPAL.length) % SCPAL.length], SM = scooter();
     const mt = (cl) => cl === 0 ? 40 + k : cl === 12 ? 50 + k : SCMAT[cl]; M(SM, mt); M(scooter(true), mt, 0, 2);
   };
   // bicycle: the model "Mini bicycle" by Absolute Pen (sketchfab.com/absolutepen, CC BY 4.0), cut down from 112 000 triangles to some 12 000
@@ -182,7 +184,7 @@ function buildChunk(cx, cz) {
   // frame and mudguards painted in one of eight colours, black the commonest. It leans a little on its stand. The same model at any distance:
   // its tyres and tubes are too thin to be cut down further without falling apart, and there are few bicycles.
   const BIPAL = [2, 2, 2, 0, 0, 1, 3, 4, 5, 6];
-  const bicycle = (Wf, yw, y, bx, bz, s2) => { twList.push([...Wf(bx, bz), y, yw, 1]); const { M } = twoW(Wf, yw, y, bx, bz, 0.1), k = BIPAL[floor(s2 * BIPAL.length) % BIPAL.length];
+  const bicycle = (Wf, yw, y, bx, bz, s2) => { twList.push([...Wf(bx, bz), y, yw, 1]); { const q = Wf(bx, bz); xcol.push(q[0], q[1], yw, 0.3, 0.85, y, y + 1.0); } const { M } = twoW(Wf, yw, y, bx, bz, 0.1), k = BIPAL[floor(s2 * BIPAL.length) % BIPAL.length];
     M(assetMesh('bicycle'), (cl) => cl === 0 ? 40 + k : SCMAT[cl], 0, 0); };
   const boxesD = [], meshP = [];      // (meshV, meshI: the sculpted things of the chunk - seven numbers a vertex: place, normal, material)
   const frame = (x, y, z, yaw) => { const c = cos(yaw), sn = sin(yaw), W = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
@@ -1308,8 +1310,8 @@ function buildChunk(cx, cz) {
   };
   roadSigns();
   // The gutters of a mountain road (ร่องน้ำ): a shallow open concrete channel along both edges of the switchbacks, right against the asphalt -
-  // 3.85 to 4.45 m out, 60 cm wide and 20 deep, so that a wheel can be run along it without the car's underside touching (drive.js lets it drop
-  // in): a thin face down from the road's edge, a floor, a low lip on the outer side, in lengths of 2 m that follow the road, closed at each end.
+  // 3.85 to 4.45 m out, 60 cm wide and 10 deep - shallow, a wheel's rim's depth, so that a low car's underside clears the edge with a wheel down
+  // in it (at 20 cm a GR86 would have grounded its sill on the edge) and the wheel is still held by its sides (drive.js lets it drop in): a thin face down from the road's edge, a floor, a low lip on the outer side, in lengths of 2 m that follow the road, closed at each end.
   // The ground is not drawn over it (terrain.wgsl), so the channel is open to the sky.
   { const gw = (z) => hpW(z) > 0.15 && !inTun(z);      // (wherever the ground is opened for it - terrain.wgsl asks only hpw: gated on the chunk being hill country as well, the gutter was left out where a pass runs on into the plain, and the open channel showed the sky)
     // (a length is this chunk's if its middle is - and on a bend, 4.15 m out square to the road, that middle is up to 4 m along z from the road's
@@ -1320,10 +1322,10 @@ function buildChunk(cx, cz) {
         const L = hypot(x1 - x0, zb - za), yw = atan2(x1 - x0, zb - za), tl = -atan2(yb - ya, L), c = cos(yw), sn = sin(yw), at = (o) => [mx + sd * o * c, mz - sd * o * sn];
         // (material 53, scene.wgsl: the seed says which piece and which side of the road, the last number the length, so the joints can be drawn)
         const sg = sd > 0 ? 1 : 0, Lw = 20 + L;
-        { const q = at(-0.32); boxes.push(q[0], my - 0.14, q[1], yw, 0.06, 0.28, L + 0.06, tl, 53, 2 + sg, 0.28, Lw); }      // the face down from the road's edge
-        boxes.push(mx, my - 0.24, mz, yw, 0.62, 0.08, L + 0.06, tl, 53, sg, 0.08, Lw);      // the floor, 20 cm down
-        { const q = at(0.34); boxes.push(q[0], my - 0.12, q[1], yw, 0.1, 0.32, L + 0.06, tl, 53, 4 + sg, 0.32, Lw); }      // the outer lip, a little above the road
-        for (const [e, zz, yy] of [[gw(zm - 2), z0, ya], [gw(zm + 2), z1, yb]]) if (!e) { const q = rp(zz, G); boxes.push(q[0], yy - 0.14, q[1], yw, 0.7, 0.28, 0.08, 0, 53, 6 + sg, 0.28, 20.2); } } } }
+        { const q = at(-0.32); boxes.push(q[0], my - 0.09, q[1], yw, 0.06, 0.18, L + 0.06, tl, 53, 2 + sg, 0.18, Lw); }      // the face down from the road's edge
+        boxes.push(mx, my - 0.14, mz, yw, 0.62, 0.08, L + 0.06, tl, 53, sg, 0.08, Lw);      // the floor, 10 cm down
+        { const q = at(0.34); boxes.push(q[0], my - 0.07, q[1], yw, 0.1, 0.22, L + 0.06, tl, 53, 4 + sg, 0.22, Lw); }      // the outer lip, a little above the road
+        for (const [e, zz, yy] of [[gw(zm - 2), z0, ya], [gw(zm + 2), z1, yb]]) if (!e) { const q = rp(zz, G); boxes.push(q[0], yy - 0.09, q[1], yw, 0.7, 0.18, 0.08, 0, 53, 6 + sg, 0.18, 20.2); } } } }
   // steel guard rail on the hill road where it runs along a drop
   // (railOn: is there a length of it from z0 to z1 - not where the stretch has none, nor in a tunnel, nor across the mouth of a drive or a temple's
   // way. Where it stops, it ends on a post: the beam runs post to post and stops at the last - no end bent down into the ground.)
