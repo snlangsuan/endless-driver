@@ -218,8 +218,10 @@ function drive(dt) {
     const ts = gq * (1 + 0.3 * (1 - grip)) * clamp((base * (auto.on ? 1 : 0.6 + 0.8 * pw) + kick), auto.on ? -1 : -1.05, auto.on ? 1 : 1.05) * 1.05 * clamp((abs(car.v) - 5) / 7, 0, 1), cur = wr(car.yaw - car.hd);      // (up to 60 degrees, from 30 km/h on; by hand to 66 on the throttle)
     // (the self-driving holds no more of the slide than leaves its tail clear of the posts, lamp posts, rails and parked things by the road: it
     // looks along its way and straightens before it gets there - see pcSlideRoom; the slide eased back in as the way clears)
-    // (racing the rival, side by side with it or while the lead changes hands, it drives straight: two cars sliding side by side came together)
-    car.tailK = auto.on && typeof rivalSide === "function" && rivalSide() ? 0.15 : 1;
+    // (racing the rival, side by side with it or while the lead changes hands, it drives straight: two cars sliding side by side came together -
+    // but two abreast through a bend on purpose, it slides as much as leaves the two bodies apart: rival.js, rivalTailK)
+    // (ts was sized with last frame's tailK in it (gq): the room is looked at for the whole of the slide asked for)
+    car.tailK = auto.on && typeof rivalTailK === 'function' ? rivalTailK(ts / max(car.tailK ?? 1, 0.1)) : 1;
     if (auto.on && PCAR && typeof pcSlideRoom === 'function') { if (auto.tick % 4 === 1) car.tailT = pcSlideRoom(PCAR, car.x, car.z, car.y, car.hd, kk, ts / max(car.tailK ?? 1, 0.1)); car.tailK = min(car.tailT ?? 1, car.tailK ?? 1, (car.tailKp ?? 1) + dt * 1.2); car.tailKp = car.tailK; } else car.tailK = car.tailKp = 1;
     // (by hand the nose is led by the path's own turning, so that it does not trail a few degrees behind a gentle turn - it read as the car not
     // answering the stick)

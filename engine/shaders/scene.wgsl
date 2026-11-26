@@ -984,8 +984,10 @@ fn pcLamps(wp: vec3f) -> PcLamp {
   }
   else if (k == 3u) { alb = max(alb, vec3f(.05)); spec = 1.; refl = .45; sh = 60.; }
   else if (k == 4u) { alb *= .55; spec = .06; refl = .015; sh = 10.; }
-  else if (k == 5u) { alb = vec3f(.10, .105, .11); spec = 2.; refl = .85; sh = 250.; em = vec3f(1., .94, .82) * lights * 2.6; }
-  else if (k == 6u) { alb = vec3f(.30, .01, .01); spec = 1.5; refl = .5; sh = 160.; em = vec3f(1., .04, .02) * (lights * 1.2 + pu.wh.z * 4.); }
+  // (13 and 14: the same clear and red lenses, never lit - at the MX-5's back the reversing lamps and the reflectors low on the bumper's
+  // corners, which lit with the head and tail lamps shone white and red under the bumper as no car's do: mx5.py)
+  else if (k == 5u || k == 13u) { alb = vec3f(.10, .105, .11); spec = 2.; refl = .85; sh = 250.; em = vec3f(1., .94, .82) * lights * 2.6 * f32(k == 5u); }
+  else if (k == 6u || k == 14u) { alb = vec3f(.30, .01, .01); spec = 1.5; refl = .5; sh = 160.; em = vec3f(1., .04, .02) * (lights * 1.2 + pu.wh.z * 4.) * f32(k == 6u); }
   else if (k == 7u) { alb = vec3f(.45, .18, .02); spec = 1.5; refl = .5; sh = 160.; }
   else if (k == 8u) { spec = .08; refl = .02; }
   else if (k == 9u) { alb = vec3f(.012); spec = .7; refl = .3; sh = 60.; }

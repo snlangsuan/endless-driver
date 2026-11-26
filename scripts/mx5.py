@@ -3,7 +3,8 @@
 # In the game's car measure: x to the left, y up from the ground under the tyres, z ahead, metres; mirrored to right-hand drive. The badges are
 # left out. Each vertex gets its colour from its material's texture (or plain colour), and a material class the shader lights it by:
 # 0 body paint, 1 plain (its own colour, matte), 2 window glass, 3 metal, 4 tyre, 5 headlamp, 6 tail lamp, 7 indicator, 8 cabin, 9 black gloss,
-# 10 the exhaust's tips (dark, sooty metal), 11 the black print round the windscreen's edge and behind the mirror (the frit).
+# 10 the exhaust's tips (dark, sooty metal), 11 the black print round the windscreen's edge and behind the mirror (the frit), 13 a clear lamp
+# lens not lit (the reversing lamps), 14 a red one not lit (the reflectors).
 # The model's own textures go with it - the colour maps of the underbody and grille, the lamps' insides, the cabin and the tyres, and the normal
 # maps of the tyres, the wheels, the hood's cloth, the cabin and the underbody - each made 1024 x 1024 and stored as a JPEG (PNG where it has a
 # cut-out) for the game to put into one texture array (playercar.js); a vertex on a textured part carries its place on the texture and which of
@@ -51,6 +52,11 @@ for cen in ([0, 0.885, -1.657], [0, 0.898, -1.775]):
 # (and the high brake lamp on the middle of the boot lid, with its housing: unlit, a dark spot on the red)
 tc = V[I].mean(1); tk = K[I[:, 0]]; I = I[~(np.isin(tk, [1, 6, 9]) & (np.abs(tc[:, 0]) < 0.2) & (tc[:, 1] > 0.75) & (tc[:, 2] < -1.2) & (tc[:, 2] > -1.75))]
 tc = V[I].mean(1); ex = np.unique(I[(K[I[:, 0]] == 3) & (tc[:, 1] < 0.3) & (tc[:, 2] < -1.5)]); K[ex] = 10
+# (the lamps at the back that are not lit driving along: the clear lenses - the reversing lamps, low in the bumper's corners, in the middle
+# under the number plate and inside the tail lamps - class 13, and the red reflectors low on the bumper's sides, class 14: the shader draws
+# them as the lenses they are, unlit. As head and tail lamps they shone white and red under the bumper at night.)
+K[(K == 5) & (V[:, 2] < -1.0)] = 13
+K[(K == 6) & (V[:, 2] < -1.0) & (V[:, 1] < 0.6) & (np.abs(V[:, 0]) > 0.75)] = 14
 # the wheels: each wheel and tyre vertex goes to the wheel of its quarter; its hub is the middle of that quarter's tyre
 HUB = hubs(V, WH)
 print('verts', len(V), 'tris', len(I), 'size', (V.max(0) - V.min(0)).round(3), 'hubs', np.round(HUB, 3).tolist())
