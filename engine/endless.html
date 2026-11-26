@@ -23,6 +23,8 @@
     <div class="seg" id="skQ" style="grid-template-columns:1fr 1fr"><button type="button" data-v="0" title="ภาพคมและละเอียดที่สุด ยอมให้เฟรมเรตตก">สวย</button><button type="button" data-v="1" title="ลดความคมและรายละเอียดไกล ๆ เพื่อให้ลื่น เหมาะตอนอัดวิดีโอหน้าจอ">ลื่น (อัดวิดีโอ)</button></div>
     <div class="skL" title="กด V สลับคนขับ/หลังรถ · C เปิด/ปิดโหมดภาพยนตร์">มุมกล้อง</div>
     <div class="seg" id="cfCam" style="grid-template-columns:1fr 1fr 1fr"><button type="button" data-v="in" title="มองจากที่นั่งคนขับ">คนขับ</button><button type="button" data-v="back" title="กล้องตามหลังรถ เห็นทั้งคัน (V)">หลังรถ</button><button type="button" data-v="cine" title="ตัดสลับหลายมุมแบบภาพยนตร์ จอกว้าง 2.39:1 โทนสีแบบฟิล์ม ใช้ได้ระหว่างขับอัตโนมัติ (C)">ภาพยนตร์</button></div>
+    <div class="skL" title="ใช้ได้ในโหมดดริฟต์ (ตั้งในเมนูการขับขี่)">คู่แข่ง (โหมดดริฟต์)</div>
+    <div class="seg" id="cfRv" style="grid-template-columns:1fr 1fr"><button type="button" data-v="0" title="ไม่มีคู่แข่ง ถ้ากำลังแข่งอยู่ คู่แข่งจะแยกออกไปเอง">ปิด</button><button type="button" data-v="1" title="รถอีกคันตามมาจากด้านหลังแล้วแข่งกันแบบสูสี ผลัดกันนำผลัดกันตาม ขับ MX-5 เจอ GR86 ขับ GR86 เจอ MX-5">เปิด</button></div>
     <div class="skL" title="วาดแผนที่ไกลแค่ไหน ยิ่งใกล้ยิ่งลื่น (ไกลออกไปจะจางเป็นหมอก)">ระยะมองเห็น</div>
     <div class="seg" id="cfVw" style="grid-template-columns:1fr 1fr 1fr"><button type="button" data-v="1" title="380 ม.">ไกล</button><button type="button" data-v="0.75" title="285 ม.">กลาง</button><button type="button" data-v="0.55" title="210 ม.">ใกล้</button></div>
     <div class="skL" title="ล็อกจำนวนภาพต่อวินาทีให้คงที่ (สูงสุดไม่เกินที่จอแสดงได้)">ล็อกเฟรมเรต</div>
@@ -55,6 +57,14 @@
     <div class="skWr"><button type="button" id="dvM" title="ลดความเร็ว (กดค้างเพื่อลดทีละ 5)">−</button><input id="dvSp" type="range" min="0" max="220" step="1" value="90"><button type="button" id="dvP" title="เพิ่มความเร็ว (กดค้างเพื่อเพิ่มทีละ 5)">+</button></div>
     <div class="skWr" style="margin-top:8px"><button type="button" id="dvSg" style="flex:1" title="ปิดแล้วรถจะวิ่งตามความเร็วที่ตั้งไว้ ไม่สนป้ายริมทาง (ยังชะลอเข้าโค้งและหยุดไฟแดง)">ขับไม่เกินป้ายจำกัดความเร็ว</button></div>
     <p class="skK">P เปิด/ปิดขับอัตโนมัติ · − / + ปรับความเร็วทีละ 1 กดค้างปรับทีละ 5 · หักพวงมาลัยหรือเบรก (A D S) เพื่อกลับมาขับเอง</p>
+  </form>
+</dialog>
+<button id="carB" title="เลือกรถ"><svg viewBox="0 0 24 24"><path d="M3.2 15.2 4.6 11a2.2 2.2 0 0 1 1.4-1.4L9.3 8.4a6 6 0 0 1 2-.4h2.6a4 4 0 0 1 3 1.3l2.2 2.4 1.8.4a2 2 0 0 1 1.6 2V16a1 1 0 0 1-1 1h-1.1a2.6 2.6 0 0 0-5.1 0H9.1a2.6 2.6 0 0 0-5.1 0H3.6a.9.9 0 0 1-.9-.9zM7.4 11.4h4.1V9.6h-.6a5 5 0 0 0-1.6.3zM13 11.4h4l-1.4-1.5a2.6 2.6 0 0 0-1.9-.8H13z"/><circle cx="6.5" cy="17.2" r="1.9"/><circle cx="17" cy="17.2" r="1.9"/></svg></button>
+<dialog id="car" class="pan">
+  <form method="dialog">
+    <div class="skH"><b>เลือกรถ</b><span style="flex:1"></span><button value="x" class="skX" title="ปิด (Esc)"><svg viewBox="0 0 24 24"><path d="M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></svg></button></div>
+    <div id="carL"></div>
+    <p class="skK" id="carS" aria-live="polite">เปลี่ยนได้ทุกเมื่อ รถคันใหม่วิ่งต่อจากจุดเดิม</p>
   </form>
 </dialog>
 <button id="skyB" title="เวลา ฤดูกาล และสภาพอากาศ"><svg viewBox="0 0 24 24"><path d="M7 2h2v3H7zM1 9h3v2H1zM2.3 4.7l1.4-1.4 2.1 2.1-1.4 1.4zM12.2 3.3l1.4 1.4-2.1 2.1-1.4-1.4zM8 7a3 3 0 0 0-2.9 3.7A5 5 0 0 1 10.4 7.5 3 3 0 0 0 8 7zM17.5 21H8a5 5 0 1 1 1.6-9.7A6 6 0 0 1 21 13.5 3.8 3.8 0 0 1 17.5 21z"/></svg></button>

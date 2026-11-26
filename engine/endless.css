@@ -27,9 +27,10 @@ body.noui #hud{background:none;padding:0;left:12px;top:10px;text-shadow:0 1px 2p
 #skyB{right:100px}
 #cfgB{right:56px}
 #drvB{right:144px} #drvB.on{color:#6ee7b7;border-color:rgba(110,231,183,.55)}
+#carB{right:188px}
 #fs{right:12px}
-#fs,#skyB,#cfgB,#drvB{position:fixed;top:12px;display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(14,16,22,.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#e8edf5;cursor:pointer;opacity:.85;transition:opacity .15s}
-#fs:hover,#fs:focus-visible,#skyB:hover,#skyB:focus-visible,#cfgB:hover,#cfgB:focus-visible,#drvB:hover,#drvB:focus-visible{opacity:1;background:rgba(40,44,54,.7)} #fs svg,#skyB svg,#cfgB svg,#drvB svg{width:20px;height:20px;fill:currentColor} body.held #fs,body.held #skyB,body.held #cfgB,body.held #drvB{opacity:0;pointer-events:none}
+#fs,#skyB,#cfgB,#drvB,#carB{position:fixed;top:12px;display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(14,16,22,.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#e8edf5;cursor:pointer;opacity:.85;transition:opacity .15s}
+#fs:hover,#fs:focus-visible,#skyB:hover,#skyB:focus-visible,#cfgB:hover,#cfgB:focus-visible,#drvB:hover,#drvB:focus-visible,#carB:hover,#carB:focus-visible{opacity:1;background:rgba(40,44,54,.7)} #fs svg,#skyB svg,#cfgB svg,#drvB svg,#carB svg{width:20px;height:20px;fill:currentColor} body.held #fs,body.held #skyB,body.held #cfgB,body.held #drvB,body.held #carB{opacity:0;pointer-events:none}
 .pan{position:fixed;top:56px;right:12px;left:auto;margin:0;width:min(340px,calc(100vw - 24px));box-sizing:border-box;padding:12px 14px 10px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:rgba(14,16,22,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);color:#e8edf5;font:13px/1.4 system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.35)}
 .pan::backdrop{background:transparent}
 .skH{display:flex;align-items:center;gap:8px;margin-bottom:4px} .skH b{font-size:14px} #skNow{flex:1;color:#93a0b4;font:12px ui-monospace,Menlo,monospace}
@@ -78,7 +79,13 @@ body.noui #hud{background:none;padding:0;left:12px;top:10px;text-shadow:0 1px 2p
 #look path{fill:rgba(110,231,183,.75)}
 /* the cinematic view (cinema.js): the writing over the picture goes, and the buttons too until the mouse is moved */
 .seg button:disabled{opacity:.4;cursor:default} .seg button:disabled:hover{background:transparent}
-#hud,#bl,#spd,#mp,#fs,#skyB,#cfgB,#drvB{transition:opacity .5s}
+#hud,#bl,#spd,#mp,#fs,#skyB,#cfgB,#drvB,#carB{transition:opacity .5s}
 body.cine #hud,body.cine #bl,body.cine #spd,body.cine #mp{opacity:0!important;pointer-events:none}
-body.cine:not(.cineui) #fs,body.cine:not(.cineui) #skyB,body.cine:not(.cineui) #cfgB,body.cine:not(.cineui) #drvB{opacity:0;pointer-events:none}
+body.cine:not(.cineui) #fs,body.cine:not(.cineui) #skyB,body.cine:not(.cineui) #cfgB,body.cine:not(.cineui) #drvB,body.cine:not(.cineui) #carB{opacity:0;pointer-events:none}
 body.cine:not(.cineui) canvas{cursor:none}
+/* the garage panel (playercar.js, input.js): a card for each car - its name and figures; the one driven marked */
+#carL{display:grid;gap:6px;margin-top:6px}
+.carC{display:block;width:100%;padding:8px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.04);color:#dfe6f0;font:12.5px/1.35 system-ui,sans-serif;text-align:left;cursor:pointer}
+.carC:hover{background:rgba(255,255,255,.1)} .carC[aria-pressed=true]{background:rgba(110,231,183,.14);border-color:#6ee7b7}
+.carC b{display:block;font-size:13.5px;color:#fff} .carC small{display:block;color:#93a0b4;font-size:11.5px} .carC .st{display:block;margin-top:3px;color:#c7d0dc;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.carC .on{display:none;color:#6ee7b7;font-size:11px;font-weight:600} .carC[aria-pressed=true] .on{display:inline} .carC.ld{opacity:.6;cursor:progress}

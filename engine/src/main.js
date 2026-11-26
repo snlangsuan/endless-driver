@@ -52,7 +52,7 @@ function frame(now) {
     fN = 0; fT = 0; fWorst = 0;
   }
   resize();
-  pollPad(dt); if (typeof lookStep === 'function') lookStep(dt); crushRecover(dt); if (fly.on) flyMove(dt); else onRoad = drive(dt);
+  pollPad(dt); if (typeof lookStep === 'function') lookStep(dt); crushRecover(dt); if (fly.on) flyMove(dt); else onRoad = drive(dt); if (typeof rivalStep === 'function') rivalStep(dt);
   updateSound(dt); if (SHOW_CAR) placeCar(dt);
   if (gameTick) gameTick(dt);      // a game's own doings each frame (it may fill EXTRA with boxes that move: see render.js)
   // camera

@@ -1,24 +1,33 @@
 // --------------------------------------------------------------------------------------------------------- the player's car
 // The car itself, seen whole from behind it (V, or Circle on a pad: view3) and from the flying camera, and casting its shadow on the road always.
-// From "2016 Mazda MX-5 Miata" by Galaxy Car Showroom (CC BY 4.0, see CREDITS.md), made into assets/mx5.bin by scripts/mx5.py (its format there):
-// right-hand drive, no badges, colours from the model's textures, and the four wheels apart so that they roll and the front pair steer.
+// The cars (PCARS, boot.js; the one driven PCAR_ID): "2016 Mazda MX-5 Miata" and "GR86 2021", both by Galaxy Car Showroom (CC BY 4.0, see
+// CREDITS.md), made into assets/mx5.bin and assets/gr86.bin by scripts/mx5.py and scripts/gr86.py (the format in scripts/pcr2.py): right-hand
+// drive, no badges, the model's own textures, and the four wheels apart so that they roll and the front pair steer.
 // Its place is given to the shaders relative to the eye, worked out here in double precision (its whole metres and the rest apart), so that it
 // does not shimmer far from the world's origin.
-const PCAR = (() => {
-  if (!ASSET.mx5) return null;
-  const B = ASSET.mx5, dv = new DataView(B), nv = dv.getUint32(4, true), ni = dv.getUint32(8, true), hub = new Float32Array(B, 12, 12);
+// What differs between the cars beyond their models: the name and the figures the garage panel shows, and the paint - its colour (linear) and
+// that of the light its metal flakes give back.
+const PCAR_INFO = {
+  mx5: { name: 'MX-5', sub: 'ND 2.0 · 2016', hp: 184, kg: 1060, paint: [0.30, 0.008, 0.012], flake: [1, 0.55, 0.45] },
+  gr86: { name: 'GR86', sub: '2.4 · 2021', hp: 235, kg: 1270, paint: [0.46, 0.016, 0.008], flake: [1, 0.6, 0.42] },
+};
+function pcBuild(B, id) {
+  if (!B) return null;
+  const dv = new DataView(B), nv = dv.getUint32(4, true), ni = dv.getUint32(8, true), hub = new Float32Array(B, 12, 12);
   // (the model's textures, colour and normal maps, as one array of 1024 x 1024 layers with their smaller sizes below them for the distance - each
-  // image decoded and put in as it comes, the car drawn meanwhile with what is there; see scripts/mx5.py)
+  // image decoded and put in as it comes, the car drawn meanwhile with what is there; see scripts/pcr2.py)
   const nt = dv.getUint32(60, true), imgs = []; let o = 64;
   for (let i = 0; i < nt; i++) { const l = dv.getUint32(o, true); imgs.push(new Uint8Array(B, o + 4, l)); o += 4 + l; }
   const TS = 1024, mips = Math.log2(TS) + 1, tex = device.createTexture({ size: [TS, TS, max(nt, 1)], mipLevelCount: mips, format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  const live = { on: true };
   imgs.forEach(async (d, li) => { try { const bm = await createImageBitmap(new Blob([d]), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
-    for (let m = 0, s = TS; m < mips; m++, s >>= 1) { const q = m ? await createImageBitmap(bm, { resizeWidth: s, resizeHeight: s, resizeQuality: 'high', colorSpaceConversion: 'none', premultiplyAlpha: 'none' }) : bm;
-      Q.copyExternalImageToTexture({ source: q }, { texture: tex, origin: [0, 0, li], mipLevel: m }, [s, s]); } } catch (e) { console.warn('mx5 texture', li, e); } });
+    for (let m = 0, s = TS; m < mips && live.on; m++, s >>= 1) { const q = m ? await createImageBitmap(bm, { resizeWidth: s, resizeHeight: s, resizeQuality: 'high', colorSpaceConversion: 'none', premultiplyAlpha: 'none' }) : bm;
+      if (live.on) Q.copyExternalImageToTexture({ source: q }, { texture: tex, origin: [0, 0, li], mipLevel: m }, [s, s]); } } catch (e) { console.warn(id + ' texture', li, e); } });
   const smp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', maxAnisotropy: 8 });
   const vb = vbuf(new Uint8Array(B, o, nv * 40)), ib = vbuf(new Uint32Array(B, o + nv * 40, ni), GPUBufferUsage.INDEX);
-  const ub = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }), U = new Float32Array(28);
+  const ub = device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }), U = new Float32Array(36);
   for (let w = 0; w < 4; w++) U.set([hub[w * 3], hub[w * 3 + 1], hub[w * 3 + 2], 0], 12 + w * 4);
+  const info = PCAR_INFO[id] || PCAR_INFO.mx5; U.set(info.paint, 28); U.set(info.flake, 32);      // (pu.pc, pu.fl)
   const bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {} },
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { viewDimension: '2d-array' } }, { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: {} }] });
   const bg = device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: ub } }, { binding: 2, resource: tex.createView({ dimension: '2d-array' }) }, { binding: 3, resource: smp }] });
@@ -26,8 +35,30 @@ const PCAR = (() => {
   const pipe = scenePipe('vsPc', 'fsPc', LB, 'triangle-list', 1, 'less', 4, device.createPipelineLayout({ bindGroupLayouts: [bglScene, bgl] }));
   const pipeS = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [bglShadow, bgl] }), vertex: { module: mShadow, entryPoint: 'vsPc', buffers: LB },
     primitive: { topology: 'triangle-list', cullMode: 'none' }, depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less', depthBias: 2, depthBiasSlopeScale: 2.5 } });
-  return { vb, ib, ni, ub, U, bg, pipe, pipeS, ox: 0, oz: 0, spin: 0, pv: 0, brake: 0, cam: null, cp: null, phd: null, roll: 0, rollV: 0, dive: 0, diveV: 0, wa: 0, hop: 0, hopV: 0, t: 0 };
-})();
+  // (where the wheels stand, from the hubs in the file: each wheel's place on the car's plan, the wheelbase and the track, and the tyres' radius -
+  // the hub's height over the ground they stand on)
+  const WH = [0, 1, 2, 3].map((w) => [hub[w * 3], hub[w * 3 + 2]]), base = (hub[2] + hub[5] - hub[8] - hub[11]) / 2, track = (hub[0] - hub[3] + hub[6] - hub[9]) / 2, tyre = (hub[1] + hub[4] + hub[7] + hub[10]) / 4;
+  return { id, info, WH, base, track, tyre, vb, ib, ni, ub, U, bg, pipe, pipeS, tex, live, ox: 0, oz: 0, spin: 0, pv: 0, brake: 0, cam: null, cp: null, phd: null, roll: 0, rollV: 0, dive: 0, diveV: 0, wa: 0, hop: 0, hopV: 0, t: 0 };
+}
+let PCAR = pcBuild(ASSET[PCAR_ID], PCAR_ID);
+// Another car chosen (the garage panel): its model fetched if it has not been, then put in the old one's place - where it is on the road, how
+// it moves and the camera behind it carried over - and its own way of driving taken (CARS, drive.js). Remembered. done(ok) when it is there.
+let pcLoading = null;
+function pcSwitch(id, done) {
+  if (!PCARS.includes(id) || (PCAR && PCAR.id === id)) { if (done) done(true); return; }
+  try { localStorage.setItem('endless.car', id); } catch (e) {}
+  const go = () => { const old = PCAR, C = pcBuild(ASSET[id], id); if (!C) { if (done) done(false); return; }
+    if (old) { for (const k of ['ox', 'oz', 'spin', 'pv', 'brake', 'cam', 'cp', 'phd', 'roll', 'rollV', 'dive', 'diveV', 'wa', 'hop', 'hopV', 't', 'gy', 'gp', 'gr']) C[k] = old[k];
+      old.live.on = false; old.vb.destroy(); old.ib.destroy(); old.ub.destroy(); old.tex.destroy(); }
+    PCAR = C; PCAR_ID = id; if (typeof CARS !== 'undefined' && CARS[id]) CARP = CARS[id];
+    if (auto.limit > CARP.top) setLimit(CARP.top); else drvRead();      // (the self-driving's speed brought down to what this car can do)
+    if (done) done(true); };
+  if (ASSET[id]) { go(); return; }
+  const want = id; pcLoading = id;
+  fetch('assets/' + id + '.bin').then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+    .then((b) => { ASSET[id] = b; if (pcLoading === want) { pcLoading = null; go(); } })
+    .catch((e) => { console.warn('car ' + id, e); if (pcLoading === want) pcLoading = null; if (done) done(false); });
+}
 // The height of the road or ground under a wheel as it is drawn: the ground is a mesh of points every 2 m (chunks.js), flat between them in
 // triangles, not the curve ground() follows - over a crest or a hollow they part by centimetres, and on a cambered road by more. Built roads
 // (bridge decks, tunnels, the slab over an underpass) are taken as they are.
@@ -38,51 +69,80 @@ function pcSurfY(x, z, y) {
   if (u + v < 1) return ya + u * (yb - ya) + v * (yc - ya);
   const yd = ground(X + GS, Z + GS); return yd + (1 - u) * (yc - yd) + (1 - v) * (yb - yd);
 }
-// Each frame, before the passes: where the car is and how its wheels stand. (spin: the wheels' turn, by the distance rolled on 0.32 m tyres;
-// the brake lamps lit while the car is slowing hard)
+// Each frame, before the passes: where each car is and how its wheels stand - the player's (PCAR, by car) and, racing, the rival's
+// (rival.js: RIV.C by RIV.s). (spin: the wheels' turn, by the distance rolled on its tyres; the brake lamps lit while the car is slowing hard)
 function pcUpdate(dt, ex, ey, ez) {
-  const C = PCAR; if (!C) return;
-  C.spin += car.v * dt / 0.32;
-  const dec = dt > 0 ? (C.pv - abs(car.v)) / dt : 0; C.pv = abs(car.v); C.brake += ((K('Space') > 0 || dec > 2.5 ? 1 : 0) - C.brake) * (1 - Math.exp(-dt * 12));
+  if (PCAR) pcPose(PCAR, car, dt, K('Space') > 0);
+  if (typeof RIV !== 'undefined' && RIV.C && RIV.s) pcPose(RIV.C, RIV.s, dt, RIV.s.brk > 0);
+}
+// C: the car's model and its state on the springs; S: where it is and how it moves (x y z yaw hd v slip gut, as car); braking: its brake held
+function pcPose(C, S, dt, braking) {
+  C.spin += S.v * dt / C.tyre;
+  const dec = dt > 0 ? (C.pv - abs(S.v)) / dt : 0; C.pv = abs(S.v); C.brake += ((braking || dec > 2.5 ? 1 : 0) - C.brake) * (1 - Math.exp(-dt * 12));
   // The body on its springs. It leans out of a turn by the sideways pull - the speed times how fast the travel is turning - up to 4 degrees,
   // dips its nose braking and lifts it accelerating, up to 2; each on a spring that is damped, so that it settles with a little swing, not at
   // once. The wheels stay on the road.
-  const wr = (q) => q - Math.round(q / TAU) * TAU, hd = car.hd !== undefined ? car.hd : car.yaw, yr = C.phd === null || dt <= 0 ? 0 : wr(hd - C.phd) / dt; C.phd = hd;
-  const aLat = clamp(car.v * yr, -12, 12), aLon = clamp(-dec, -10, 10), sp = (x, v, t, w) => { const a = (t - x) * w * w - 2 * 0.55 * w * v; v += a * dt; return [x + v * dt, v]; };
+  const wr = (q) => q - Math.round(q / TAU) * TAU, hd = S.hd !== undefined ? S.hd : S.yaw, yr = C.phd === null || dt <= 0 ? 0 : wr(hd - C.phd) / dt; C.phd = hd;
+  const aLat = clamp(S.v * yr, -12, 12), aLon = clamp(-dec, -10, 10), sp = (x, v, t, w) => { const a = (t - x) * w * w - 2 * 0.55 * w * v; v += a * dt; return [x + v * dt, v]; };
   // (drifting the body leans further - the tyres sideways, the weight thrown onto the outer pair - up to 6 degrees, and swings more on its springs)
   // (by degrees with the slide, from 5 to 17 degrees sideways: switched on at 5 the body jumped from the one lean to the other)
-  const dr = DRIFT ? sm(0.08, 0.3, abs(car.slip || 0)) : 0, rc = 0.07 + 0.035 * dr;
+  const dr = DRIFT ? sm(0.08, 0.3, abs(S.slip || 0)) : 0, rc = 0.07 + 0.035 * dr;
   if (dt > 0 && dt < 0.2) { [C.roll, C.rollV] = sp(C.roll, C.rollV, clamp(aLat * (0.0062 + 0.0023 * dr), -rc, rc), 8 - 1.5 * dr); [C.dive, C.diveV] = sp(C.dive, C.diveV, clamp(aLon * 0.0035, -0.035, 0.035), 9); }
-  // The front wheels turned as far as the car's travel is bending - the wheelbase over the radius (2.31 m) - and, sliding, pointed along the
+  // The front wheels turned as far as the car's travel is bending - the wheelbase over the radius - and, sliding, pointed along the
   // travel rather than the nose: the wheel held against the slide, as a driver holds it. (Turned by the steering itself they stood 29 degrees
   // over at any speed, and the wrong way in a drift.)
-  const want = clamp(wr(hd - car.yaw) + Math.atan(2.31 * yr / max(abs(car.v), 2)) * Math.sign(car.v || 1), -0.6, 0.6); C.wa += (want - C.wa) * (1 - Math.exp(-dt * 10));
+  const want = clamp(wr(hd - S.yaw) + Math.atan(C.base * yr / max(abs(S.v), 2)) * Math.sign(S.v || 1), -0.6, 0.6); C.wa += (want - C.wa) * (1 - Math.exp(-dt * 10));
   // Sliding, the car is drawn turned about a point near its front wheels, not its middle: the front runs along the line the car is travelling
   // and the tail swings out - as a drifting car is seen to. (Turned about its middle, it spun on the spot like a top, both ends swinging.)
-  const PZ = 1.0, ox = (sin(hd) - sin(car.yaw)) * PZ, oz = (cos(hd) - cos(car.yaw)) * PZ; C.ox = ox; C.oz = oz;
+  const PZ = 1.0, ox = (sin(hd) - sin(S.yaw)) * PZ, oz = (cos(hd) - cos(S.yaw)) * PZ; C.ox = ox; C.oz = oz;
   // Set on its four wheels: the height under each, and the car's height, pitch and sideways tilt from them - laid on the surface as it is drawn,
   // so that no wheel sinks into it or stands off it. (Placed by one height under its middle and its pitch alone, it stood level across a
   // cambered road or a slope - one side sunk, the other in the air - and up to 10 cm off over crests and hollows.)
-  const cy = cos(car.yaw), sy = sin(car.yaw), WH = [[0.735, 1.194], [-0.733, 1.194], [0.735, -1.114], [-0.733, -1.114]], hy4 = WH.map(([lx, lz]) => pcSurfY(car.x + ox + lx * cy + lz * sy, car.z + oz - lx * sy + lz * cy, car.y + 1));
-  C.hy4 = hy4; C.wx = WH.map(([lx, lz]) => [car.x + ox + lx * cy + lz * sy, car.z + oz - lx * sy + lz * cy]);
-  const yM = (hy4[0] + hy4[1] + hy4[2] + hy4[3]) / 4 + 0.012, pit = Math.atan2((hy4[0] + hy4[1] - hy4[2] - hy4[3]) / 2, 2.308), rl = Math.atan2((hy4[0] + hy4[2] - hy4[1] - hy4[3]) / 2, 1.468);
+  const cy = cos(S.yaw), sy = sin(S.yaw), WH = C.WH, hy4 = WH.map(([lx, lz]) => pcSurfY(S.x + ox + lx * cy + lz * sy, S.z + oz - lx * sy + lz * cy, S.y + 1));
+  C.hy4 = hy4; C.wx = WH.map(([lx, lz]) => [S.x + ox + lx * cy + lz * sy, S.z + oz - lx * sy + lz * cy]);
+  const yM = (hy4[0] + hy4[1] + hy4[2] + hy4[3]) / 4 + 0.012, pit = Math.atan2((hy4[0] + hy4[1] - hy4[2] - hy4[3]) / 2, C.base), rl = Math.atan2((hy4[0] + hy4[2] - hy4[1] - hy4[3]) / 2, C.track);
   if (C.gy === undefined || dt > 0.3 || abs(C.gy - yM) > 1.5) { C.gy = yM; C.gp = pit; C.gr = rl; }
   const kq = 1 - Math.exp(-dt * 25); C.gy += (yM - C.gy) * kq; C.gp += (pit - C.gp) * kq; C.gr += (rl - C.gr) * kq;
-  const U = C.U, hx = Math.fround(car.x + ox), hy = Math.fround(C.gy), hz = Math.fround(car.z + oz);
-  U[0] = hx; U[1] = hy; U[2] = hz; U[3] = car.yaw; U[4] = car.x + ox - hx; U[5] = C.gy - hy; U[6] = car.z + oz - hz; U[7] = C.gp; U[23] = C.gr;
+  const U = C.U, hx = Math.fround(S.x + ox), hy = Math.fround(C.gy), hz = Math.fround(S.z + oz);
+  U[0] = hx; U[1] = hy; U[2] = hz; U[3] = S.yaw; U[4] = S.x + ox - hx; U[5] = C.gy - hy; U[6] = S.z + oz - hz; U[7] = C.gp; U[23] = C.gr;
   // (and the road under the tyres: the body shakes a little on it, more the faster - a few millimetres - and on rough ground or in the gutter more)
-  C.t += dt; const va = min(1, abs(car.v) / 25), rough = (car.gut || 0) > 0.5 ? 2.5 : abs(rdist(car.x, car.z)) > 4.6 ? 3 : 1;
+  C.t += dt; const va = min(1, abs(S.v) / 25), rough = (S.gut || 0) > 0.5 ? 2.5 : abs(rdist(S.x, S.z)) > 4.6 ? 3 : 1;
   const shake = (Math.sin(C.t * 23.1) * 0.6 + Math.sin(C.t * 37.7) * 0.4) * 0.0025 * va * rough;
   if (dt > 0 && dt < 0.2) [C.hop, C.hopV] = (() => { const t = shake * 1.2, w = 14; let v = C.hopV + ((t - C.hop) * w * w - 2 * 0.35 * w * C.hopV) * dt; return [C.hop + v * dt, v]; })();
   U[8] = C.spin % TAU; U[9] = C.wa; U[10] = C.brake; U[11] = C.roll + shake * 0.6; U[15] = C.dive; U[19] = C.hop;
   Q.writeBuffer(C.ub, 0, U);
 }
 // drawn into the shadow map always (from the driver's seat its shadow lies on the road beside it), and into the picture when it can be seen
+// (the rival's car always, wherever the eye is: from the driver's seat it is seen through the windscreen and in the mirrors' place)
 function pcDraw(p, shadow) {
-  const C = PCAR; if (!C) return;
-  if (!shadow && !(view3 || fly.on || (typeof cineOn === 'function' && cineOn()))) return;
-  p.setPipeline(shadow ? C.pipeS : C.pipe); p.setBindGroup(1, C.bg); p.setVertexBuffer(0, C.vb); p.setIndexBuffer(C.ib, 'uint32'); p.drawIndexed(C.ni);
+  const one = (C) => { p.setPipeline(shadow ? C.pipeS : C.pipe); p.setBindGroup(1, C.bg); p.setVertexBuffer(0, C.vb); p.setIndexBuffer(C.ib, 'uint32'); p.drawIndexed(C.ni); };
+  if (PCAR && (shadow || view3 || fly.on || (typeof cineOn === 'function' && cineOn()))) one(PCAR);
+  if (typeof RIV !== 'undefined' && RIV.C && RIV.s) one(RIV.C);
 }
+// Whether a sliding car's swung-out tail is into something: its two rear corners as drawn - turned about a point near its front (pcPose) -
+// against what is solid (solidAt), a bridge's balustrade and the coast road's rail. (Only the car's middle was stopped by them: sideways in a
+// drift its tail swept through the balustrade, and through the scooters parked along a town's footpath.) C: the car's model (its wheels).
+function pcTailHit(C, x, z, y, yaw, hd) {
+  if (!C) return false;
+  const ox = sin(hd) - sin(yaw), oz = cos(hd) - cos(yaw), c = cos(yaw), s = sin(yaw), lz = min(C.WH[2][1], C.WH[3][1]) - 0.8;
+  for (const lx of [0.92, -0.92]) { const px = x + ox + lx * c + lz * s, pz = z + oz - lx * s + lz * c, d = px - roadX(pz);
+    if (solidAt(px, pz, y, 0.12) > 0) return true;
+    if (brSpan(pz) && abs(d) > 4.3) return true;
+    if (seaW(pz) >= 0.35 && pineWt(pz) <= 0.35 && d > 4.2 && !railGap(floor(pz / 4))) return true; }
+  return false;
+}
+// How much of a slide a car can hold just here without its tail swung into anything: its way looked along for 10 m (heading hd, the road
+// turning kk a metre), at the slide sl it wants, then at less of it, until its tail is clear - 1: all of it, 0: none. (Knocked back only once
+// it had struck, the car was seen to drift into the posts and the lamp posts by the road and bounce off them: it should never have hit them.)
+function pcSlideRoom(C, x, z, y, hd, kk, sl) {
+  if (!C || abs(sl) < 0.05) return 1;
+  for (const f of [1, 0.7, 0.45, 0.25, 0.1]) { let ok = true;
+    for (const d of [0, 3, 6, 10]) { const h = hd + kk * d, hm = hd + kk * d / 2; if (pcTailHit(C, x + sin(hm) * d, z + cos(hm) * d, y, h + sl * f, h)) { ok = false; break; } }
+    if (ok) return f; }
+  return 0;
+}
+// The cars that smoke and mark the road: the player's, and the rival's while there is one ({ C: its model, S: its state, i: which })
+const pcCars = () => { const L = []; if (PCAR && !fly.on) L.push({ C: PCAR, S: car, i: 0 }); if (typeof RIV !== 'undefined' && RIV.C && RIV.s) L.push({ C: RIV.C, S: RIV.s, i: 1 }); return L; };
 // The camera behind the car (view3), as from a following car: it swings round after the car's heading - mostly its nose, a third of the way to
 // its travel, so a drift is seen at an angle and not side-on - and it is not bolted to the car: its place follows on springs (quicker across,
 // slower up and down), so the car moves about in the picture as it brakes, pulls away and turns, and the camera looks at a point just ahead of
@@ -109,22 +169,23 @@ function pcCam(dt) {
 // over the scene and behind nothing (vsSmoke/fsSmoke).
 const SMOKE = (() => {
   if (!PCAR) return null;
-  const N = 220, inst = new Float32Array(N * 8), buf = device.createBuffer({ size: inst.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+  const N = 360, inst = new Float32Array(N * 8), buf = device.createBuffer({ size: inst.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const pipe = device.createRenderPipeline({ layout: plScene,
     vertex: { module: mScene, entryPoint: 'vsSmoke', buffers: [{ arrayStride: 32, stepMode: 'instance', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }, { shaderLocation: 1, offset: 16, format: 'float32x4' }] }] },
     fragment: { module: mScene, entryPoint: 'fsSmoke', targets: [{ format: HDR, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } } }] },
     primitive: { topology: 'triangle-list', cullMode: 'none' }, multisample: { count: AA }, depthStencil: { format: DEPTH, depthWriteEnabled: false, depthCompare: 'less' } });
-  return { N, inst, buf, pipe, P: [], acc: [0, 0], n: 0 };
+  return { N, inst, buf, pipe, P: [], acc: [0, 0, 0, 0], n: 0 };
 })();
 function smokeStep(dt, ex, ey, ez) {
   const S = SMOKE; if (!S || dt <= 0) return;
-  const C = PCAR, sl = abs(car.slip || 0), v = abs(car.v), wet = (typeof AT !== 'undefined' && AT.wet) || 0, off = abs(rdist(car.x, car.z)) > 4.6;
-  const k = DRIFT && !fly.on ? clamp((sl - 0.15) / 0.4, 0, 1) * min(1, v / 15) * (1 - 0.75 * wet) : 0;
-  if (k > 0) { const c = cos(car.yaw), s = sin(car.yaw);
-    for (let w = 0; w < 2; w++) { S.acc[w] += dt * 38 * k; while (S.acc[w] >= 1 && S.P.length < S.N) { S.acc[w] -= 1;
-      const lx = (w ? -0.74 : 0.74) + (Math.random() - 0.5) * 0.2, lz = -1.11 + (Math.random() - 0.5) * 0.3, x = car.x + C.ox + lx * c + lz * s, z = car.z + C.oz - lx * s + lz * c;
-      const vx = sin(car.hd || car.yaw) * car.v * 0.22 + (Math.random() - 0.5) * 1.2, vz = cos(car.hd || car.yaw) * car.v * 0.22 + (Math.random() - 0.5) * 1.2;
-      S.P.push({ x, y: car.y + 0.12, z, vx, vy: 0.3 + Math.random() * 0.4, vz, age: 0, life: 1.8 + Math.random() * 1.2, sd: Math.random(), dust: off ? 1 : 0, a0: 0.22 + 0.18 * k }); } S.acc[w] = min(S.acc[w], 1); } }
+  const wet = (typeof AT !== 'undefined' && AT.wet) || 0;
+  for (const { C, S: T, i } of pcCars()) { const sl = abs(T.slip || 0), v = abs(T.v), off = abs(rdist(T.x, T.z)) > 4.6;
+  const k = DRIFT ? clamp((sl - 0.15) / 0.4, 0, 1) * min(1, v / 15) * (1 - 0.75 * wet) : 0;
+  if (k > 0) { const c = cos(T.yaw), s = sin(T.yaw);
+    for (let w = 0; w < 2; w++) { const a = i * 2 + w; S.acc[a] += dt * 38 * k; while (S.acc[a] >= 1 && S.P.length < S.N) { S.acc[a] -= 1;
+      const lx = C.WH[w + 2][0] + (Math.random() - 0.5) * 0.2, lz = C.WH[w + 2][1] + (Math.random() - 0.5) * 0.3, x = T.x + C.ox + lx * c + lz * s, z = T.z + C.oz - lx * s + lz * c;
+      const vx = sin(T.hd || T.yaw) * T.v * 0.22 + (Math.random() - 0.5) * 1.2, vz = cos(T.hd || T.yaw) * T.v * 0.22 + (Math.random() - 0.5) * 1.2;
+      S.P.push({ x, y: T.y + 0.12, z, vx, vy: 0.3 + Math.random() * 0.4, vz, age: 0, life: 1.8 + Math.random() * 1.2, sd: Math.random(), dust: off ? 1 : 0, a0: 0.22 + 0.18 * k }); } S.acc[a] = min(S.acc[a], 1); } } }
   const dr = Math.exp(-dt * 1.4); let n = 0;
   for (let i = S.P.length - 1; i >= 0; i--) { const q = S.P[i]; q.age += dt; if (q.age > q.life) { S.P.splice(i, 1); continue; }
     q.vx *= dr; q.vz *= dr; q.vy = q.vy * dr + 0.35 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; }
@@ -144,28 +205,31 @@ const MARKS = (() => {
     vertex: { module: mScene, entryPoint: 'vsMark', buffers: [{ arrayStride: 32, stepMode: 'instance', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }, { shaderLocation: 1, offset: 16, format: 'float32x4' }] }] },
     fragment: { module: mScene, entryPoint: 'fsMark', targets: [{ format: HDR, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'zero', dstFactor: 'one' } } }] },
     primitive: { topology: 'triangle-list', cullMode: 'none' }, multisample: { count: AA }, depthStencil: { format: DEPTH, depthWriteEnabled: false, depthCompare: 'less-equal', depthBias: -4, depthBiasSlopeScale: -2 } });
-  return { N, seg, inst, buf, pipe, head: 0, count: 0, last: [null, null, null, null] };
+  return { N, seg, inst, buf, pipe, head: 0, count: 0, last: [[null, null, null, null], [null, null, null, null]] };
 })();
 function marksStep(dt, ex, ey, ez) {
   const M = MARKS; if (!M) return;
-  const C = PCAR, sl = abs(car.slip || 0), v = abs(car.v), brk = K('Space') > 0.5 && v > 9 ? 0.55 : 0;
+  const live = [], cs = pcCars();
+  for (let j = 0; j < 2; j++) if (!cs.some((q) => q.i === j)) M.last[j] = [null, null, null, null];      // (a car gone, its streaks end)
+  for (const { C, S: T, i } of cs) { const sl = abs(T.slip || 0), v = abs(T.v), brk = (i ? T.brk > 0.5 : K('Space') > 0.5) && v > 9 ? 0.55 : 0;
   const k = max(DRIFT && v > 6 ? clamp((sl - 0.12) / 0.35, 0, 1) : 0, brk) * (1 - 0.6 * ((typeof AT !== 'undefined' && AT.wet) || 0));
-  // (each wheel's place and the height of the road under it as pcUpdate laid the car on them - at the car's own height one side of a
+  // (each wheel's place and the height of the road under it as pcPose laid the car on them - at the car's own height one side of a
   // cambered road, or a crest, had the mark under the road, and it was lost there)
-  if (!C.wx) return;
-  const live = [];
+  if (!C.wx) continue;
+  const ML = M.last[i];
   for (let w = 0; w < 4; w++) {
-    const x = C.wx[w][0], z = C.wx[w][1], y = C.hy4[w] + 0.008, L = M.last[w];
+    const x = C.wx[w][0], z = C.wx[w][1], y = C.hy4[w] + 0.008, L = ML[w];
     // (a streak once begun runs on until the slide has nearly gone, not cut off and begun again as the slip wavers round where it starts, which
     // broke it into dashes)
     const a = k * (w < 2 ? 0.35 : 0.8);
-    if (fly.on || (L ? a < 0.012 : a < 0.03)) { M.last[w] = null; continue; }
-    if (!L) { M.last[w] = [x, y, z, a]; continue; }
+    if (L ? a < 0.012 : a < 0.03) { ML[w] = null; continue; }
+    if (!L) { ML[w] = [x, y, z, a]; continue; }
     const d = Math.hypot(x - L[0], z - L[2]);
-    if (d > 3) { M.last[w] = [x, y, z, a]; continue; }
+    if (d > 3) { ML[w] = [x, y, z, a]; continue; }
     if (d < 0.3) { if (d > 0.01) live.push([L[0], L[1], L[2], x, y, z, 0.2, (a + L[3]) / 2]); continue; }
     const o = M.head * 8; M.seg.set([L[0], L[1], L[2], x, y, z, 0.2, (a + L[3]) / 2], o); M.head = (M.head + 1) % M.N; M.count = min(M.N, M.count + 1);
-    M.last[w] = [x, y, z, a];
+    ML[w] = [x, y, z, a];
+  }
   }
   let n = 0;
   // (and the length still being laid, from the last laid point up to the tyre itself, drawn each frame - or the streak ended up to 30 cm behind

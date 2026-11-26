@@ -46,17 +46,19 @@ struct CO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
 // ---- the player's car (playercar.js): its place relative to the eye (hi - eye + lo: its whole metres and the rest apart, for precision),
 // heading (hi.w) and pitch (lo.w); wh: x the wheels' turn as they roll, y the front wheels' steer, z the brake lamps, w the body's lean on its
 // springs; hub: each wheel's hub (and hub[0].w the body's nose dip, hub[1].w its rise and fall on the road, hub[2].w the sideways tilt of the surface it stands on).
-struct PcU { hi: vec4f, lo: vec4f, wh: vec4f, hub: array<vec4f, 4> };
+// (pc, fl: the paint's colour and that of the light its flakes give back, linear - each car its own)
+struct PcU { hi: vec4f, lo: vec4f, wh: vec4f, hub: array<vec4f, 4>, pc: vec4f, fl: vec4f };
 @group(1) @binding(0) var<uniform> pu: PcU;
 // (uv: the place on the model's textures; tl: the layers of the texture array to take the colour and the normal from, 255 for none)
 struct PcO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) c: vec4f, @location(3) @interpolate(flat) k: u32, @location(4) lp: vec3f, @location(5) uv: vec2f, @location(6) @interpolate(flat) tl: vec2u };
 @vertex fn vsPc(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) c: vec4f, @location(3) k: vec4u, @location(4) uv: vec2f) -> PcO {
   var q = p; var m = n; let w = k.y;
   if (w > 0u) {
-    let h = pu.hub[w - 1u].xyz; var d = q - h; var dn = m;
-    let ca = cos(pu.wh.x); let sa = sin(pu.wh.x);
-    d = vec3f(d.x, d.y * ca - d.z * sa, d.y * sa + d.z * ca); dn = vec3f(dn.x, dn.y * ca - dn.z * sa, dn.y * sa + dn.z * ca);
-    if (w <= 2u) { let cs = cos(pu.wh.y); let sn = sin(pu.wh.y); d = vec3f(d.x * cs + d.z * sn, d.y, -d.x * sn + d.z * cs); dn = vec3f(dn.x * cs + dn.z * sn, dn.y, -dn.x * sn + dn.z * cs); }
+    // (wheel 1-4 rolls; 5-8 is a part of wheel 1-4 that only steers with it - a brake calliper)
+    let wi = (w - 1u) % 4u; let h = pu.hub[wi].xyz; var d = q - h; var dn = m;
+    if (w <= 4u) { let ca = cos(pu.wh.x); let sa = sin(pu.wh.x);
+      d = vec3f(d.x, d.y * ca - d.z * sa, d.y * sa + d.z * ca); dn = vec3f(dn.x, dn.y * ca - dn.z * sa, dn.y * sa + dn.z * ca); }
+    if (wi < 2u) { let cs = cos(pu.wh.y); let sn = sin(pu.wh.y); d = vec3f(d.x * cs + d.z * sn, d.y, -d.x * sn + d.z * cs); dn = vec3f(dn.x * cs + dn.z * sn, dn.y, -dn.x * sn + dn.z * cs); }
     q = h + d; m = dn;
   } else {
     // (the body, not the wheels: leaned and dipped about a point between the axles at about the height of its springs)

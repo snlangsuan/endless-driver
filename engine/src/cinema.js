@@ -6,7 +6,7 @@
 // graded as a film (final.wgsl, by CINE.k): teal shadows and warm lights, a soft S of contrast, a deeper vignette, grain, a little colour fringe
 // at the edges and more bloom. The writing over the picture goes; moving the mouse brings the buttons back for a moment. It ends when the car is
 // driven by hand again (or C, Esc).
-const CINE = { on: false, act: false, k: 0, bar: 0, tan: Math.tan(31 * PI / 180), cam: [0, 0, 0, 0, 0], shot: null, last: '', hs: null, sx: 0, uiT: 0 };
+const CINE = { on: false, act: false, k: 0, bar: 0, tan: Math.tan(31 * PI / 180), cam: [0, 0, 0, 0, 0], shot: null, last: '', hs: null, sx: 0, uiT: 0, duel: 0 };
 const cineOn = () => CINE.act;
 const cineSet = (on) => { CINE.on = on && auto.on; CINE.shot = null; cineUI(true); };
 // (the camera choice in the settings that shows it - the driver's seat, behind the car (view3), or the cinematic view - kept in step with it
@@ -39,7 +39,11 @@ const cineFloor = (x, z, y) => (inTun(z) ? roadYs(z) : surf(x, z, y));
 // every 1.5 m along the line, at its own height, the ground - a bank, a crest - and what the chunks' col lists hold (collide.js), whole height
 // and all: buildings, walls, poles, and trees - a tree there is its trunk, and its crown made up from the trunk's height, round the top 60% of
 // it, about as wide as a quarter of it is tall either way (the leaves themselves are not kept; a drone was put inside a tree's crown).
+// (and the rival's car, racing (rival.js): its body and a hand round it - the camera was put inside it)
+const cineRiv = (x, z, y) => { if (typeof RIV === 'undefined' || !RIV.s || !RIV.C) return false; const S = RIV.s, dx = x - S.x - RIV.C.ox, dz = z - S.z - RIV.C.oz, c = cos(S.yaw), s = sin(S.yaw);
+  return abs(dx * s + dz * c) < 2.6 && abs(dx * c - dz * s) < 1.4 && y > S.y - 0.3 && y < S.y + 1.8; };
 const cineHit = (x, z, y) => {
+  if (cineRiv(x, z, y)) return true;
   for (const c of chunks.values()) { if (abs(c.x - x) > 52 || abs(c.z - z) > 52) continue; const A = c.col;
     for (let i = 0; i < A.length; i += 8) { const dx = x - A[i], dz = z - A[i + 1], hx = A[i + 4], hz = A[i + 5], yb = A[i + 6], yt = A[i + 7];
       if (abs(dx) > 8 && abs(dz) > 8) continue;
@@ -109,8 +113,13 @@ function cineCam(dt) {
   const P0 = typeof PCAR !== 'undefined' && PCAR ? PCAR : { ox: 0, oz: 0 }, hd = car.hd !== undefined ? car.hd : car.yaw, wr = (q) => q - Math.round(q / TAU) * TAU;
   if (C.hs === null || !C.shot) C.hs = hd; C.hs += wr(hd - C.hs) * (1 - Math.exp(-dt * 2.5));
   const h = C.hs, F = [sin(h), cos(h)], Lv = [cos(h), -sin(h)], P = [car.x + P0.ox, car.y, car.z + P0.oz], by = car.yaw, BF = [sin(by), cos(by)], BL = [cos(by), -sin(by)];
+  // (racing the rival, close: the two cars framed together - the set-ups are laid out round the point between them, and the lens a little wider -
+  // so that a pass, the two wheel to wheel, is in the picture; the set-ups fixed to the player's own body stay on it)
+  const PB = P.slice(); { const R = typeof RIV !== 'undefined' && RIV.s && RIV.C ? RIV.s : null, dd = R ? Math.hypot(R.x - P[0], R.z - P[2]) : 99;
+    C.duel += ((dd < 22 ? 1 : 0) - (C.duel || 0)) * (1 - Math.exp(-dt * 1.2)); const k = 0.5 * C.duel;
+    if (R && k > 0.01) { P[0] += (R.x + RIV.C.ox - P[0]) * k; P[1] += (R.y - P[1]) * k; P[2] += (R.z + RIV.C.oz - P[2]) * k; } }
   const V = { P, F, dz: alongRoad(hd), at: (f, l, u) => [P[0] + F[0] * f + Lv[0] * l, P[1] + u, P[2] + F[1] * f + Lv[1] * l],
-    body: (l, f, u) => { const x = P[0] + BF[0] * f + BL[0] * l, z = P[2] + BF[1] * f + BL[1] * l; return [x, (typeof pcSurfY === 'function' ? pcSurfY(x, z, car.y + 1) : car.y) + u, z]; } };
+    body: (l, f, u) => { const x = PB[0] + BF[0] * f + BL[0] * l, z = PB[2] + BF[1] * f + BL[1] * l; return [x, (typeof pcSurfY === 'function' ? pcSurfY(x, z, car.y + 1) : car.y) + u, z]; } };
   // a new set-up when the last has run its time (or the car has gone by a roadside one): any but the one just shot, and in a tunnel, or with one
   // just ahead, only those that fit under its roof
   let S = C.shot;
@@ -145,7 +154,7 @@ function cineCam(dt) {
   S.l += (o.l - S.l) * (1 - Math.exp(-dt * 3));
   S.p[1] = max(S.p[1], cineFloor(S.p[0], S.p[2], S.p[1] + 0.5) + 0.35);
   // (something come between the camera and the car - a house, a tree - for more than a moment: cut away to another set-up)
-  S.lt = (S.lt || 0) + dt; if (S.lt > 0.1) { S.lt = 0; if (!D.tun && (inTun(car.z) || udip(car.z) > 0.3 || tunNear(35))) S.end = true; if (!D.rigid && cineHit(S.p[0], S.p[2], S.p[1])) S.end = true; S.blk = cineSees(S.p, [P[0], P[1] + 0.7, P[2]]) ? 0 : (S.blk || 0) + 0.1; if (S.blk > 0.4) S.end = true; }
+  S.lt = (S.lt || 0) + dt; if (S.lt > 0.1) { S.lt = 0; if (!D.tun && (inTun(car.z) || udip(car.z) > 0.3 || tunNear(35))) S.end = true; if (!D.rigid && cineHit(S.p[0], S.p[2], S.p[1])) S.end = true; if (D.rigid && cineRiv(S.p[0], S.p[2], S.p[1])) S.end = true; S.blk = cineSees(S.p, [P[0], P[1] + 0.7, P[2]]) ? 0 : (S.blk || 0) + 0.1; if (S.blk > 0.4) S.end = true; }
   const dx = S.a[0] - S.p[0], dy = S.a[1] - S.p[1], dz = S.a[2] - S.p[2], yT = atan2(dx, dz), pT = atan2(dy, Math.hypot(dx, dz));
   // (framed by thirds: the car held to one side of the middle, away from where it is heading across the picture, so that there is room in front
   // of it - less when it comes at the camera or goes away from it)
@@ -153,8 +162,10 @@ function cineCam(dt) {
   if (S.cut) S.sx = sxT; S.sx += (sxT - S.sx) * (1 - Math.exp(-dt * 1.5));
   // (and held as by hand: a slow sway of a few hundredths of a degree, never on the rigid mount)
   const hh = D.rigid || D.still ? 0.3 : 1, nz = time || 0, swY = (sin(nz * 0.53) * 0.6 + sin(nz * 1.31 + 1) * 0.4) * 0.0025 * hh, swP = (sin(nz * 0.71 + 2) * 0.6 + sin(nz * 1.7) * 0.4) * 0.0018 * hh;
-  C.tan = S.l;
-  C.cam = [S.p[0], S.p[1], S.p[2], yT + Math.atan(S.sx * S.l * asp) + swY, pT - Math.atan(o.sy * vis * S.l) + swP];
+  // (wider by a little while the two cars are framed together - here, at the picture, not in the set-up's own lens: some set-ups read that back
+  // each frame, and widened it on itself frame after frame until the picture was a smear)
+  const L2 = S.l * (1 + 0.25 * (C.duel || 0)); C.tan = L2;
+  C.cam = [S.p[0], S.p[1], S.p[2], yT + Math.atan(S.sx * L2 * asp) + swY, pT - Math.atan(o.sy * vis * L2) + swP];
   S.cut = false;
   return C.cam;
 }

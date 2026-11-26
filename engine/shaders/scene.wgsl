@@ -533,14 +533,14 @@ fn pal(h: f32) -> vec3f {
     var cc = vec3f(.40, .39, .36) * (.78 + .32 * vn(q * 2.3 + 4.)) * (.9 + .2 * vn(q * 19.));
     cc = mix(cc, vec3f(.22, .20, .17), ss(.5, .85, vn(q * .7 + 11.)) * .5);
     var inner = 0.; var dep = 0.;
-    if (kind < .5) { inner = step(.5, i.ln.y); dep = .2; }
+    if (kind < .5) { inner = step(.5, i.ln.y); dep = .1; }      // (the floor 10 cm down)
     else if (kind < 1.5) { inner = step(.5, -i.ln.x * sg); dep = i.m.z * .5 - i.lp.y; }
     else if (kind < 2.5) { inner = step(.5, i.ln.x * sg); dep = i.m.z * .5 - i.lp.y - .04; }
     if (inner > .5) {
       // inside: darker the deeper, a tide line of grime where the water runs, green slime low down
-      var ic = vec3f(.17, .16, .14) * (.75 + .4 * vn(q * 6. + 2.)) * mix(1., .5, ss(.0, .2, dep));
-      ic = mix(ic, vec3f(.07, .065, .05), ss(.11, .15, dep) * .7);
-      ic = mix(ic, vec3f(.06, .09, .035), ss(.12, .2, dep) * ss(.4, .7, vn(q * 1.3 + 7.)) * .8);
+      var ic = vec3f(.17, .16, .14) * (.75 + .4 * vn(q * 6. + 2.)) * mix(1., .5, ss(.0, .1, dep));
+      ic = mix(ic, vec3f(.07, .065, .05), ss(.055, .075, dep) * .7);
+      ic = mix(ic, vec3f(.06, .09, .035), ss(.06, .1, dep) * ss(.4, .7, vn(q * 1.3 + 7.)) * .8);
       if (kind < .5) {
         // the floor: silt and grit in the middle, fallen leaves caught in drifts, darkest along the foot of each wall
         let a = abs(i.lp.x);
@@ -938,7 +938,7 @@ fn pcLamps(wp: vec3f) -> PcLamp {
   if (i.tl.y != 255u) { tn = textureSampleGrad(pcT, pcS, i.uv, i32(i.tl.y), du1, du2); }
   if (i.tl.x != 255u && tc.a > .001) { alb *= pow(tc.rgb, vec3f(2.2)); if (k == 8u && tc.a < .5) { discard; } }
   var n = n0;
-  if (i.tl.y != 255u && tn.a > .001) {
+  if (i.tl.y != 255u && tn.a > .001 && k != 12u) {
     let q2 = cross(dp2, n0); let q1 = cross(n0, dp1); let T = q2 * du1.x + q1 * du2.x; let Bt = q2 * du1.y + q1 * du2.y;
     let im = inverseSqrt(max(max(dot(T, T), dot(Bt, Bt)), 1e-20)); let m = tn.rgb * 2. - 1.;
     n = normalize(T * im * m.x - Bt * im * m.y + n0 * max(m.z, .05)); if (dot(n, V) < 0.) { n = normalize(n - V * dot(n, V) * 1.01); }
@@ -950,21 +950,21 @@ fn pcLamps(wp: vec3f) -> PcLamp {
   var env = mix(horizon(R), g.zen.rgb, ss(0., .7, max(R.y, 0.)));
   { let land = mix(g.amb.rgb * vec3f(.30, .36, .26), g.amb.rgb * .16, ss(-.02, -.35, R.y)); env = mix(env, land, ss(.035, -.03, R.y)); }
   if (k == 0u) {
-    // The paint: a deep red metallic under a clear coat. The colour is richer and darker toward the edges, where it is seen through more of the
+    // The paint: a deep metallic - the car's own colour, pu.pc - under a clear coat. The colour is richer and darker toward the edges, where it is seen through more of the
     // tinted layer, and lighter face on; within it, flakes of metal - each a speck of its own tilt, fixed to the body - catch the sun as points of
     // light; a broad warm gleam of the metal under the coat; and on top the coat itself, clear, giving back the sky and the land sharply, with
     // the sun as a hard small spot.
     let flop = mix(.42, 1.12, pow(ndv, .55));
-    let base = vec3f(.30, .008, .012) * flop;
+    let base = pu.pc.rgb * flop;
     // (fine - a millimetre - and only near: where a pixel covers more than two or three of them they flickered as grit, so they fade with the
     // pixel's own size into the broad gleam they make together)
     let fk = ss(.0035, .0012, fp);
     let cell = floor(i.lp * 900.); let fn2 = normalize(n + (h33(cell) - .5) * .5); let fon = step(.72, h31(cell + 7.));
     let flake = pow(max(dot(reflect(-V, fn2), L), 0.), 160.) * fon * 1.3 * fk;
-    var c = base * (E * ndl + sky(n)) + base * E * pow(max(dot(R, L), 0.), 18.) * 1.6 * ndl + vec3f(1., .55, .45) * E * flake * ndl;
+    var c = base * (E * ndl + sky(n)) + base * E * pow(max(dot(R, L), 0.), 18.) * 1.6 * ndl + pu.fl.rgb * E * flake * ndl;
     let fc = .04 + .96 * pow(1. - ndv, 5.);
     c = mix(c, env * .95, fc * .85) + env * .045 + E * pow(max(dot(R, L), 0.), 1400.) * 22. * ndl;
-    // (and under the street lamps: their light on the red, and each lamp's small hard spot in the coat, sliding along the body as it goes by)
+    // (and under the street lamps: their light on the paint, and each lamp's small hard spot in the coat, sliding along the body as it goes by)
     { let q = pcLamps(i.wp); let a0 = max(dot(n, q.d0), 0.); let a1 = max(dot(n, q.d1), 0.);
       c += base * (q.c0 * a0 + q.c1 * a1) * .95 + base * (q.c0 * pow(max(dot(R, q.d0), 0.), 18.) + q.c1 * pow(max(dot(R, q.d1), 0.), 18.)) * 1.4
         + (q.c0 * pow(max(dot(R, q.d0), 0.), 900.) + q.c1 * pow(max(dot(R, q.d1), 0.), 900.)) * 9. * (.3 + fc); }
@@ -990,6 +990,17 @@ fn pcLamps(wp: vec3f) -> PcLamp {
   else if (k == 8u) { spec = .08; refl = .02; }
   else if (k == 9u) { alb = vec3f(.012); spec = .7; refl = .3; sh = 60.; }
   else if (k == 10u) { alb = vec3f(.035, .033, .03); spec = .4; refl = .12; sh = 30.; }
+  // A lamp (the GR86's): its inside as the model paints it - the reflectors, the red and the amber - under a clear glossy lens, and what glows
+  // as the model's own map of it has it (the second layer; none: all of it), by its colour: the red at the back with the lights, and brighter
+  // braking; the white at the front with the lights, and a little by day (the running lamps); the amber (indicators) and the white at the back
+  // (reversing) not lit.
+  else if (k == 12u) {
+    spec = 2.; refl = .7; sh = 250.;
+    var e = vec3f(1.); if (i.tl.y != 255u) { e = pow(tn.rgb, vec3f(2.2)); }
+    let er = max(e.r, 1e-3); let red = ss(.55, .8, 1. - e.g / er); let white = ss(.55, .85, min(e.g, e.b) / er);
+    let front = step(0., i.lp.z);
+    em = e * red * (1. - front) * (lights * 1.2 + pu.wh.z * 4.) + e * white * front * (lights * 2.6 + .15);
+  }
   var c = alb * (E * ndl + sky(n));
   let fr = mix(refl * .12, refl, pow(1. - ndv, 5.));
   c += env * fr + E * pow(max(dot(R, L), 0.), sh) * spec * ndl;
