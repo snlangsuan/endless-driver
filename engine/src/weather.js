@@ -3,16 +3,16 @@
 // seasonAt below): hot, the rains, the cool, each a third of a year of the game's time.
 const DAY = [0.42, 0.85, 0.3], NOON = [0.3, 0.88, -0.38], EVE = [0.85, 0.2, -0.45], DAWN = [0.7, 0.32, 0.5], MOON = [-0.4, 0.75, 0.4];
 const NIGHT = { dir: MOON, sun: [0.2, 0.26, 0.42], amb: [0.05, 0.068, 0.115], zen: [0.01, 0.022, 0.065], hor: [0.035, 0.052, 0.1], ex: 1.9, night: 1, fog: 0.0015 };
-// (a bright, open feel throughout, as in an open-world racer: a deep blue sky and warm sun by day, a long golden evening that goes pink and
-// violet at dusk, and a blue moonlit night light enough to see the land by - never the near-black of the old nights)
+// (a bright, open feel throughout, as in an open-world racer: a deep blue sky and warm sun by day, a long golden evening that goes
+// a deep orange-red at dusk (it went pink and violet once: the light on everything went pink with it, like a fog), and a blue moonlit night light enough to see the land by - never the near-black of the old nights)
 const KEYS = [
   { t: 0.00, ...NIGHT }, { t: 0.21, ...NIGHT },
   { t: 0.25, dir: DAWN, sun: [0, 0, 0], amb: [0.1, 0.095, 0.14], zen: [0.05, 0.07, 0.18], hor: [0.46, 0.28, 0.26], ex: 1.5, night: 0.6, fog: 0.004 },
   { t: 0.31, dir: DAWN, sun: [2.9, 2.05, 1.25], amb: [0.42, 0.45, 0.56], zen: [0.16, 0.34, 0.70], hor: [0.98, 0.78, 0.58], ex: 0.88, night: 0, fog: 0.0045 },
   { t: 0.42, dir: DAY, sun: [3.5, 3.15, 2.6], amb: [0.42, 0.53, 0.74], zen: [0.05, 0.2, 0.68], hor: [0.6, 0.77, 0.98], ex: 0.84, night: 0, fog: 0.0013 },
   { t: 0.60, dir: NOON, sun: [3.5, 3.15, 2.6], amb: [0.42, 0.53, 0.74], zen: [0.05, 0.2, 0.68], hor: [0.6, 0.77, 0.98], ex: 0.84, night: 0, fog: 0.0013 },
-  { t: 0.72, dir: EVE, sun: [3.7, 1.75, 0.6], amb: [0.32, 0.28, 0.38], zen: [0.12, 0.17, 0.48], hor: [1.08, 0.56, 0.28], ex: 1.1, night: 0, fog: 0.0022 },
-  { t: 0.77, dir: EVE, sun: [0, 0, 0], amb: [0.11, 0.085, 0.15], zen: [0.06, 0.055, 0.19], hor: [0.48, 0.2, 0.24], ex: 1.5, night: 0.6, fog: 0.0022 },
+  { t: 0.72, dir: EVE, sun: [3.7, 1.75, 0.6], amb: [0.33, 0.29, 0.31], zen: [0.12, 0.17, 0.48], hor: [1.08, 0.56, 0.28], ex: 1.1, night: 0, fog: 0.0022 },
+  { t: 0.77, dir: EVE, sun: [0, 0, 0], amb: [0.10, 0.09, 0.12], zen: [0.05, 0.06, 0.18], hor: [0.40, 0.21, 0.15], ex: 1.5, night: 0.6, fog: 0.0022 },
   { t: 0.81, ...NIGHT }, { t: 1.00, ...NIGHT },
 ];
 let tday = 0.44, dayN = 0, headOn = -1;       // headOn: -1 automatic, 0 off, 1 on
@@ -46,7 +46,11 @@ function atmos(z) {
     wxNext = time + 90 + Math.random() * 150;
   }
   const P = WXP[wxCur], cv = P[0], ms = P[1], rn = P[2], st = P[3], rate = wxAuto && time > 3 ? 0.002 : 0.03;      // a change of its own comes on slowly
-  AT.cover += (max(cv, rn) - AT.cover) * rate; AT.mist += (ms - AT.mist) * rate; AT.rain += (rn - AT.rain) * rate; AT.storm += (st - AT.storm) * rate;
+  // Fog left to itself keeps to its hours: thick from the small hours to early morning, burnt off by the sun from half past seven to half past
+  // ten, none through the day and the afternoon, coming back slowly late at night - and much less of it in the hot dry season (AT.dry, last
+  // frame's). Fog chosen by hand comes whatever the hour.
+  const hr = tday * 24, fogK = wxAuto ? (hr < 12 ? 1 - sm(7.5, 10.5, hr) : 0.7 * sm(19, 23.5, hr)) * (1 - 0.6 * sm(0.5, 0.95, AT.dry)) : 1;
+  AT.cover += (max(cv, rn) - AT.cover) * rate; AT.mist += (ms * fogK - AT.mist) * rate; AT.rain += (rn - AT.rain) * rate; AT.storm += (st - AT.storm) * rate;
   // the season (see seasonAt): how dry the land is, and whether it is the cool season - chosen by hand in the sky panel, that season throughout
   { const S = seasonAt(); AT.dry = seaMode ? SEA_DRY[seaMode] : mix(SEA_DRY[S.code], SEA_DRY[S.next], S.k); AT.cool = seaMode ? (seaMode === 2 ? 1 : 0) : mix(S.code === 2 ? 1 : 0, S.next === 2 ? 1 : 0, S.k); }
   { const sn = snowW(z) * AT.cool; AT.rain *= 1 - sn; AT.storm *= 1 - sn; AT.snow = sn * sm(0.15, 0.6, AT.cover + 0.25); }       // over the snowfield, in the cool season, it snows instead

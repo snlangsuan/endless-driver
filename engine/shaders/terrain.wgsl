@@ -65,8 +65,11 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   var blades = .5; var s3 = .5;      // (the strokes of the blades: their broadest scale fades out at 7 cycles to the metre, and beyond 60 m - nk - they are not used at all)
   if (nk > 0. && px * 7. < 1.4) { let Pb = stkw(Pf); let s1 = stk(Pb, vec2f(.955, .296), 0., px); let s2 = stk(Pb, vec2f(.17, .985), 31., px); s3 = stk(Pb, vec2f(-.80, .60), 57., px);
     let wsel = vn(P * 1.3 + 5.); blades = max(mix(s1, s2, ss(.35, .65, wsel)), s3 * .85); }
-  let straw = vec3f(.27, .22, .08);
-  let gcol = mix(mix(vec3f(.085, .135, .025), vec3f(.150, .170, .045), n1), straw * .85, g.fog.w * .75);      // the blades' own colours
+  // (the grass's colours: green to olive by the clump, turning to tan straw patch by patch as the season dries - dryK - and all of it shifting
+  // in tone over tens of metres, as real ground does: richer where water gathers, thin and pale on the rises)
+  let dk = dryK(P); let straw = strawC(n1); let mac = vn(P * .013 + 31.); let mac2 = vn(P * .047 + 9.);
+  var gcol = mix(mix(vec3f(.060, .115, .025), vec3f(.125, .160, .045), n1), straw * .9, dk * .85);      // the blades' own colours
+  gcol = mix(gcol, gcol * vec3f(.80, .95, .75), ss(.55, .8, mac) * (1. - dk) * .6) * (.80 + .36 * mac2);
   var grass = mix(mix(vec3f(.045, .050, .020), gcol * .45, .5), gcol * 1.2, ss(.42, .82, blades));          // thatch in the gaps, lit blades over it
   grass = mix(grass, straw * 1.05, ss(.74, .9, s3) * ss(.4, .7, vn(P * .7 + 21.)) * .7);                      // dead blades, more in some patches
   grass *= (.62 + .62 * n2) * (.80 + .40 * n3);                                                             // clumps and the hollows between them
@@ -76,8 +79,11 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   let graze = pow(1. - max(Vg.y, 0.), 3.);
   grass = mix(grass, mix(gcol, vec3f(dot(gcol, vec3f(.3, .6, .1))), .2), graze * .45);                                        // looking along the ground you see only the tips
   var soil = mix(vec3f(.27, .15, .085), vec3f(.20, .13, .09), pn(P * .21)) * (.68 + .55 * n3);
+  // (the earth's own patches: red laterite here, grey-brown loam there, paler and sandier on the rises; darker where it holds the damp)
+  soil = mix(soil, vec3f(.21, .17, .125) * (.7 + .5 * n3), ss(.45, .75, mac2) * .55); soil *= .82 + .32 * mac;
   soil = mix(soil, vec3f(.34, .24, .155) * (.8 + .3 * n3), ss(.5, .8, vn(P * .9 + 13.)) * .4);
-  let gedge = tfv - .40 + rag + graze * .05; let gm = ss(-.03, .03, gedge);                                 // seen along the ground the grass hides the gaps
+  // (dry ground wears through to earth in more places)
+  let gedge = tfv - .40 + rag + graze * .05 - ss(.62, .85, vn(P * .11 + 41.)) * .10 * dk; let gm = ss(-.03, .03, gedge);                                 // seen along the ground the grass hides the gaps
   if (nk > .01) {
     soil *= 1. + nk * ((n5 - .5) * .7 + (n4 - .5) * .4);
     if (f5 > 0.) { soil *= 1. - .35 * nk * f5 * ss(.035, .0, abs(vnp(Pf * 4.296875 + 40., 1100.) - .5)) * ss(.45, .7, vn(P * .5 + 3.));
@@ -207,18 +213,47 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   if (pnw > 0.) { alb = mix(alb, mix(vec3f(.30, .19, .10), vec3f(.36, .30, .20), ss(.4, .7, n2)) * (.7 + .5 * n3) * (.85 + .3 * n4), pnw * ss(pin0, pin0 + .5, rd) * (1. - ss(mix(17., 30., step(dxs, 0.)), mix(23., 40., step(dxs, 0.)), abs(dxs))) * .9 * (1. - sandM)); }
   // in town. Behind the street the land is yards of swept earth and rough grass, cut by lanes (ซอย) of patched concrete that leave the
   // main road every 36 m. The shophouses stand on a concrete apron poured in bays; along the road a tiled footpath and a painted kerb.
+  var flat = 0.;      // (1 on poured concrete: it is flat - no bumps, no clumps' shadows on it)
   var zebra = 0.; var xm = 0.; var lm = 0.;      // lm: in the mouth of any lane, where the road's white edge line is broken      // xm: in the mouth of a cross street, where the main road's kerb paint and edge lines stop
   if (twz > .01) {
     let so = soi(P); let tk = twz * (1. - rivK);
-    let yard = mix(mix(soil, vec3f(.30, .235, .165) * (.75 + .4 * n3), .45), grass * .92, ss(-.03, .03, tfv - .52 + rag));      // swept earth, grass only where nobody walks
-    alb = mix(alb, yard, tk);
-    let cq = fract(P / 3.2); let cj = ss(0., .025, min(min(cq.x, 1. - cq.x), min(cq.y, 1. - cq.y)));
-    let conc = vec3f(.30, .29, .27) * (.75 + .35 * n2) * (.85 + .3 * n4) * (.78 + .22 * cj);
-    alb = mix(alb, mix(conc, conc * vec3f(.62, .6, .56), ss(.55, .8, vn(P * .21 + 3.)) * .6), tk * (1. - ss(25.5, 27.5 + n2 * 2., rdT)));
+    // Three grounds in a town, each plainly itself and parted from the next by a clean line - they ran into one another through noise and
+    // through the town's own fade, till none could be told from the others:
+    //  - concrete, from the footpath back past the rows (to 26.5 m): poured slabs, an even light grey, their joints fine dark lines, a faint
+    //    stain here and there - no blotches, no earth showing through - ending at a straight edge with the dark gap of a slab's side;
+    //  - earth, in the yards behind: brown beaten earth, its own grain and small stones (soil's), a shade paler where it is swept;
+    //  - grass, where nobody walks: the turf, green, its edge against the earth ragged but sharp.
+    // (tks: the town's ground begins at a line, not a fade)
+    let tks = ss(.42, .5, twz) * (1. - rivK);
+    let earth = mix(soil, vec3f(.25, .17, .105) * (.8 + .35 * n3), .5) * (.9 + .2 * n4);
+    let yard = mix(earth, grass, ss(-.012, .012, tfv - .52 + rag));
+    alb = mix(alb, yard, tks);
+    let cq = fract(P / 3.2); let cj = ss(0., .02, min(min(cq.x, 1. - cq.x), min(cq.y, 1. - cq.y)));
+    var conc = vec3f(.335, .33, .315) * (.93 + .10 * n2) * (.95 + .08 * n4) * (.72 + .28 * cj);
+    conc = mix(conc, conc * vec3f(.80, .79, .76), ss(.62, .8, vn(P * .21 + 3.)) * .35);
+    // (ultra: concrete as it is underfoot. Every slab its own shade, poured on its own day; its face pitted with fine pores and flecked with
+    // the paler sand of the mix; hairline cracks wandering across the older slabs, and one slab in a dozen broken corner to corner; grime
+    // and a green of algae gathered along the joints where the damp stays; rust-brown and grey tide marks where water has stood and dried;
+    // dark drips of oil; and a few slabs patched in newer, paler cement. All of it colour only - the surface stays flat.)
+    var cgl = 0.;
+    if (ULTRA) { let sid = floor(P / 3.2); let hs = h2(sid); let hs2 = h2(sid + 17.); let jd = min(min(cq.x, 1. - cq.x), min(cq.y, 1. - cq.y)) * 3.2;
+      conc *= .90 + .20 * hs; conc = mix(conc, conc * vec3f(1.04, 1.0, .93), hs2 * .5);
+      let kf = 1. - ss(.5, 1.4, px * 60.); if (kf > 0.) { let pc = floor(Pf * 60.); let pr = h2(pc); conc *= 1. - .22 * kf * step(.86, pr); conc = mix(conc, vec3f(.50, .49, .45), kf * step(pr, .07) * .5); }
+      let kc = 1. - ss(.5, 1.4, px * 30.);
+      if (kc > 0.) { let cr = ss(.022, .0, abs(vnp(Pf * 1.25 + 23., 320.) - .5)) * ss(.5, .72, vn(P * .16 + 7.) * .5 + hs * .5); conc *= 1. - .5 * cr * kc;
+        if (hs2 > .92) { let dg = abs((cq.x - cq.y) * 3.2 + (vn(P * 2.1) - .5) * .5); conc *= 1. - .6 * kc * ss(.03, .0, dg); } }
+      let damp = ss(.4, .75, vn(P * .31 + 13.));
+      conc = mix(conc, conc * vec3f(.62, .60, .56), ss(.20, .0, jd) * (.35 + .4 * damp)); conc = mix(conc, vec3f(.10, .15, .06), ss(.09, .0, jd) * damp * .55);
+      let tide = vn(P * .9 + 31.) * .6 + vn(P * 2.3 + 5.) * .4; conc = mix(conc, conc * vec3f(.80, .74, .64), ss(.035, .0, abs(tide - .62)) * ss(.5, .8, vn(P * .12 + 3.)) * .7);
+      let oil = ss(.84, .93, vn(P * 1.7 + 51.)) * ss(.55, .8, vn(P * .23 + 77.)); conc = mix(conc, vec3f(.07, .065, .06), oil * .75); cgl = oil * .5;
+      if (hs > .93) { conc = mix(conc, vec3f(.44, .435, .42) * (.94 + .08 * n4), ss(.5, .46, max(abs(cq.x - .5), abs(cq.y - .5)) + (vn(P * 3.) - .5) * .06)); } }
+    let cedge = 1. - ss(26.45, 26.5, rdT);
+    alb = mix(alb, conc, tks * cedge); gloss = mix(gloss, .06 + cgl, tks * cedge); alb *= 1. - .45 * tks * ss(26.38, 26.46, rdT) * (1. - ss(26.5, 26.62, rdT));
     let xr = tlb(so.z); let lw = 1.85 + 1.65 * xr;                    // xr: this lane is a cross street (two lanes of asphalt, a centre line, zebra crossings on the main road each side of it)
     // A lane is as long as its town is deep there: the full 160 m in the town proper, a short stub at the edges where the houses thin out - and it
     // stops where the town does (on a slanting road its far end would else run out of the town and across the fields to end in a paddy).
-    let zl = so.z * 36. + 34.; let Ll = lanel(zl); let lk = step(.5, tw(zl)) * (1. - rivK) * ss(.35, .6, twz) * (1. - lriv(zl));
+    let zl = so.z * 36. + 34.; var Ll = 0.; if (abs(so.x) < 5.) { Ll = laneL(so.z, sign(so.y + 1e-4)); }      // (worked out only by a lane: it goes through the lane's lots)
+    let lk = step(.5, tw(zl)) * (1. - rivK) * ss(.35, .6, twz) * (1. - lriv(zl));
     let lane = (1. - ss(lw, lw + .2, abs(so.x))) * step(abs(so.y), Ll) * lk;
     let lcol = vec3f(.21, .205, .20) * (.72 + .4 * n2) * (.85 + .3 * n4) * (.78 + .22 * ss(0., .03, abs(fract(so.y / 5.) - .5)));
     alb = mix(alb, mix(lcol, vec3f(.075, .075, .08) * (.8 + .4 * n4), max(max(xr, ss(.5, .7, vn(P * .13 + so.z))), 1. - ss(10., 16., abs(so.y)))), lane);     // some lengths resurfaced in asphalt
@@ -233,13 +268,17 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     alb = mix(alb, pave, tk * (1. - ss(7.7, 8.0, rdT)) * (1. - lane));
     // A lane joins the road as a road does: asphalt for its first lengths (above), and the kerb turned in along both its sides across the footpath.
     // (No stop line is painted across its mouth: tried, a white bar there read as the lane being closed off.)
-    let kret = lk * step(abs(so.y), Ll) * ss(lw + .16, lw + .2, abs(so.x)) * (1. - ss(lw + .42, lw + .46, abs(so.x))) * ss(3.9, 4.0, rdT) * (1. - ss(7.7, 8.0, rdT));
+    // (now that the kerb and the footpath are built - chunks.js - the lane's edge is their cut end, and this paint showed on the ground beside it: none)
+    let kret = 0. * lk * step(abs(so.y), Ll) * ss(lw + .16, lw + .2, abs(so.x)) * (1. - ss(lw + .42, lw + .46, abs(so.x))) * ss(3.9, 4.0, rdT) * (1. - ss(7.7, 8.0, rdT));
     alb = mix(alb, mix(mix(vec3f(.72, .72, .69), mix(vec3f(.58, .06, .05), vec3f(.74, .58, .06), step(.5, fract(so.z * .37))), step(.5, fract(so.y / 1.6))) * (.85 + .2 * n4), vec3f(.50, .49, .46) * (.85 + .2 * n4), kbare), kret);
-    bump = mix(bump, .3, twz); let ud = udk(wp.z); xm = xr * twz * lane * (1. - ud); lm = twz * lane * (1. - ud);
+    // (poured concrete is flat: none of the ground's own waves on it - with them it was pale earth - only a trace of its trowelled grain;
+    // the yards' earth and the grass keep theirs)
+    bump = mix(bump, .3, twz); bump = mix(bump, .04, tks * cedge); flat = max(tks * cedge, lane); let ud = udk(wp.z); xm = xr * twz * lane * (1. - ud); lm = twz * lane * (1. - ud);
     let zc = mix(abs(so.x - 5.5), abs(abs(so.x) - 6.0), xr);
-    zebra = twz * step(zc, 1.6) * step(rdT, 3.0) * step(.5, fract(dxs / 1.1)) * max(xr, step(fract(so.z * .5), .25)) * (1. - ud) * step(sv, .05);      // (none either where the frontage roads leave the main road)
+    var zl2 = 0.; if (rdT < 3. && zc < 1.6) { zl2 = step(1., laneL(so.z, 1.) + laneL(so.z, -1.)); }      // (no zebra across to a lane that is not there)
+    zebra = twz * step(zc, 1.6) * step(rdT, 3.0) * step(.5, fract(dxs / 1.1)) * max(xr, step(fract(so.z * .5), .25) * zl2) * (1. - ud) * step(sv, .05);      // (none either where the frontage roads leave the main road)
   }
-  var road = vec3f(.034, .035, .038) * (.72 + .5 * n4) * (.85 + .3 * n2);
+  var road = vec3f(.034, .035, .038) * (.78 + .38 * n4) * (.92 + .16 * n2);
   // Ultra: the asphalt as a road that has been driven on for years. Its tone changes by the length - older stretches paler and browner, newer
   // ones near black - and here and there a lane has a square patch of fresh black where it was dug up and mended. The wheels have polished two
   // tracks in each lane, darker and smoother than the rest, and down the middle of the lane runs the faint dark line of what engines drip.
@@ -256,6 +295,12 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     road *= 1. - .14 * ss(.4, .05, abs(rd - 1.75)) * ss(.3, .7, vn(vec2f(wp.z * .31, 2.)));
     let ck = ss(.035, .0, abs(vnp(Pf * 1.40625 + 11., 360.) - .5)) * ss(.5, .75, vn(P * .11 + 9.) * .6 + age * .4) * (1. - ss(.5, 1.4, px * 24.));
     road *= 1. - .45 * ck;
+    // (ultra: cracks that have been sealed - wandering black beads of tar, shinier than the road, on the older stretches; and down the
+    // middle of each lane, between the wheel tracks, the dark line of oil dripped by everything that has passed)
+    var tar = 0.;
+    if (ULTRA) { tar = ss(.05, .02, abs(vnp(Pf * .46875 + 71., 120.) - .5)) * ss(.62, .8, vn(P * .05 + 19.) * .5 + age * .5) * (1. - ss(.5, 1.4, px * 12.));
+      road = mix(road, vec3f(.012, .012, .014), tar * .85);
+      road *= 1. - .22 * ss(.32, .05, abs(rd - 1.75)) * (.5 + .5 * vn(vec2f(wp.z * .9, rd * 3.))); }
     let nr = 1. - ss(.004, .014, px);
     if (nr > 0.) { let q = Pf * 85.; let cid = floor(q); let hh = h2(cid); let f = fract(q) - .5 + (vec2f(h2(cid + 3.), h2(cid + 7.)) - .5) * .45;
       road = mix(road, road * mix(.5, 2.6, hh * hh), ss(.42, .2, length(f)) * nr * .7 * (1. - .45 * trk)); }
@@ -293,7 +338,10 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     let pcol = select(mix(vec3f(.62, .16, .30), vec3f(.84, .46, .58), pt.y), mix(vec3f(.86, .60, .03), vec3f(.95, .78, .12), pt.y), kn);
     alb = mix(alb, pcol, pt.x * aa * .92 * ss(.02, .3, pse));
   }
-  n = normalize(n - vec3f(bx + fbx * nk * 1.4 * (1. - asp * .7), 0., bz + fbz * nk * 1.4 * (1. - asp * .7)) * bump * (1. - wet));
+  // (made surfaces are flat - the road's asphalt, a lane's, poured concrete: the ground's broad waves (bx, bz: lumps a hand across) are the
+  // earth's and the turf's alone. On asphalt only its fine grit is left; what marks a road is its paint, its patches and its stains, not swells.)
+  let mk = (1. - asp) * (1. - flat);
+  n = normalize(n - vec3f(bx * mk + fbx * nk * 1.4 * (1. - asp * .7) * (1. - flat), 0., bz * mk + fbz * nk * 1.4 * (1. - asp * .7) * (1. - flat)) * bump * (1. - wet));
   let L = g.sun.xyz; let V = normalize(g.cam.xyz - wp);
   // (ultra: near to, the ground's own fine grain in the light - the grit of the asphalt and the crumbs of the soil, a few millimetres high, as a
   // fine roughness of the surface fading out where a pixel is more than a centimetre across; and on the asphalt the odd stone of its aggregate
@@ -301,9 +349,9 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   var spark = 0.; var msh = 1.;
   // (and, off the road, the clumps of the turf and the lumps of the earth throw small shadows on what lies beyond them from the sun - the lower
   // the sun the longer: the ground's height a hand's breadth toward the sun against its height here)
-  if (ULTRA && f3 > 0.) { let ls = normalize(L.xz + vec2f(1e-4, 0.)); let hl = vn((P + ls * .1) * 3.7); msh = 1. - .5 * ss(.03, .28, hl - vn(P * 3.7)) * (1. - .7 * L.y) * f3 * (1. - asp) * (1. - wet); }
+  if (ULTRA && f3 > 0.) { let ls = normalize(L.xz + vec2f(1e-4, 0.)); let hl = vn((P + ls * .1) * 3.7); msh = 1. - .5 * ss(.03, .28, hl - vn(P * 3.7)) * (1. - .7 * L.y) * f3 * (1. - asp) * (1. - wet) * (1. - flat); }
   if (ULTRA) { let k = (1. - ss(.004, .012, px)) * (1. - wet);
-    if (k > .001) { let q = Pf * 55.; let h0 = vn(q); let dn = vec2f(vn(q + vec2f(.31, 0.)) - h0, vn(q + vec2f(0., .31)) - h0); n = normalize(n - vec3f(dn.x, 0., dn.y) * 1.1 * k);
+    if (k > .001) { let q = Pf * 55.; let h0 = vn(q); let dn = vec2f(vn(q + vec2f(.31, 0.)) - h0, vn(q + vec2f(0., .31)) - h0); n = normalize(n - vec3f(dn.x, 0., dn.y) * 1.1 * k * (1. - .8 * flat));
       let cell = floor(Pf * 160.); let st = step(.965, h2(cell)); let sn = normalize(n + (vec3f(h2(cell + 3.), 1., h2(cell + 7.)) - vec3f(.5, 0., .5)) * .6);
       spark = st * pow(max(dot(reflect(-V, sn), L), 0.), 90.) * 3. * k * asp; } }
   let ndl = max(dot(n, L), 0.);

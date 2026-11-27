@@ -27,9 +27,10 @@ const SIGNS = ['อาหารตามสั่ง', 'ก๋วยเตี๋
   'อะไหล่ยนต์', 'ร้านหนังสือ', 'เครื่องเขียน', 'ถ่ายรูปด่วน', 'มือถือ ซิม', 'เบเกอรี่', 'ส้มตำ ไก่ย่าง', 'โจ๊ก ต้มเลือดหมู', 'เสื้อผ้าแฟชั่น', 'รองเท้า กระเป๋า', 'หอพัก ห้องว่าง', 'ให้เช่า', 'ขายส่ง ขายปลีก', 'น้ำแข็ง น้ำดื่ม', 'ข้าวแกง', 'ขนมไทย',
   'ผลไม้สด', 'เครื่องใช้ไฟฟ้า', 'เฟอร์นิเจอร์', 'ร้านแว่นตา', 'อู่ซ่อมรถ', 'ล้างอัดฉีด', 'ยางรถยนต์', 'แก๊ส', 'ข้าวสาร', 'ของฝาก', 'นวดแผนไทย', 'โรงรับจำนำ', 'ปุ๋ย ยาเกษตร', 'อาหารสัตว์', 'เปิด 24 ชม.', '1 มาร์ท',
   'ตัวเมือง', 'ตลาดสด', 'วัด', 'โรงเรียน', 'ชายหาด', 'น้ำตก', 'อุทยาน', 'ขับช้าๆ', 'เขตชุมชน', 'ลดความเร็ว', 'ระวังทางโค้ง', 'จุดชมวิว', 'ที่พักริมทาง', 'สะพาน', 'ใช้เกียร์ต่ำ', 'เดินทางปลอดภัย'];
+// The sign texture: the words in the top half (2048 x 1024), and in the bottom half four advertisement pictures, 1024 x 512 each (ADS, below).
 const vSign = (() => {
-  const cv = document.createElement('canvas'); cv.width = 2048; cv.height = 1024; const x = cv.getContext('2d'), FONT = '"Sukhumvit Set", Thonburi, "Noto Sans Thai", Sarabun, "Leelawadee UI", Tahoma, sans-serif';
-  x.fillStyle = '#000'; x.fillRect(0, 0, 2048, 1024); x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  const cv = document.createElement('canvas'); cv.width = 2048; cv.height = 2048; const x = cv.getContext('2d'), FONT = '"Sukhumvit Set", Thonburi, "Noto Sans Thai", Sarabun, "Leelawadee UI", Tahoma, sans-serif';
+  x.fillStyle = '#000'; x.fillRect(0, 0, 2048, 2048); x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
   const seg = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter('th', { granularity: 'grapheme' }) : null;
   SIGNS.forEach((t, i) => {
     x.font = '700 40px ' + FONT; const w = x.measureText(t).width, k = Math.min(1, 236 / w), cx = (i % 4) * 256 + 128, cy = floor(i / 4) * 64 + 34;
@@ -37,8 +38,24 @@ const vSign = (() => {
     const cl = (seg ? [...seg.segment(t)].map((q) => q.segment) : [...t]).filter((q) => q.trim()).slice(0, 8), n = cl.length, fs = Math.min(40, 236 / n * 0.86); x.font = '700 ' + fs + 'px ' + FONT;
     cl.forEach((ch, j) => x.fillText(ch, 1024 + (i % 16) * 64 + 32, floor(i / 16) * 256 + 128 + (j - (n - 1) / 2) * (236 / n)));
   });
-  const tx = device.createTexture({ size: [2048, 1024], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
-  Q.copyExternalImageToTexture({ source: cv }, { texture: tx }, [2048, 1024]); return tx.createView();
+  const tx = device.createTexture({ size: [2048, 2048], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  Q.copyExternalImageToTexture({ source: cv }, { texture: tx }, [2048, 2048]);
+  // Advertisements on the end walls of shophouse rows (chunks.js: a board of seed 200 and over). What they show is set in assets/ads.json -
+  // a list of pictures, each a file under assets/ or a web address (which must allow being drawn: CORS). Up to four are shown; with fewer, they
+  // take the four places in turn; with none (or no file), the boards are painted as any shop's board. Each picture is fitted to its place
+  // (2:1 - the board is 6 m by 2.6), "cover" filling it and cutting off what overhangs, "contain" showing it whole on its background colour.
+  // The pixel at (0, 2047) is set white once any picture is in: the shader looks there to know.
+  fetch('assets/ads.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).then(async (J) => {
+    const L = (J && Array.isArray(J.ads) ? J.ads : []).filter((a) => a && a.image && a.enabled !== false); if (!L.length) return;
+    const load = (a) => new Promise((res) => { const im = new Image(); if (/^https?:/i.test(a.image)) im.crossOrigin = 'anonymous'; im.onload = () => res({ a, im }); im.onerror = () => { console.warn('ad: cannot load ' + a.image); res(null); }; im.src = a.image; });
+    const got = (await Promise.all(L.slice(0, 4).map(load))).filter(Boolean); if (!got.length) return;
+    for (let s = 0; s < 4; s++) { const { a, im } = got[s % got.length], sx = (s % 2) * 1024, sy = 1024 + floor(s / 2) * 512;
+      x.save(); x.beginPath(); x.rect(sx, sy, 1024, 512); x.clip(); x.fillStyle = a.background || '#ffffff'; x.fillRect(sx, sy, 1024, 512);
+      const k = (a.fit === 'contain' ? min : max)(1024 / im.width, 512 / im.height), w = im.width * k, h = im.height * k; x.drawImage(im, sx + (1024 - w) / 2, sy + (512 - h) / 2, w, h); x.restore(); }
+    x.fillStyle = '#fff'; x.fillRect(0, 2047, 1, 1);
+    try { Q.copyExternalImageToTexture({ source: cv }, { texture: tx }, [2048, 2048]); } catch (e) { console.warn('ad: a picture from another site that does not allow it (CORS) cannot be shown', e); }
+  }).catch((e) => console.warn('ad: assets/ads.json', e));
+  return tx.createView();
 })();
 const mkScene = (buf, mir) => device.createBindGroup({ layout: bglScene, entries: [{ binding: 0, resource: { buffer: buf } }, { binding: 1, resource: vShadow }, { binding: 2, resource: sShadowCmp }, { binding: 3, resource: mir }, { binding: 4, resource: sMirror }, { binding: 5, resource: vSign }] });
 const bgScene = mkScene(ubo, vMir), bgSceneR = mkScene(uboR, vBlank);
@@ -186,7 +203,8 @@ const STROLL = (() => { if (!PPL) return null; const N = 420, S = 8, REACH = 150
     // they turn red (land.js: tlOf, tlState - red is the last 11 s of every 30), to wait on the far side for the next red to cross back.
     for (let g0 = floor((ez - 34) / 360), g2 = g0 - 1; g2 <= g0 + 1; g2++) { const zs = tlOf(g2); if (zs === null || abs(zs - ez) > REACH) continue; const u = t / 30 + ph(g2, 521), cyc = floor(u), p = u - cyc;
       for (const e of [-6, 6]) for (let k = 0; k < 3; k++) { const h = (j) => ph(g2 * 8 + k + (e > 0 ? 4 : 0), 9700 + j); if (h(0) >= POP * 0.75) continue;
-        const q = min(1, max(0, (p * 30 - 19.5 - h(1) * 0.8) / 9.2)), st = (cyc + (h(2) < 0.5 ? 1 : 0)) % 2 ? 1 : -1, z = zs + e + (k - 1) * 0.75, ya = atan2(roadSl(z), 1), qq = rp(z, st * 6.3 * (1 - 2 * q)), y = ground(qq[0], qq[1]) + 0.015;
+        // (in the drifting style nobody crosses: cars come through sideways at speed - they stand at the kerb, each on their own side, and stay there)
+        const dr = typeof DRIFT !== 'undefined' && DRIFT, q = dr ? 0 : min(1, max(0, (p * 30 - 19.5 - h(1) * 0.8) / 9.2)), st = ((dr ? 0 : cyc) + (h(2) < 0.5 ? 1 : 0)) % 2 ? 1 : -1, z = zs + e + (k - 1) * 0.75, ya = atan2(roadSl(z), 1), qq = rp(z, st * 6.3 * (1 - 2 * q)), y = walkY(qq[0], qq[1]) + 0.015;
         const sdm = h(3), wm = ph(floor(sdm * 9999), 78) < 0.5, H = (wm ? 1.5 : 1.6) + 0.2 * h(4), walking = q > 0 && q < 1;
         G[(wm ? 2 : 0) + (Math.hypot(qq[0] - ex, qq[1] - ez) < 18 ? 0 : 1)].push(qq[0], y, qq[1], ya - st * PI / 2, H, sdm, 0, (12.6 * q + 1e3) % (0.84 * H), y, wm ? 1 : 0, 0.92 + 0.2 * ph(floor(sdm * 9999), 77), -(walking ? 1 : 0.001)); } }
     // (no two through one another: any two that come within a pace of each other step aside, each its own way, and back as they pass)
@@ -194,7 +212,7 @@ const STROLL = (() => { if (!PPL) return null; const N = 420, S = 8, REACH = 150
         if (abs(dl) < need) { const k = (need - abs(dl)) * 0.5 * smo(1.6, 0.7, B.z - A.z) * (dl > 0 || (dl === 0 && A.sd > B.sd) ? 1 : -1); A.push = (A.push || 0) + k; B.push = (B.push || 0) - k; } } }
     for (const L of Wk) for (const w of L) { const { z, dir, side, h, sd, stp } = w, la = min(7.35, max(5.45, w.lat + (w.push || 0))), lat = side * (la + w.dep), ya = w.dep > 0 ? w.yw : atan2(roadSl(z), 1) + (dir < 0 ? PI : 0), out = la < 6.7 ? 1 : -1;
       for (let m = 0, nm = w.two ? 2 : 1; m < nm; m++) { const hm = (j) => m ? h(20 + j) : h(j), sdm = hm(0), wm = ph(floor(sdm * 9999), 78) < 0.5, H = (wm ? 1.5 : 1.6) + 0.2 * hm(3);
-        const q = rp(z - m * 0.25 * dir, lat + m * side * 0.62 * out), y = ground(q[0], q[1]) + 0.015; if (abs(q[0] - ex) > REACH) continue;
+        const q = rp(z - m * 0.25 * dir, lat + m * side * 0.62 * out), y = walkY(q[0], q[1]) + 0.015; if (abs(q[0] - ex) > REACH) continue;
         // (stopped, it turns to the shops or the street - two together to each other)
         const turn = stp * (nm > 1 ? (m ? -1 : 1) * 1.2 * side * dir * out : (h(4) < 0.6 ? 1 : -1) * side * dir * 1.4);
         G[(wm ? 2 : 0) + (Math.hypot(q[0] - ex, q[1] - ez) < 18 ? 0 : 1)].push(q[0], y, q[1], ya + turn, H, sdm, 0, w.ph % (0.84 * H), y, wm ? 1 : 0, 0.92 + 0.2 * ph(floor(sdm * 9999), 77), -max(1 - stp, 0.001)); } }

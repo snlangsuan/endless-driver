@@ -124,7 +124,9 @@ function cineCam(dt) {
     C.duel += ((dd < 22 ? 1 : 0) - (C.duel || 0)) * (1 - Math.exp(-dt * 1.2)); const k = 0.5 * C.duel;
     if (R && k > 0.01) { P[0] += (R.x + RIV.C.ox - P[0]) * k; P[1] += (R.y - P[1]) * k; P[2] += (R.z + RIV.C.oz - P[2]) * k; } }
   const V = { P, F, dz: alongRoad(hd), at: (f, l, u) => [P[0] + F[0] * f + Lv[0] * l, P[1] + u, P[2] + F[1] * f + Lv[1] * l],
-    body: (l, f, u) => { const x = PB[0] + BF[0] * f + BL[0] * l, z = PB[2] + BF[1] * f + BL[1] * l; return [x, (typeof pcSurfY === 'function' ? pcSurfY(x, z, car.y + 1) : car.y) + u, z]; } };
+    // (at the car's own height, as a camera bolted to it is: taken from the road under the camera, it rose and fell over every bump and camber
+    // the car's body did not, and the car shook in the picture)
+    body: (l, f, u) => { const x = PB[0] + BF[0] * f + BL[0] * l, z = PB[2] + BF[1] * f + BL[1] * l; return [x, car.y + u, z]; } };
   // a new set-up when the last has run its time (or the car has gone by a roadside one): any but the one just shot, and in a tunnel, or with one
   // just ahead, only those that fit under its roof
   let S = C.shot;
@@ -148,16 +150,19 @@ function cineCam(dt) {
   const D = SHOTS[S.name], o = D.run(S, V);
   // (a moving camera is led by the car's own way, by about what its spring lags behind - or it hung back: 14 m behind a chase meant to be 7,
   // and an orbit of 6 m closed to 4)
-  if (!D.still) { const lead = car.v / S.k; o.p[0] += sin(hd) * lead; o.p[2] += cos(hd) * lead; }
+  if (!D.still && !D.rigid) { const lead = car.v / S.k; o.p[0] += sin(hd) * lead; o.p[2] += cos(hd) * lead; }
   // (the aim too, by what its own spring lags: across a side shot the car ran out to the frame's edge)
-  { const la = car.v / (D.rigid ? 14 : 5); o.a[0] += sin(hd) * la; o.a[2] += cos(hd) * la; }
+  if (!D.rigid) { const la = car.v / 5; o.a[0] += sin(hd) * la; o.a[2] += cos(hd) * la; }
   // (the camera moves to its wanted place on a spring - the set-up's own, from a steady mount to a loose one - put there at once on a cut; and
   // never below what is under it)
+  // (a camera fixed to the car's body - D.rigid - goes with it exactly, frame by frame: on a spring, however stiff, with a lead for its lag, it
+  // was right only at an even speed and an even frame time, and the car, near and on a long lens, trembled in the picture)
   if (S.cut || !S.p) { S.p = o.p.slice(); S.a = o.a.slice(); S.l = o.l; S.sx = 0; }
+  if (D.rigid) { S.p = o.p.slice(); S.a = o.a.slice(); }
   const kp = 1 - Math.exp(-dt * S.k), ka = 1 - Math.exp(-dt * (D.rigid ? 14 : 5));
-  for (let j = 0; j < 3; j++) { S.p[j] += (o.p[j] - S.p[j]) * kp; S.a[j] += (o.a[j] - S.a[j]) * ka; }
+  if (!D.rigid) for (let j = 0; j < 3; j++) { S.p[j] += (o.p[j] - S.p[j]) * kp; S.a[j] += (o.a[j] - S.a[j]) * ka; }
   S.l += (o.l - S.l) * (1 - Math.exp(-dt * 3));
-  S.p[1] = max(S.p[1], cineFloor(S.p[0], S.p[2], S.p[1] + 0.5) + 0.35);
+  S.p[1] = max(S.p[1], cineFloor(S.p[0], S.p[2], S.p[1] + 0.5) + (D.rigid ? 0.08 : 0.35));      // (a camera on the car needs only to stay out of the road: lifted as the others are, by the camber under it, it bobbed)
   // (something come between the camera and the car - a house, a tree - for more than a moment: cut away to another set-up)
   S.lt = (S.lt || 0) + dt; if (S.lt > 0.1) { S.lt = 0; if (!D.tun && (inTun(car.z) || udip(car.z) > 0.3 || tunNear(35))) S.end = true; if (!D.rigid && cineHit(S.p[0], S.p[2], S.p[1])) S.end = true; if (!D.rigid && cineOffDeck(S.p)) S.end = true; if (D.rigid && cineRiv(S.p[0], S.p[2], S.p[1])) S.end = true; S.blk = cineSees(S.p, [P[0], P[1] + 0.7, P[2]]) ? 0 : (S.blk || 0) + 0.1; if (S.blk > 0.4) S.end = true; }
   const dx = S.a[0] - S.p[0], dy = S.a[1] - S.p[1], dz = S.a[2] - S.p[2], yT = atan2(dx, dz), pT = atan2(dy, Math.hypot(dx, dz));

@@ -43,7 +43,12 @@ fn head(wp: vec3f, n: vec3f) -> vec3f {
 }
 fn fogged(c: vec3f, wp: vec3f) -> vec3f {
   let v = wp - g.cam.xyz; let d = length(v); let hc = horizon(v / d);
-  return mix(c, hc, max(1. - exp(-d * g.fog.x), ss(g.fog.y * .72, g.fog.y, d)));
+  // (and by day, however clear, the air between: far things drawn toward the sky's own colour at the horizon, bluer away from the sun -
+  // the depth an open-world racer's views have, hill behind hill, each paler)
+  // (only while the sun is up and bright: in the dusk the horizon's colour is pink, and drawn toward it the whole town went pink, a fog)
+  let aer = (1. - exp(-d * .00065)) * .42 * (1. - g.misc.w) * ss(.4, 1.6, dot(g.sunCol.rgb, vec3f(.333)));
+  let c1 = mix(c, hc * vec3f(.96, 1.0, 1.06), aer);
+  return mix(c1, hc, max(1. - exp(-d * g.fog.x), ss(g.fog.y * .72, g.fog.y, d)));
 }
 // One flower head of kind ft (0 sunflower, 1 hydrangea, 2 tulip, 3 lily, else a plain eight-petalled one), drawn in a square: q from -1 to 1
 // both ways, yv from 0 at its foot to 1 at its top; sd its own seed; col its colour. Returns the colour, and 0 in w where there is no flower.
@@ -114,7 +119,7 @@ fn fhead(ft: f32, q: vec2f, yv: f32, sd: f32, col: vec3f) -> vec4f {
       let hk = h2(vec2f(k, sd * 91. + 2.)); let len = .4 + .6 * h2(vec2f(k + 9., sd * 37.)); if (v > len) { continue; } let t = v / len;
       let cx = k + .5 + (hk - .5) * 2.4 * t * t; if (abs(xx - cx) < .27 * (1. - t * .92) + .02) { hit = 1.; tt = t; hb = hk; } }
     if (hit < .5) { discard; }
-    alb = mix(i.col, vec3f(.30, .25, .10), step(.82, hb) * .8) * (.5 + .7 * tt) * (.8 + .4 * hb);
+    alb = mix(i.col, vec3f(.28, .245, .15), step(.82, hb) * .8) * (.38 + .82 * tt) * (.8 + .4 * hb);      // (deeper in shade at the foot, paler at the tip)
     n = normalize(n * .5 + vec3f(0., 1., 0.));
   } else
   if (i.pr.y > 99.) {          // A dead leaf, dry and brown, hanging: no longer a blade but its tatters - split along its length into strips that
@@ -375,6 +380,20 @@ fn fhead(ft: f32, q: vec2f, yv: f32, sd: f32, col: vec3f) -> vec4f {
   if (i.m > 99.5) { let q = u32(i.m - 101. + .5); var cc = vec3f(f32(q & 31u), f32((q >> 5u) & 31u), f32((q >> 10u) & 31u)) / 31.; cc = cc * cc; alb = cc; shine = .25 * ss(.02, .25, dot(cc, vec3f(.333)));      // (rubber and black trim hardly shine: at a grazing angle a tyre gave back the sky, pale blue)
     let pk = q >> 15u; if (pk > 0u) { var pc2 = array<vec3f, 8>(vec3f(.50, .02, .02), vec3f(.09, .34, .66), vec3f(.012, .012, .014), vec3f(.70, .70, .68), vec3f(.025, .06, .26), vec3f(.36, .37, .38), vec3f(.04, .22, .09), vec3f(.75, .52, .03));
       alb = pc2[min(pk - 1u, 7u)] * clamp(dot(cc, vec3f(.333)) / .55, .55, 1.15); shine = .8; } }
+  // 31: a town's raised footpath (FOOTMESH in chunks.js) - its top the paving blocks, grey and brick red in a checker of 40 cm with their
+  // joints, as the ground's painted paving is; its edges plain concrete
+  if (i.m > 31.5 && i.m < 32.5) { let wq = i.wp.xz; let tq = fract(wq / .4); let joint = ss(0., .06, min(min(tq.x, 1. - tq.x), min(tq.y, 1. - tq.y)));
+    let tile = mix(vec3f(.34, .33, .32), vec3f(.40, .27, .22), step(.5, fract((floor(wq.x / .4) + floor(wq.y / .4)) * .5)) * .55);
+    alb = mix(vec3f(.50, .49, .46) * (.85 + .2 * vn(i.wp.xy * 9. + i.wp.z * 7.)), tile * (.8 + .25 * vn(wq * 3.)) * (.68 + .32 * joint), step(.5, n.y)); nb = n; shine = 0.; }
+  // 32: a concrete power pole (chunks.js), the same pale cast concrete as the boxes of material 2, a little stained up from its foot
+  if (i.m > 32.5 && i.m < 33.5) { alb = vec3f(.62, .60, .55) * (.85 + .2 * vn(i.wp.xy * 6. + i.wp.z * 5.)) * (1. - .18 * ss(.4, .7, vn(vec2f(i.wp.x + i.wp.z, i.wp.y * 1.5)))); nb = n; shine = 0.; }
+  // 35: poured concrete laid along a street (a convenience store's way in): as the car park's - grey, saw cuts every 4 m, faint oil
+  if (i.m > 35.5 && i.m < 36.5) { let wq = i.wp.xz; let cq = fract(wq / 4.); let cut = ss(0., .015, min(min(cq.x, 1. - cq.x), min(cq.y, 1. - cq.y)));
+    alb = vec3f(.37, .36, .345) * (.92 + .12 * vn(wq * .7)) * (.9 + .1 * vn(wq * 6.)) * (.8 + .2 * cut); alb *= 1. - .18 * ss(.66, .82, vn(wq * .45 + 9.)); nb = n; shine = 0.; }
+  // 33: a woven plastic sack, off-white, the weave in fine cross-hatching; 34: rice heaped in an open sack - pale cream grains, each its own speck
+  // of light and shade. (Both stand under a shop's roof: lit by its lamps, not by the sky - see below.)
+  if (i.m > 33.5 && i.m < 34.5) { let wq = i.wp.xy * 90. + i.wp.z * 70.; alb = vec3f(.62, .60, .54) * (.88 + .12 * step(.5, fract(wq.x)) * step(.5, fract(i.wp.y * 90.))) * (.9 + .15 * vn(i.wp.xz * 6. + i.wp.y * 4.)); nb = n; shine = 0.; }
+  if (i.m > 34.5 && i.m < 35.5) { let gq = i.wp.xz * 260.; alb = vec3f(.72, .69, .60) * (.7 + .45 * h2(floor(gq))) * (.9 + .1 * vn(i.wp.xz * 20.)); nb = normalize(n + vec3f(h2(floor(gq) + 3.) - .5, 0., h2(floor(gq) + 7.) - .5) * .5); shine = 0.; }
   let E = g.sunCol.rgb * shadowN(i.wp + n * .08);
   var c = alb * (E * max(dot(nb, L), 0.) + sky(nb) * .8) + alb * head(i.wp, nb);
   // gilding is metal: it shines where the sun strikes it and gives back the sky in its own colour, and is a deeper gold in its hollows; whitewash
@@ -386,6 +405,7 @@ fn fhead(ft: f32, q: vec2f, yv: f32, sd: f32, col: vec3f) -> vec4f {
   // (a scooter's paint, metal and glass: a sharp highlight and the sky given back at a grazing angle)
   if (shine > 0.) { let V = normalize(g.cam.xyz - i.wp); let R = reflect(-V, n); let fr = .04 + .96 * pow(1. - max(dot(V, n), 0.), 5.);
     c += E * pow(max(dot(R, L), 0.), 60.) * shine * 1.2 + mix(horizon(R), g.zen.rgb, ss(0., .7, max(R.y, 0.))) * fr * shine * .5; }
+  if (i.m > 33.5 && i.m < 35.5) { c = alb * vec3f(1., .97, .9) * (.55 + .35 * max(nb.y, 0.) + .1 * max(dot(nb, L), 0.)) * (1.2 + .6 * g.misc.w); }      // (indoors, under the lamps)
   return vec4f(fogged(c, i.wp), 1.);
 }
 // what a mirror shows: the sky, and below the horizon the land behind with the road running away over it
@@ -544,7 +564,19 @@ fn pal(h: f32) -> vec3f {
     alb = mix(vec3f(.36, .11, .07), vec3f(.44, .45, .46), step(.4, sd)); if (sd > .78) { alb = vec3f(.14, .26, .40); }
     alb *= (.62 + .38 * rib) * (.75 + .35 * vn(vec2f(uv.x * 3., uv.y * .7))) ; gloss = .35;
     alb = mix(alb, vec3f(.25, .12, .06), ss(.62, .8, vn(uv * 1.7 + sd * 30.)) * .5);
-  } else if (mat == 2) { alb = vec3f(.62, .60, .55) * (.85 + .2 * vn(uv * 6.)); }
+  } else if (mat == 2) { alb = vec3f(.62, .60, .55) * (.85 + .2 * vn(uv * 6.));
+    // (seed over 10: a car park's poured concrete - a darker grey, its slabs' saw cuts, dark patches of oil where cars stand)
+    // (seed 12 and over: a town football field's grass - not a stadium's striped lawn but rough, sun-dried turf, olive and yellowing in
+    // broad patches, worn to bare earth here and there where it is most run over; muted, for the grade's vibrance lifts a flat green to lime)
+    // (seed 13: the raised town footpath - on top its paving blocks, grey and brick red, as the ground's painted paving is; on its edge plain concrete)
+    if (sd > 12.9) { let wq = i.wp.xz; let tq = fract(wq / .4); let joint = ss(0., .06, min(min(tq.x, 1. - tq.x), min(tq.y, 1. - tq.y)));
+      let tile = mix(vec3f(.34, .33, .32), vec3f(.40, .27, .22), step(.5, fract((floor(wq.x / .4) + floor(wq.y / .4)) * .5)) * .55);
+      alb = mix(vec3f(.50, .49, .46) * (.85 + .2 * vn(wq * 9.)), tile * (.8 + .25 * vn(wq * 3.)) * (.68 + .32 * joint), step(.5, i.ln.y)); }
+    else if (sd > 11.9) { let wq = i.wp.xz; let pn1 = vn(wq * .12 + 2.);
+      alb = mix(vec3f(.045, .085, .025), vec3f(.08, .10, .035), ss(.3, .8, pn1)) * (.84 + .3 * vn(wq * .8)) * (.86 + .22 * vn(wq * 5.)) * (.9 + .2 * vn(wq * 23.));
+      alb = mix(alb, vec3f(.21, .165, .10) * (.8 + .3 * vn(wq * 3.)), ss(.72, .88, vn(wq * .21 + 7.)) * .5); }
+    else if (sd > 10.) { let wq = i.wp.xz; let cq = fract(wq / 4.); let cut = ss(0., .015, min(min(cq.x, 1. - cq.x), min(cq.y, 1. - cq.y)));
+      alb = vec3f(.37, .36, .345) * (.92 + .12 * vn(wq * .7)) * (.9 + .1 * vn(wq * 6.)) * (.8 + .2 * cut); alb *= 1. - .18 * ss(.66, .82, vn(wq * .45 + 9.)); } }
   else if (mat == 3) { alb = vec3f(.025, .022, .02); }
   else if (mat == 54 || mat == 55) {
     // A market's goods (chunks.js). 54: a tray of them on a table - a plastic crate, a foam box, or a stack; 55: more of the same heaped on
@@ -775,7 +807,7 @@ fn pal(h: f32) -> vec3f {
     if (i.ln.y > .5) {
       let pd = 7.175 + i.lp.x * sd; var road = vec3f(.034, .035, .038) * (.72 + .5 * n4) * (.85 + .3 * vn(i.wp.xz * .55));      // pd: metres out from the road's middle, square to it (the box is 3.95 wide about 7.175 - from 5.2 to the kerb at 9.15; its seed is its side)
       // (where a lane or the cross street over the underpass joins it, the asphalt runs on across the footpath's strip to meet that street's own, and the outer edge line stops)
-      let so = soi(i.wp.xz); let lw = 1.85 + 1.65 * tlb(so.z); let xm = 1. - ss(lw, lw + .2, abs(so.x));
+      let so = soi(i.wp.xz); let lw = 1.85 + 1.65 * tlb(so.z); var xm = 1. - ss(lw, lw + .2, abs(so.x)); if (xm > 0.) { xm *= step(.5, laneL(so.z, sign(so.y + 1e-4))); }
       road = mix(road, vec3f(.52, .52, .48), max(ss(.08, .04, abs(pd - 5.5)), ss(.08, .04, abs(pd - 8.6)) * (1. - xm)));
       let tq = fract(i.wp.xz / .4); let joint = ss(0., .06, min(min(tq.x, 1. - tq.x), min(tq.y, 1. - tq.y)));
       let tile = mix(vec3f(.34, .33, .32), vec3f(.40, .27, .22), step(.5, fract((floor(i.wp.x / .4) + floor(i.wp.z / .4)) * .5)) * .55) * (.8 + .25 * n4) * (.68 + .32 * joint);
@@ -839,7 +871,8 @@ fn pal(h: f32) -> vec3f {
     if (i.ln.z < -.5 || i.ln.x > .5) { q.x = -q.x; }                 // so the words read the right way round on every face
     // (a seed of 3 or more names the road word itself: 3 + its number among the sixteen, and the fraction is the seed for the board's colour)
     // (and a seed of 100 or more is a shop's: 100 + the number of its name among the forty-seven + the seed)
-    let named = sd >= 3.; let shopw = sd >= 100.; let sd0 = sd; let sd = select(sd0, fract(sd0), named);
+    // (and 200 or more an advertisement board's - see below; with no pictures set, painted as a shop's board of a word drawn from its fraction)
+    let adb = sd >= 200.; let named = sd >= 3. && !adb; let shopw = sd >= 100. && !adb; let sd0 = sd; let sd = select(sd0, fract(sd0), named || adb);
     let hgt = abs(i.m.z); var bg = pal2(sd); var fg = vec3f(.95, .93, .86); let brand = sd > 1.5 && !named;      // (seed 2: the convenience store's board, see below)
     if (dot(bg, vec3f(.3, .6, .1)) > .45) { fg = mix(vec3f(.60, .04, .04), vec3f(.05, .13, .45), step(.5, h2(vec2f(sd * 13., 2.)))); }      // on yellow or white: red or blue letters
     // A shop's board is one of several sorts, as a Thai street's are: a white lightbox with coloured letters; printed vinyl in a strong colour
@@ -860,13 +893,20 @@ fn pal(h: f32) -> vec3f {
     var ink = 0.;
     if (hgt > wd * 1.4) {
       let u = q.x / (wd * .86) + .5; let v = .5 - q.y / (hgt * .92);
-      if (u > 0. && u < 1. && v > 0. && v < 1.) { ink = textureSampleLevel(tSign, sMir, vec2f(1024. + (idx % 16. + u) * 64., (floor(idx / 16.) + v) * 256.) / vec2f(2048., 1024.), 0.).r; }
+      if (u > 0. && u < 1. && v > 0. && v < 1.) { ink = textureSampleLevel(tSign, sMir, vec2f(1024. + (idx % 16. + u) * 64., (floor(idx / 16.) + v) * 256.) / vec2f(2048., 2048.), 0.).r; }
     } else {
       var tw = wd * .92; var th = tw / 4.; if (th > hgt * .86) { th = hgt * .86; tw = th * 4.; }
       let u = q.x / tw + .5; let v = .5 - q.y / th;
-      if (u > 0. && u < 1. && v > 0. && v < 1.) { ink = textureSampleLevel(tSign, sMir, vec2f((idx % 4. + u) * 256., (floor(idx / 4.) + v) * 64.) / vec2f(2048., 1024.), 0.).r; }
+      if (u > 0. && u < 1. && v > 0. && v < 1.) { ink = textureSampleLevel(tSign, sMir, vec2f((idx % 4. + u) * 256., (floor(idx / 4.) + v) * 64.) / vec2f(2048., 2048.), 0.).r; }
     }
     alb = mix(bg, fg, mix(ink, .25, ss(20., 55., dcb))) * (.9 + .1 * vn(q * 6.));
+    // (an advertisement board - seed 200 + its place among the four + a fraction: the picture set in assets/ads.json, in a thin steel frame,
+    // lit at night from within; when there are none, the board stays as above - the place's words from its fraction)
+    if (sd0 >= 200.) { let have = textureSampleLevel(tSign, sMir, vec2f(.5, 2047.5) / 2048., 0.).g > .5;
+      if (have) { let slot = floor(sd0 - 200.) % 4.; let u = q.x / wd + .5; let v = .5 - q.y / hgt;
+        let px = vec2f((slot % 2.) * 1024. + clamp(u, 0., 1.) * 1023., 1024. + floor(slot / 2.) * 512. + clamp(v, 0., 1.) * 511.);
+        let pic = textureSampleLevel(tSign, sMir, px / 2048., 0.).rgb; alb = pic * pic * .92;
+        let ed = max(abs(u - .5), abs(v - .5)) * 2.; alb = mix(alb, vec3f(.30, .31, .33), step(1. - .05 / max(hgt, .3), ed)); sty = 0.; } }
     // (a frame round the lightbox and the wooden board; the wood's grain; the faded board's stains and peeling)
     if (frame > .5) { let ed = max(abs(q.x) / (wd * .5), abs(q.y) / (hgt * .5)); alb = mix(alb, select(vec3f(.25, .26, .28), fg * .8, sty > 1.5), step(1. - .05 / max(hgt, .3), ed)); }
     if (sty > 1.5 && sty < 2.5) { alb *= .8 + .3 * vn(vec2f(q.x * 3., q.y * 40.) + sd * 9.); }
@@ -1303,9 +1343,23 @@ struct UnO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) 
   else if (ty == 4) { alb = vec3f(.15, .04, .10) * (.8 + .4 * hv); let cap = ss(.82, .87, lp.y) * (.6 + .4 * step(.0, sin(atan2(lp.x, lp.z) * 4.))) + ss(.9, .93, lp.y); alb = mix(alb, vec3f(.16, .30, .07), min(cap, 1.)); gl = .2; }
   else if (ty == 8) {      // a sack: woven, pale; in its open mouth what it holds - chillies, rice, beans or turmeric - within the rolled rim
     alb = vec3f(.50, .42, .28) * (.8 + .2 * step(.5, fract(lp.y * 40.)) * step(.5, fract(atan2(lp.x, lp.z) * 22.))) * (.9 + .2 * vn(lp.xz * 9.)); gl = .05;
+    // (hv over 2: a rice merchant's sack - white woven plastic, not jute - its neck rolled down, the rice heaped in it)
+    if (hv > 2.) { alb = vec3f(.80, .80, .76) * (.86 + .14 * step(.5, fract(lp.y * 40.)) * step(.5, fract(atan2(lp.x, lp.z) * 22.))) * (.92 + .12 * vn(lp.xz * 9.)); gl = .12; }
     if (lp.y > .5) { let k = fract(hv * 5.3); var cc = vec3f(.55, .05, .03); if (k > .3) { cc = vec3f(.78, .76, .70); } if (k > .55) { cc = vec3f(.30, .16, .07); } if (k > .8) { cc = vec3f(.75, .50, .05); }
       alb = mix(vec3f(.58, .50, .34), cc * (.7 + .5 * vn(i.wp.xz * 260.)), ss(.72, .66, length(lp.xz))); n = normalize(n + vec3f(0., 1.5, 0.)); } }
   else if (ty == 9) { alb = mix(vec3f(.62, .40, .26), vec3f(.82, .78, .70), step(.55, hv)) * (.9 + .2 * fract(hv * 9.)); gl = .25; }
+  else if (ty == 12) { alb = vec3f(1., .92, .75); gl = .8; }
+  else if (ty == 18) { alb = vec3f(.62, .63, .65) * (.85 + .2 * vn(lp.xz * 8. + lp.y * 3.)); gl = .7;      // a pot: aluminium; in it, the curry - green, red, brown, yellow - with the oil on it
+    if (lp.y > .6) { let k = fract(hv * 4.7); var cc = vec3f(.40, .45, .12); if (k > .25) { cc = vec3f(.62, .20, .07); } if (k > .5) { cc = vec3f(.32, .17, .08); } if (k > .75) { cc = vec3f(.78, .55, .12); }
+      alb = mix(cc * (.8 + .3 * vn(lp.xz * 14.)), vec3f(.62, .63, .65), ss(.86, .9, length(lp.xz))); gl = .55; } }
+  else if (ty == 19) { let k = fract(hv * 5.3); var pc = vec3f(.72, .08, .06); if (k > .25) { pc = vec3f(.08, .24, .62); } if (k > .5) { pc = vec3f(.10, .45, .18); } if (k > .75) { pc = vec3f(.82, .35, .50); }
+    alb = pc * select(1., .7, lp.y > .1) * (.9 + .1 * vn(lp.xz * 6.)); gl = .45; }      // a plastic basin, darker inside
+  else if (ty == 20) { alb = select(select(vec3f(.92, .92, .86), vec3f(.90, .50, .05), hv < .3), vec3f(.65, .04, .08), hv > .9); gl = .3; }      // a garland's flowers: jasmine, marigold, the red rose at its knot
+  else if (ty == 14) { alb = vec3f(.88, .85, .78) * (.85 + .15 * step(.5, fract(atan2(lp.x, lp.z) * 1.6))) * (.9 + .15 * hv); alb = mix(alb, vec3f(.55, .45, .35), ss(.85, .98, lp.y) + ss(-.8, -.95, lp.y) * .6); gl = .15; }      // garlic: papery white, its cloves' ribs, brown at the root
+  else if (ty == 15) { alb = mix(vec3f(.45, .10, .16), vec3f(.62, .25, .25), hv) * (.85 + .2 * vn(lp.xy * 12.)); alb = mix(alb, vec3f(.55, .40, .22), ss(.8, .97, lp.y)); gl = .45; }      // a shallot: red-purple skin, dry at the tip
+  else if (ty == 16) { let dry = step(.5, fract(hv * 7.1)); alb = mix(mix(vec3f(.70, .04, .03), vec3f(.20, .45, .06), step(.85, hv)), vec3f(.38, .03, .02), dry); alb = mix(alb, vec3f(.18, .32, .06), ss(.88, .97, lp.y)); gl = mix(.7, .25, dry); }      // a chilli: fresh red or green, glossy; or dried, dark red
+  else if (ty == 17) { let rr = length(lp.xz); let a = atan2(lp.x, lp.z); alb = vec3f(.55, .42, .24) * (.75 + .25 * step(.5, fract(rr * 30. + .25 * step(.5, fract(a * 9.)))) ) * (.9 + .15 * vn(lp.xz * 20.)); alb = mix(alb, vec3f(.38, .27, .14), ss(.85, .95, rr)); gl = .1; }      // a woven bamboo tray: the weave in rings, a darker bound rim      // a bulb (lit: below)
+  else if (ty == 13) { alb = mix(vec3f(.55, .62, .12), vec3f(.85, .70, .12), fract(hv * 3.7)) * (.85 + .2 * vn(lp.xy * 9.)); alb = mix(alb, vec3f(.15, .12, .05), ss(.85, .97, lp.y) + ss(-.85, -.97, lp.y)); gl = .35; }      // a banana: green going yellow, dark at both ends
   else if (ty == 11) {      // a water jar (โอ่งมังกร): brown glaze, darker toward the foot, a pale dragon's band round its shoulder; its mouth dark - the water
     alb = mix(vec3f(.16, .08, .03), vec3f(.36, .20, .08), ss(-.9, .5, lp.y)) * (.8 + .4 * vn(lp.xz * 6. + lp.y * 9.)); alb = mix(alb, vec3f(.55, .42, .20), ss(.06, .02, abs(lp.y - .32 - .05 * sin(atan2(lp.x, lp.z) * 6.))) * .6); gl = .55;
     if (lp.y > .7) { alb = mix(vec3f(.30, .17, .07), vec3f(.02, .03, .035), ss(.62, .52, length(lp.xz))); n = normalize(n + vec3f(0., 2., 0.)); } }
@@ -1314,6 +1368,7 @@ struct UnO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) 
   // (lower in the heap less of the sky reaches it)
   let E = g.sunCol.rgb * shadowN(i.wp + n * .04); let nl = max(dot(n, L), 0.); let ao = .55 + .45 * ss(-.6, .5, n.y);
   var c = alb * (E * nl + sky(n) * ao) + alb * head(i.wp, n) + E * pow(max(dot(n, normalize(V + L)), 0.), 50.) * gl * nl;
+  if (ty == 12) { c += vec3f(1., .78, .45) * (.25 + 3.5 * g.misc.w * (1. - g.camM.w)); }      // (the market's bulbs are on - brightest after dark)
   return vec4f(fogged(c, i.wp), 1.);
 }
 @fragment fn fsGlow(i: GlO) -> @location(0) vec4f {

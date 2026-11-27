@@ -364,6 +364,8 @@ function flyMove(dt) {
   const cp = cos(fly.pit), fx = sin(fly.yaw) * cp, fy = sin(fly.pit), fz = cos(fly.yaw) * cp, rx = -cos(fly.yaw), rz = sin(fly.yaw);
   const was = tunAt(fly.x, fly.z) && fly.y < roadY(fly.z) + 6.4;                 // the flying camera can go through a tunnel: once in, it is kept between floor, walls and roof
   fly.x += (fx * f + rx * r) * sp; fly.y += (fy * f + u) * sp; fly.z += (fz * f + rz * r) * sp;
+  // (no further from the road than the land is made - WORLD_W, chunks.js - less the view's reach, so the edge of the world is never in sight)
+  { const rx0 = roadX(fly.z), lim = typeof WORLD_W === 'number' ? WORLD_W - 300 : 1e9; fly.x = clamp(fly.x, rx0 - lim, rx0 + lim); }
   if (inTun(fly.z) && (was || (abs(fly.x - roadX(fly.z)) < 4.6 && fly.y < roadY(fly.z) + 6))) { fly.x = clamp(fly.x, roadX(fly.z) - 4.4, roadX(fly.z) + 4.4); fly.y = clamp(fly.y, roadY(fly.z) + 0.6, roadY(fly.z) + 5.2); }
   else fly.y = max(fly.y, ground(fly.x, fly.z) + 0.8);
 }

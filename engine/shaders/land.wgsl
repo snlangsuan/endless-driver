@@ -70,6 +70,21 @@ fn tlb(b: f32) -> f32 { let g = floor(b / 10.); return step(abs(b - (g * 10. + 2
 // 1 where the lane at zl would come out at the neck of a bridge, onto its rail: there is none there (nearRiv(zl, 16) in land.js)
 fn lriv(zl: f32) -> f32 { let r = rivOf(zl); return step(.001, r.y) * step(abs(zl - r.x), r.y * .5 + 16.); }
 fn lanel(zl: f32) -> f32 { return mix(26., 160., ss(.5, .9, tw(zl))); }
+// how far lane b runs out on side sd (1: +x) - to the back of its last house, none where it has no house on that side (laneL in land.js; the
+// lots and what keeps a lot empty are the house builder's in chunks.js: drawn empty, out of the town, by a river, or squeezed by the next lane
+// where the road bends)
+fn laneL(b: f32, sd: f32) -> f32 { let zl = b * 36. + 34.; let full = lanel(zl); if (tlb(b) > .5) { return full; }
+  let seg = twSeg(zl); let bi = i32(b); var v = 0.; let sl = (roadX(zl + 1.) - roadX(zl - 1.)) * .5; let ca = inverseSqrt(1. + sl * sl); let sa = sl * ca; let ox0 = roadX(zl);
+  let sn = (roadX(zl - 35.) - roadX(zl - 37.)) * .5; let sp = (roadX(zl + 37.) - roadX(zl + 35.)) * .5; let xn = roadX(zl - 36.); let xp = roadX(zl + 36.);
+  for (var i = 0; i < 8; i++) { let t = sd * (32.5 + f32(i) * 17.); if (abs(t) + 8.5 > full) { break; }
+    for (var l = 0; l < 2; l++) { let ls = select(-1., 1., l == 0); let hq = bi * 64 + i * 4 + select(0, 2, sd > 0.) + (1 - l);
+      if (ph(vec2i(hq, 500 + seg)) < .08 || ph(vec2i(hq, 510 + seg)) < f32(i - 3) * .1) { continue; }
+      let x = ox0 + t * ca + ls * 11. * sa; let z = zl - t * sa + ls * 11. * ca;
+      if (tw(z) < .45) { continue; }
+      let r = rivOf(z); if (r.y > 0. && abs(z - r.x) < r.y * .5 + 16.) { continue; }
+      if (abs((x - xn) * sn + z - zl + 36.) * inverseSqrt(1. + sn * sn) < 20. || abs((x - xp) * sp + z - zl - 36.) * inverseSqrt(1. + sp * sp) < 20.) { continue; }
+      v = abs(t) + 9.; } }
+  return v; }
 // 1 along an underpass and its ramps (udOf in land.js, but for the tests of town and river made there): no crossings are painted down in it
 fn udk(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.;
   for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; if (ph(vec2i(i32(g), 523)) < .5 && ph(vec2i(twSeg(zc), 527)) < .4 && abs(z - zc) < 100.) { o = 1.; } }

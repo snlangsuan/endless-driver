@@ -187,6 +187,7 @@ const laneSd = (b) => (xroad(b) ? 0 : ph(b, 531) < 0.4 ? (ph(b, 532) < 0.5 ? 1 :
 const soiD = (x, z) => { const s0 = roadX(z + 0.5) - roadX(z - 0.5), b0 = Math.round((z + s0 * (x - roadX(z)) - 34) / 36); let o = 99;
   for (let b = b0 - 1; b <= b0 + 1; b++) { const zl = b * 36 + 34, s = (roadX(zl + 1) - roadX(zl - 1)) / 2; if (laneRiv(b)) continue;
     { const sd = laneSd(b); if (sd && ((x - roadX(zl)) - (z - zl) * s) / Math.sqrt(1 + s * s) * sd < -3.05) continue; }      // (not on the side it does not go off on, beyond the road itself: see soi in land.wgsl)
+    { const al = ((x - roadX(zl)) - (z - zl) * s) / Math.sqrt(1 + s * s); if (abs(al) > laneL(b, al > 0 ? 1 : -1)) continue; }      // (nor past its end: laneL)
     o = min(o, abs(((x - roadX(zl)) * s + z - zl) / sqrt(1 + s * s)) - (xroad(b) ? 1.65 : 0)); }      // (a cross street is 3.3 m wider than a lane: measured from where a lane's edge would be)
   return o; };
 // plot under a point: [stage 0 flooded / 1 green / 2 ripe / 3 cut, metres to the nearest bund]. A third of the plots lie under water with
@@ -252,7 +253,11 @@ function ground(x, z) {
   if (tw > 0.3 && d > 25) { const s0 = roadX(z + 0.5) - roadX(z - 0.5), b0 = Math.round((z + s0 * (x - rx) - 34) / 36); let ds = 99, zb = 0;
     for (let b = b0 - 1; b <= b0 + 1; b++) { const zl = b * 36 + 34, s = (roadX(zl + 1) - roadX(zl - 1)) / 2, q = ((x - roadX(zl)) * s + z - zl) / Math.sqrt(1 + s * s); if (abs(q) < abs(ds)) { ds = q; zb = zl; } }
     // (the street's level - roadYs - not the road's: beside an underpass the road is down in its cutting; and less the dip here, which is put back below)
-    h = mix(h, mix(roadYs(zb), roadYs(zb + (ds > 0 ? 36 : -36)), 0.5 * sm(15.5, 18, abs(ds))) - udip(z), sm(25, 29, d) * sm(0.3, 0.6, tw)); }
+    // (a school's ground or a football field - civSites, chunks.js - lies level across both its lanes' halves, at lane b's level, taking the step
+    // to lane b + 1 only at its far edge: the terrace's step ran down the middle of the pitch)
+    let lv = mix(roadYs(zb), roadYs(zb + (ds > 0 ? 36 : -36)), 0.5 * sm(15.5, 18, abs(ds)));
+    if (typeof civLane === 'function') { const cl = civLane(x, z); if (cl) lv = mix(roadYs(cl[0]), roadYs(cl[0] + 36), sm(34, 36, cl[1])); }
+    h = mix(h, lv - udip(z), sm(25, 29, d) * sm(0.3, 0.6, tw)); }
   gw[0] = 0; const tt = tunT(z);
   if (hw > 0.001) {
     h += hw * (1 - pad) * sm(7, 70, d) * ((fbm(x * 0.005, z * 0.005) - 0.44) * 58 + (fbm(x * 0.021 + 3, z * 0.021, 3) - 0.5) * 7);
@@ -342,8 +347,23 @@ const zlim = (z) => isOf(z) && abs(z - IS.zc) < 540 ? 70 : townW(z) > 0.02 ? 50 
 const xroad = (b) => { const g = floor(b / 10); return b === g * 10 + 2 + floor(ph(g, 520) * 6) && townW(b * 36 + 34) > 0.9 && !laneRiv(b); };
 // A post beside a town street (off metres out on that side) is not stood in the mouth of a lane: where its place along the road falls in one, it is
 // moved along by the least that clears the mouth. (Worked out from z alone, so every chunk agrees where a pole and the next one stand.)
-const clearZ = (z, side, off) => { if (townW(z) < 0.45) return z; for (const d of [0, 5, -5, 8, -8, 11, -11]) { const zz = z + d; if (soiD(roadX(zz) + side * off, zz) > 3.3) return zz; } return z; };
+const clearZ = (z, side, off) => { if (townW(z) < 0.45) return z; for (const d of [0, 5, -5, 8, -8, 11, -11]) { const zz = z + d; if (soiD(roadX(zz) + side * off, zz) > 3.3 && !(typeof convDr === 'function' && convDr(zz, side, 0.3))) return zz; } return z; };
 const laneLen = (zl) => mix(26, 160, sm(0.5, 0.9, townW(zl)));
+// How far lane b runs out on one side (side 1: +x): to the back of its last house - a lane is made to reach the houses, and where the last lots
+// are empty it ends at the last one built on, instead of running on to its full length across waste ground; a side with no house at all has
+// no lane. (A cross street runs its full length.) The lots and which stand empty are the house builder's (chunks.js: u and h(0) there); laneL in
+// land.wgsl is the same.
+const LLC = new Map(), laneL = (b, side) => { const key = b * 2 + (side > 0 ? 1 : 0); let v = LLC.get(key); if (v !== undefined) return v; const tw0 = twS, rz0 = rzs;      // (twS, rzs, RV: put back as they were - this is asked in the middle of other work)
+  const zl = b * 36 + 34, full = laneLen(zl);
+  // (a lot is left empty, too, out of the town, by a river, too near the road, or squeezed by the next lane where the road bends: the builder's tests)
+  if (xroad(b)) v = full; else { townW(zl); const seg = twS, keep = Object.assign({}, RV), sl = (roadX(zl + 1) - roadX(zl - 1)) / 2, ca = 1 / Math.sqrt(1 + sl * sl), sa = sl * ca, ox0 = roadX(zl); v = 0;
+    for (let i = 0; i < 8; i++) { const t = side * (32.5 + i * 17); if (abs(t) + 8.5 > full) break;
+      for (const ls of [1, -1]) { const hq = b * 64 + i * 4 + (side > 0 ? 2 : 0) + (ls > 0 ? 1 : 0); if (ph(hq, 500 + seg) < 0.08 || ph(hq, 510 + seg) < (i - 3) * 0.1) continue;
+        const x = ox0 + t * ca + ls * 11 * sa, z = zl - t * sa + ls * 11 * ca; if (townW(z) < 0.45 || nearRiv(z, 16) || abs(rdist(x, z)) < 29) continue;
+        let ok = true; for (const b2 of [b - 1, b + 1]) { const z2 = b2 * 36 + 34, s2 = (roadX(z2 + 1) - roadX(z2 - 1)) / 2; if (abs(((x - roadX(z2)) * s2 + z - z2) / Math.sqrt(1 + s2 * s2)) < 20) ok = false; }
+        if (ok) v = abs(t) + 9; } }
+    Object.assign(RV, keep); }
+  twS = tw0; rzs = rz0; if (LLC.size > 8000) LLC.clear(); LLC.set(key, v); return v; };
 const tlOf = (g) => { const zs = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36 + 34; return townW(zs) > 0.9 && !nearRiv(zs, 24) && !udG(g) ? zs : null; };      // (not where the road goes under instead)
 const tlNext = (z, dir) => { for (let g = floor((z - 34) / 360), i = 0; i < 3; i++, g += dir) { const zs = tlOf(g); if (zs !== null && (zs - z) * dir > -4) return [zs, ph(g, 521)]; } return null; };
 const tlState = (off, t) => { const p = (t / 30 + off) % 1; return p > 19 / 30 ? 2 : p > 16 / 30 ? 1 : 0; };

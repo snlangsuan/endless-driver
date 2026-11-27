@@ -36,6 +36,12 @@ fn pebble(P: vec2f, dens: f32) -> vec3f {
     if (d < 1.) { o = vec3f(1., h2(id + 5.), 1. - d * d); } } }
   return o; }
 fn h2(p: vec2f) -> f32 { var q = fract(p.xyx * vec3f(.1031, .1030, .0973)); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+// How dry the grass is at a place (0 green .. 1 straw), and the straw's colour. The season (g.fog.w) does not turn all the grass at once: it
+// goes in broad patches - hollows that hold the damp stay green weeks longer, banks and thin soil bleach first - so even in the hot season
+// the land is a mosaic of tan, olive and green, not one sheet of yellow. Dry grass is tan and beige, hardly yellow at all. The ground's paint
+// (terrain.wgsl) and the blades that stand on it (leafV, below) ask the same, so they turn together.
+fn dryK(P: vec2f) -> f32 { let m = vn(P * .021 + 17.) * .6 + vn(P * .083 + 5.) * .4; return clamp(g.fog.w * 1.6 - (1. - m) * 1.5, 0., 1.) * min(g.fog.w * 3., 1.); }
+fn strawC(k: f32) -> vec3f { return mix(vec3f(.125, .105, .058), vec3f(.205, .175, .105), k); }
 fn vn(p: vec2f) -> f32 { let i = floor(p); let f = fract(p); let u = f * f * (3. - 2. * f);
   return mix(mix(h2(i), h2(i + vec2f(1., 0.)), u.x), mix(h2(i + vec2f(0., 1.)), h2(i + vec2f(1., 1.)), u.x), u.y); }
 fn fbm(p: vec2f) -> f32 { var s = 0.; var a = .5; var q = p; for (var i = 0; i < 4; i++) { s += a * vn(q); q = q * 2.03 + vec2f(17.1, 9.7); a *= .5; } return s / .9375; }
@@ -184,18 +190,18 @@ fn leafV(vi: u32, a0: vec4f, b0: vec4f, c0: vec4f) -> LO {
   var tr = 1.;
   if (c.y > .86) { col = vec3f(.14, .15, .03); }
   if (kind == 1) { col = mix(vec3f(.07, .15, .03), vec3f(.10, .17, .035), c.y); }
-  if (kind == 2) { col = mix(vec3f(.11, .17, .03), vec3f(.17, .20, .045), c.y); if (c.y > .8) { col = vec3f(.24, .21, .07); } }
+  if (kind == 2) { col = mix(vec3f(.08, .14, .03), vec3f(.135, .175, .045), c.y); if (c.y > .8) { col = vec3f(.22, .195, .10); } }
   // (20: a sugar palm's fan - a stiff grey-green; the old ones yellowing, the dead - seeds over .9 - brown)
   if (kind == 20) { col = mix(vec3f(.060, .115, .050), vec3f(.095, .150, .060), fract(c.y * 5.3)); col = mix(col, vec3f(.20, .19, .06), ss(.7, .85, c.y)); if (c.y > .9) { col = vec3f(.21, .15, .08); } }
   // (16: a tuft of grass - a card the fragment stage cuts into a handful of blades - in the grass's own colours, yellowing with it in the dry season)
-  if (kind == 16) { col = mix(mix(vec3f(.10, .16, .03), vec3f(.16, .19, .045), c.y), vec3f(.27, .22, .08), g.fog.w * .8); }
+  if (kind == 16) { col = mix(mix(vec3f(.075, .135, .03), vec3f(.13, .17, .045), c.y), strawC(fract(c.y * 5.7)), dryK(a.xz) * (.45 + .55 * fract(c.y * 3.3))); }
   if (kind == 3 || kind == 17) { col = mix(vec3f(.085, .20, .025), vec3f(.13, .23, .035), c.y); }
-  if (kind == 4) { col = mix(vec3f(.30, .24, .06), vec3f(.36, .27, .08), c.y); }
+  if (kind == 4) { col = mix(mix(vec3f(.12, .16, .05), vec3f(.17, .19, .06), c.y), strawC(c.y) * 1.08, .45 + .55 * dryK(a.xz)); }      // (tall wild grass: tan when dry, olive after the rains - it was one saturated yellow)
   if (kind == 5) { col = mix(vec3f(.085, .19, .032), vec3f(.05, .135, .026), c.y); if (c.y > .93) { col = vec3f(.20, .21, .05); } }
   if (kind == 7) { col = mix(vec3f(.20, .13, .06), vec3f(.26, .19, .09), c.y); tr = .3; }
   if (kind == 6) { col = mix(vec3f(.70, .06, .32), vec3f(.85, .30, .50), c.y); if (c.y > .8) { col = vec3f(.85, .80, .75); } }
   // dry season: grass turns to straw, trees yellow a little
-  if (kind == 2) { col = mix(col, vec3f(.27, .22, .08), g.fog.w * .8); }
+  if (kind == 2) { col = mix(col, strawC(fract(c.y * 5.7)), dryK(a.xz) * (.45 + .55 * fract(c.y * 3.3))); }
   // (by species: a mango's leaves dark and leathery, its new flush - the odd sprig - coppery red; a rain tree's fine and a deep even green; a
   // dipterocarp's a paler olive; a bodhi's a deep glossy green, its new leaves pinkish; the rest as they were)
   if (kind == 0 && spc > .5) {

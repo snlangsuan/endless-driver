@@ -68,7 +68,7 @@ fn scn(uv: vec2f) -> vec3f {
 @fragment fn fs(i: VO) -> @location(0) vec4f {
   let u = uu.a; let b = uu.b;
   let ck = uu.f.x;
-  var c = scn(i.uv) + textureSampleLevel(tB, s, i.uv, 0.).rgb * (.22 + .08 * ck);
+  var c = scn(i.uv) + textureSampleLevel(tB, s, i.uv, 0.).rgb * vec3f(1.04, 1.0, .94) * (.28 + .06 * ck);      // (the bloom a touch warm, as sunlight on paint and glass glares)
   // (the film look: the red and the blue drawn a hair apart toward the edges, as a lens fringes them)
   if (ck > .001) { let q0 = (i.uv - .5) * dot(i.uv - .5, i.uv - .5) * .012 * ck;
     c = vec3f(textureSampleLevel(tS, s, i.uv + q0, 0.).r + textureSampleLevel(tB, s, i.uv + q0, 0.).r * (.22 + .08 * ck), c.g, textureSampleLevel(tS, s, i.uv - q0, 0.).b + textureSampleLevel(tB, s, i.uv - q0, 0.).b * (.22 + .08 * ck)); }
@@ -206,10 +206,14 @@ fn scn(uv: vec2f) -> vec3f {
   c = aces(c);
   // The everyday look: bright and saturated. Vibrance lifts the duller colours more than the already strong ones (so the sky and the grass come up
   // without the red kerbs going garish), a gentle S of contrast gives the picture its punch, and the lights are warmed a touch, like a summer day.
+  // Tuned toward the look of today's open-world racers: crisp and rich rather than soft - deeper contrast in the middle, shadows a little cool
+  // and clean (never muddy brown), sunlit things warm, the colours full but the skin of the world natural; the blacks kept black.
   { let l = dot(c, vec3f(.2126, .7152, .0722)); let sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
-    c = max(mix(vec3f(l), c, 1.18 + .3 * (1. - ss(0., .5, sat))), vec3f(0.));
-    c = mix(c, c * c * (3. - 2. * c), .22);
-    c *= mix(vec3f(1.), vec3f(1.03, 1.0, .96), ss(.5, 1., l)); }
+    c = max(mix(vec3f(l), c, 1.2 + .28 * (1. - ss(0., .5, sat))), vec3f(0.));
+    c = mix(c, c * c * (3. - 2. * c), .34);
+    let sh = 1. - ss(.0, .38, l); let hi = ss(.45, 1., l);
+    c *= mix(vec3f(1.), vec3f(.95, .99, 1.06), sh * .55) * mix(vec3f(1.), vec3f(1.04, 1.0, .95), hi);
+    c = max(c - vec3f(.006), vec3f(0.)) * 1.006; }
   // The film look, by ck: the shadows drawn toward teal and the lights toward a warm amber - set by each pixel's brightness, its own hue kept -
   // a soft S of contrast about the middle, the blacks lifted a touch as on a print, a shade less colour overall.
   if (ck > .001) {

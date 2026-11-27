@@ -97,7 +97,18 @@ struct PpO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) 
   if (ty == 10) { q = vec3f(p0.x, p0.y * (1. + .25 * ss(.3, 1., p0.y)), p0.z); }
   // (a water jar: taller than round, its top cut off at the mouth)
   if (ty == 11) { q = vec3f(p0.x, min(p0.y, .72) * 1.2, p0.z); }
-  let yw = b.y * 40.; let cy = cos(yw); let sy = sin(yw); let tl = (fract(b.y * 7.7) - .5) * select(.9, .15, ty == 3 || ty >= 8);
+  // (a bulb: a little long; a banana: a long finger curving up and out from the bunch's middle - b.y holds which way it faces)
+  if (ty == 12) { q = vec3f(p0.x, p0.y * 1.25, p0.z); }
+  // (garlic: squat, pointed at the top; a shallot: a teardrop; a chilli: long and thin, lying down; a woven tray: a shallow dish)
+  if (ty == 14) { q = vec3f(p0.x, p0.y * .8 + .15 * ss(.4, 1., p0.y), p0.z); }
+  if (ty == 15) { q = vec3f(p0.x * (1. - .4 * ss(-.2, 1., p0.y)), p0.y * 1.2, p0.z * (1. - .4 * ss(-.2, 1., p0.y))); }
+  if (ty == 16) { q = vec3f(p0.x * .35, p0.y * 2.4, p0.z * .35); m = normalize(vec3f(p0.x / .35, p0.y / 2.4, p0.z / .35)); }
+  // (a pot: an upright drum, its top flat at the brim; a plastic basin: a wide bowl, open, flat-bottomed)
+  if (ty == 18) { q = vec3f(p0.x, clamp(p0.y, -.75, .62), p0.z); if (p0.y > .62) { m = vec3f(0., 1., 0.); } }
+  if (ty == 19) { let w = .72 + .28 * ss(-.6, .1, p0.y); q = vec3f(p0.x * w, clamp(p0.y, -.6, .1) * .5, p0.z * w); if (p0.y > .1) { m = vec3f(0., 1., 0.); } }
+  if (ty == 17) { let rim = ss(.6, .95, length(p0.xz)); q = vec3f(p0.x, clamp(p0.y, -.25, .05) * .3 + rim * .06, p0.z); }
+  if (ty == 13) { let L = p0.y * 2.6; q = vec3f(p0.x * .42, L, p0.z * .42 + .9 * (1. - p0.y) * (1. - p0.y) - .2); m = normalize(vec3f(p0.x / .42, p0.y / 2.6, p0.z / .42)); }
+  var yw = b.y * 40.; if (ty == 13) { yw = b.y * 6.2832; } let cy = cos(yw); let sy = sin(yw); var tl = (fract(b.y * 7.7) - .5) * select(.9, .15, ty == 3 || ty >= 8); if (ty == 13) { tl = -.5; } if (ty == 16) { tl = 1.5708; } if (ty == 17) { tl = 0.; }
   q = prx(q, vec3f(0.), tl); m = prx(m, vec3f(0.), tl);
   q = vec3f(q.x * cy + q.z * sy, q.y, -q.x * sy + q.z * cy); m = vec3f(m.x * cy + m.z * sy, m.y, -m.x * sy + m.z * cy);
   let rel = (a.xyz - g.cam.xyz) + q * a.w;

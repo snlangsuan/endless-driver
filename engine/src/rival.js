@@ -110,7 +110,8 @@ function rivalStep(dt) {
     // (the lead changes hands only where there is room for it to be done well: the next 100 m near straight and the full width of the road - no
     // bridge, no tunnel, no underpass, no switchback, no bend to speak of - and with neither car sliding: started mid-drift, or at a bridge's
     // end, the one giving way was seen to brake hard out of the slide and the two to squeeze by in a narrow place)
-    else if (RIV.pt <= 0 && (RIV.ph === 'lead' || RIV.ph === 'follow')) { if ((RIV.tick % 10 === 0) && !RIV.tw && rvSwapOK(RIV.zr, dirz) && rvSwapOK(car.z, dirz) && abs(sp0) < 0.12 && abs(S.slip) < 0.12) {
+    else if (RIV.pt <= 0 && (RIV.ph === 'lead' || RIV.ph === 'follow')) { if ((RIV.tick % 10 === 0) && !RIV.tw && rvSwapOK(RIV.zr, dirz) && rvSwapOK(car.z, dirz) && abs(sp0) < 0.12 && abs(S.slip) < 0.12 && !RIV.away && vp > 8 && S.v > 8) {      // (and both moving: a swap begun with the player stopped held the rival to its speed then - none)
+
         if (RIV.ph === 'lead') { RIV.ph = 'yield'; RIV.lane = Lp >= Lr ? -1 : 1; } else { RIV.ph = 'let'; RIV.lane = Lr >= Lp ? 1 : -1; } RIV.pt = 25; RIV.ramp = 0; RIV.v0 = S.v; RIV.p0 = vp; } }
     else if (RIV.pt <= 0) { RIV.ph = RIV.ph === 'yield' ? 'lead' : 'follow'; RIV.pt = 10; } }      // (not done in 25 s - the player hanging back: as it was)
   else RIV.gone += dt;
@@ -181,7 +182,7 @@ function rivalStep(dt) {
   // while the two are side by side, when crossing over would cut across it. Picked once from where the player was as it began, the rival was
   // seen to pull over in front of a player who had come back into that lane, and be run into.)
   if (act && RIV.ph === 'yield' && !auto.on && abs(g) > 6 && abs(Lp - RIV.lane * LANE) < 1.2) RIV.lane = -RIV.lane;
-  if (act && RIV.ph === 'yield') { Lt = RIV.lane * LANE; vCap = auto.on ? (RIV.v0 || S.v) - 1.1 * RIV.ramp : min(RIV.v0 || S.v, vp) - 2.5 * RIV.ramp; }
+  if (act && RIV.ph === 'yield') { Lt = RIV.lane * LANE; vCap = auto.on ? max(RIV.v0 || S.v, vp - 1) - 1.1 * RIV.ramp : min(RIV.v0 || S.v, vp) - 2.5 * RIV.ramp; }
   // (driven by hand the player does not put its foot down to come by, as the self-driving does (rivalBoost): the rival eases off below the
   // player's own speed instead, whatever it is - held at its own pace, it was seen to go on at 119 km/h with the player at 51, and was gone)      // (over into its lane at its own pace, 4 km/h off it - not slowed by the player's speed, which had the two
   // wind each other down to a stop - and the player comes by, its self-driving let 9 km/h over its set speed for it: rivalBoost)
@@ -198,6 +199,18 @@ function rivalStep(dt) {
   // stop if the player has stopped, so the gap closes to 20 m and stays there until the player comes on. Left to its own pace ahead of a player
   // driving by hand and slowing, it drew away out of sight, and was set down behind again.)
   if (act && g > 20) vCap = min(vCap, max(0, vp + clamp(0.3 * (20 - g), -12, 0)));
+  // (the player stopping or nearly, with the rival behind and near: it stops 8 m back, in the player's line - not drawn up beside it)
+  if (act && !tw && vp < 4 && g < 0 && g > -16) { vCap = min(vCap, max(0, vp + 0.6 * (-8 - g))); if (g < -6.2) Lt = Lp; }
+  // The player stopped (for more than a second and a half): the rival does not stand and wait in sight of it - it drives on, by in the
+  // other lane if it was behind, and away up the road until it is out of sight (190 m, past what the eye makes out), and stops there. When
+  // the player comes on again and draws near - before the rival can be seen - it moves off, and keeps ahead at the pace of waiting (the
+  // rule above: slower than the player the further ahead it is), so it is caught up with as before. (RIV.away)
+  RIV.stopT = vp < 1.5 ? (RIV.stopT || 0) + dt : 0;
+  if (act && !tw && RIV.stopT > 1.5) RIV.away = true;
+  if (RIV.away && (!act || (vp > 3 && g < 175) || abs(g) > 250)) RIV.away = false;
+  if (RIV.away) { vCap = g < 200 ? (vp > 3 ? vp + 4 : 24) : 0;
+    // (going by: on whichever side of the player it is on already, a car's width and more off it - or, no room there, the other)
+    if (g < 10) { if (!RIV.awS) { const sd0 = Math.sign(Lr - Lp) || 1; RIV.awS = abs(Lp + sd0 * 2.5) <= EDGE ? sd0 : -sd0; } RIV.side = RIV.awS; Lt = clamp(Lp + RIV.awS * 2.5, -EDGE, EDGE); } else { Lt = -LANE; RIV.awS = 0; } } else RIV.awS = 0;
   // Side by side, each keeps to its own side of the other, GAP apart - the one ahead holding its line, the one coming by finding its room - and
   // the side the rival is on when they come together is the side it keeps until they are apart (RIV.side): it never cuts across the player.
   const sepB0 = RIV.C && PCAR ? rvSep(car.x + PCAR.ox, car.z + PCAR.oz, car.yaw, S.x + RIV.C.ox, S.z + RIV.C.oz, S.yaw) : 9;
@@ -212,13 +225,23 @@ function rivalStep(dt) {
   if (++RIV.tick % 6 === 0) { const zq = RIV.zr + dirz * (8 + S.v * 0.4) / nn, hit = (l) => { const q = rp(zq, l * dirz); return solidAt(q[0], q[1], surf(q[0], q[1], S.y + 1), 1.1) > 0; };
     RIV.blk = null; if (hit(Lt)) for (const d of [1, -1, 2, -2, 3, -3]) { const l = clamp(Lt + d, -EDGE, EDGE); if (!hit(l)) { RIV.blk = l; break; } } }
   if (RIV.blk !== null && RIV.blk !== undefined && !ov) Lt = RIV.blk;
+  // (slow, or stopped waiting for the player: into its own lane, the left, square to the road - not left standing wherever the racing line
+  // had it, out across the middle)
+  // (begun early enough - from 50 km/h down, and at once when it is waiting ahead for a player who has slowed - for it to be in its lane
+  // before it stops: across the road it moves only as it moves along, and it was seen to stop short of it, out in the other lane)
+  if (act && !tw && !ov && !RIV.away && (S.v < 14 || (g > 20 && vp < 8))) Lt = Lt + (-LANE - Lt) * max(sm(14, 6, S.v), g > 20 && vp < 8 ? 1 : 0);
   Lt = clamp(Lt, -EDGE, EDGE);
   // Across the road on a spring, critically damped: it eases out, glides over, and settles - an S, not a jerk (no faster than 2.2 m/s, or
   // 3.5 m/s to keep clear when the player's car comes over toward it).
   const sepB = RIV.C && PCAR ? rvSep(car.x + PCAR.ox, car.z + PCAR.oz, car.yaw, S.x + RIV.C.ox, S.z + RIV.C.oz, S.yaw) : 9;
   { const urg = ov && (abs(Lr - Lp) < GAP - 0.2 || sepB < 0.4), w = urg ? 3.2 : 1.7, vmax = urg ? 3.5 : 2.2;
     if (RIV.hold && RIV.hold.t > 0) { RIV.hold.t -= dt; Lt = RIV.hold.sd > 0 ? max(Lt, RIV.hold.L) : min(Lt, RIV.hold.L); }      // (the line the last word below took it to, held a moment)
-    RIV.Lv = (RIV.Lv || 0) + ((Lt - Lr) * w * w - 2 * w * (RIV.Lv || 0)) * dt; RIV.Lv = clamp(RIV.Lv, -vmax, vmax); RIV.L = (Lr + RIV.Lv * dt) * dirz; }
+    RIV.Lv = (RIV.Lv || 0) + ((Lt - Lr) * w * w - 2 * w * (RIV.Lv || 0)) * dt; RIV.Lv = clamp(RIV.Lv, -vmax, vmax);
+    // (and a car moves across the road only as it moves along it - no more than a fifth of its speed (a half, pulling out slowly), so slowly, the further it is turned: at a
+    // standstill, not at all. Its spring alone moved it sideways while it stood waiting, and its nose, following its path, swung round across
+    // the lane)
+    const lvM = (RIV.away && S.v < 6 ? 0.5 : 0.2) * S.v + 0.02 * (S.v > 0.3 ? 1 : 0);      // (pulling out from behind a stopped car, slowly, it turns more sharply)
+    RIV.Lv = clamp(RIV.Lv, -lvM, lvM); RIV.L = (Lr + RIV.Lv * dt) * dirz; }
   // Its speed: what the bends allow its line, its top speed, and what its turn in the race allows; and right behind the player in its line - not
   // out to a side - no quicker than the player: it never runs into the back of it. It pulls away by its engine (power over speed, as drive.js)
   // and brakes at up to 7 m/s2.
@@ -229,14 +252,24 @@ function rivalStep(dt) {
   RIV.twV = tw ? vB * 0.88 : null; if (tw) vt = min(vt, RIV.twV);
   // (in the player's line behind it: 6.5 m back and no closer (more while either slides); and the bodies near each other
   // anywhere alongside: it gives way, off the throttle, if it is not the one ahead)
-  if (g > -12 && g < -2.5 && abs(Lr - Lp) < GAP - 0.3) vt = min(vt, vp + clamp(0.5 * ((RIV.ph === 'follow' && RIV.pt < 5 ? -5.8 : -6.5) - 2.5 * abs(sin(sp)) - 2 * abs(sin(S.slip)) - g), -4, 2));
-  if (sepB < 0.35 && g < 2) vt = min(vt, vp - 2 * (0.35 - sepB) - 0.3);
+  if (g > -12 && g < -2.5 && abs(Lr - Lp) < GAP - 0.3 && !(RIV.away && vp < 1.5)) vt = min(vt, vp + clamp(0.5 * ((RIV.ph === 'follow' && RIV.pt < 5 ? -5.8 : -6.5) - 2.5 * abs(sin(sp)) - 2 * abs(sin(S.slip)) - g), -4, 2));
+  if (sepB < 0.35 && g < 2 && !(RIV.away && sepB > 0.12 && abs(Lt - Lr) < abs(Lt - Lp))) vt = min(vt, vp - 2 * (0.35 - sepB) - 0.3);
+  // Coming up beside the player from behind is for the straights. With no slide agreed between them (tw), it does not come alongside - and if
+  // it is there already it drops back, to 9 m behind - when a bend is coming, when the player's car has begun to slide (its tail swings out
+  // across the lane beside it), or when the player is moving over toward it: it was seen to hold its place at the player's quarter while the
+  // player took the middle of the road and turned in to drift, and with nowhere to go, was struck. (RIV.bk: held a second and a half after.)
+  { const LpV = (Lp - (RIV.pLp === undefined ? Lp : RIV.pLp)) / max(dt, 1e-3); RIV.pLp = Lp; RIV.LpV = (RIV.LpV || 0) + (LpV - (RIV.LpV || 0)) * min(1, dt * 6);
+    const toward = RIV.LpV * (Math.sign(Lr - Lp) || 1);
+    if (act && !tw && !RIV.away && g < 2 && g > -14 && vp > 8 && (bendS || abs(sp) > 0.14 || (toward > 0.5 && abs(Lr - Lp) < GAP + 1.6))) RIV.bk = 1.5;
+    if (RIV.bk > 0) { RIV.bk -= dt; if (!tw && g < 2 && g > -14) vt = min(vt, vp + clamp(0.6 * (-9 - g), -6, 0.5)); } }
+  if (RIV.away && g < 10 && g > -12 && S.v < 3 && sepB > 0.2) vt = max(vt, 3);      // (it creeps out from behind the stopped player: across the road it moves only as it moves along)
   const acc = min(P.acc, P.pw / max(S.v, 1)), dv = vt - S.v; S.v = max(0, S.v + clamp(dv, -7 * dt, acc * dt)); S.brk = dv < -1 ? 1 : 0;
   // along the road by its speed, set down on it; its heading by its path, its nose into the slide by how fast the path turns
   RIV.zr += dirz * S.v * dt / nn; const Q = rp(RIV.zr, RIV.L), mx = Q[0] - S.x, mz = Q[1] - S.z;
   // (its heading eased onto the way it has just moved, over some 70 ms: taken raw each frame, every small change in how fast it was moving
   // across the road - its spring settling, the last word below putting it out - turned its nose by as much at once, and the car shook)
-  const hd0 = S.hd; if (mx * mx + mz * mz > 1e-8) S.hd = hd0 + wr(atan2(mx, mz) - hd0) * (1 - exp(-dt * 15)); S.x = Q[0]; S.z = Q[1]; S.y = surf(S.x, S.z, S.y + 1);
+  // (when it hardly moves its path says nothing of where it points: then it keeps square to the road)
+  const hd0 = S.hd, along = (mx * sin(hd0) + mz * cos(hd0)); if (mx * mx + mz * mz > 1e-8 && S.v > 0.5 && along > 0) S.hd = hd0 + wr(atan2(mx, mz) - hd0) * (1 - exp(-dt * 15)); else if (S.v <= 0.5) S.hd = hd0 + wr(atan2(roadSl(RIV.zr) * dirz, dirz) - hd0) * (1 - exp(-dt * 3)); S.x = Q[0]; S.z = Q[1]; S.y = surf(S.x, S.z, S.y + 1);
   // (drifting a bend: by the same measure as the player's self-driving (drive.js) - three quarters of the sideways pull over 5.5 m/s2 of grip,
   // and no further than the player's car is seen to go, 40 degrees. By a smaller measure of its own, up to 35, it slid half as often as the
   // player and less far; let go to 60, as the player's asks before its own limits, it slid half as far again as the player.)
