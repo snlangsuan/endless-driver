@@ -1,7 +1,7 @@
 // --------------------------------------------------------------------------------------------------------- shaders
 // The WGSL lives in shaders/*.wgsl (fetched by boot.js into WGSL). Here it is put together and compiled.
 // common + land are in every module; the picture adds the vertex stages, the ground (terrain) and the rest of the fragment stages (scene).
-const W_COMMON = `const SHADOW_RES = ${SHADOW}.;\n` + WGSL.common + '\n' + WGSL.land, W_VERT = WGSL.vertex;
+const W_COMMON = `const SHADOW_RES = ${SHADOW}.;\nconst ULTRA = ${ULTRA};\n` + WGSL.common + '\n' + WGSL.land, W_VERT = WGSL.vertex;
 const W_SCENE = W_COMMON + W_VERT + '\n' + WGSL.terrain + '\n' + WGSL.scene, W_SHADOW = W_COMMON + W_VERT, W_POST = WGSL.post, W_FINAL = WGSL.final;
 function mod(code, name) {
   const m = device.createShaderModule({ code });

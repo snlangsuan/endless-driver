@@ -91,6 +91,16 @@ function buildChunk(cx, cz) {
   const R = rng((cx * 73856093) ^ (cz * 19349663) ^ 0x5bd1e995);
   // what stands on this piece of land
   const segs = [], far = [], boxes = []; let nSegFar = 0; const po = [0, 0];
+  // The people of the chunk (drawn by their own pipeline: render.js PPL, vsPpl/fsPpl): each twelve numbers - where it stands and which way it
+  // faces; its height, its own number (which gives it its clothes, hair and ways), how fast it walks (0: it stands) and how far before it turns
+  // back; the ground's height where its walk ends, and its girth. Or, given lb, it walks round and round a ring instead - a rectangle with
+  // rounded corners about (x, z), R by lb in half-size, turned by yaw - stopping now and then (the vertex stage: vsPpl). addP keeps only
+  // those that stand in this chunk.
+  // (and a market's fruit, each a round thing of its own - vsFruit/fsFruit: where it is, its radius, its kind and its own number)
+  const fruit = [];
+  const ppl = [], pplW = [], addP = (x, z, yaw, h1, sd, spd = 0, R = 0, lb = 0) => { if (!(x >= ox && x < ox + CH && z >= oz && z < oz + CH) || ppl.length + pplW.length > 12 * 400) return; const y = ground(x, z) + 0.015; let ye = y;
+    if (spd > 0 && !lb) ye = ground(x + sin(yaw) * R, z + cos(yaw) * R) + 0.015; if (gw[0] > 0 || abs(ye - y) > 1.2) return;
+    const wm = ph(floor(sd * 9999), 78) < 0.5; (wm ? pplW : ppl).push(x, y, z, yaw, (wm ? 1.5 : 1.6) + 0.2 * h1, sd, spd, R, ye, wm ? 1 : 0, 0.92 + 0.2 * ph(floor(sd * 9999), 77), lb); };      // (women in a list of their own: they are another figure)
   // leaves are written straight into one long array kept for the purpose (LBUF): a wooded chunk has tens of thousands of them, and gathering them in an
   // ordinary list first, then copying, then shuffling leaf by leaf took most of the time a chunk takes to build - time taken out of a frame
   const leaves = { n: 0, get length() { return this.n; }, push(...v) { if (this.n + v.length <= LBUF.length) { LBUF.set(v, this.n); this.n += v.length; } } };
@@ -135,10 +145,10 @@ function buildChunk(cx, cz) {
     const y = hAt(x, z), c = cos(turn), sn = sin(turn), S = T.segs, Lf = T.leaves;
     const tr = (px, py, pz, o) => { o.push(x + (px * c - pz * sn) * sc, y + py * sc, z + (px * sn + pz * c) * sc); };
     const enc = (h, r) => Math.round(min(max(h, 0), 60) * 32) + min(r, 31.9) / 32;       // height above the foot (whole part / 32) and reach out from the trunk (fraction * 32), in one number
-    const nS = twigs ? T.nSeg : (T.nSegMid || T.nSeg), lw = [1, 1, 1.5, 1.8, 2.1][thin];
+    const nS = twigs ? T.nSeg : (T.nSegMid || T.nSeg), lw = [1, 1, 1.5, 1.8, 2.1][thin], SPK = (T.sp || 0) * 4096;      // (a tree's species goes with its pieces' heights, in 4096s: branchV takes it off again, for the bark)
     for (let i = 0; i < nS; i++) {
       const o = i < farN ? far : segs, k = i * 10, made = S[k + 8] < -0.5;
-      tr(S[k], S[k + 1], S[k + 2], o); o.push(S[k + 3] * sc); tr(S[k + 4], S[k + 5], S[k + 6], o); o.push(S[k + 7] * sc, made ? (S[k + 8] < -1.5 ? -2 - (-S[k + 8] - 2) * sc : -1) : enc(S[k + 8] * sc, hypot(S[k], S[k + 2]) * sc), made ? S[k + 9] : enc(S[k + 9] * sc, hypot(S[k + 4], S[k + 6]) * sc));
+      tr(S[k], S[k + 1], S[k + 2], o); o.push(S[k + 3] * sc); tr(S[k + 4], S[k + 5], S[k + 6], o); o.push(S[k + 7] * sc, made ? (S[k + 8] < -1.5 ? -2 - (-S[k + 8] - 2) * sc : -1) : SPK + enc(S[k + 8] * sc, hypot(S[k], S[k + 2]) * sc), made ? S[k + 9] : SPK + enc(S[k + 9] * sc, hypot(S[k + 4], S[k + 6]) * sc));
     }
     { let o = leaves.n; const wk = sc * lw, nl = T.nLeaf; if (o + Math.ceil(nl / thin) * 12 > LBUF.length) return;
       for (let i = 0; i < nl; i += thin) { const k = i * 12, px = Lf[k], py = Lf[k + 1], pz = Lf[k + 2], hh = min(max(Lf[k + 11] * sc, 0), 60), rr = min(Math.sqrt(px * px + pz * pz) * sc, 31.9);
@@ -453,14 +463,64 @@ function buildChunk(cx, cz) {
             { const q = Wd(X - Wb / 2 - 1.5, 5.4); far.push(q[0], y, q[1], 0.11, q[0], y + 6.2, q[1], 0.09, -1, 0); } put(X - Wb / 2 - 1.5, 6.0, 5.4, 1.9, 2.3, 0.28, 23, conv ? 2 : s1);
             tree(X + Wt / 2 + 2.5, 3, 0.6, s2); { const q = Wd(X - Wb / 2 - 2.4, 1.2); if (soiD(q[0], q[1]) > 3.9) stamp(SHRINE_B, q[0], y + 0.3, q[1], yaw, 0, 0); }      // the shop's spirit houses at the corner of its forecourt
           } else if (kind === 3) {     // the market: tin roofs on posts, tables of goods under them, stalls with umbrellas out at the kerb
+            // The goods, on a table at height y0, in a place w by d: what the seed says, of twelve kinds. Fruit - oranges, mangoes, limes, rose
+            // apples, mangosteens, watermelons, young coconuts: a plastic crate (the box shader's 54) heaped with them, each a ball of its own
+            // (ball, below: vsFruit/fsFruit), a mound of them packed as round things pack, lying just over the heap's painted steps (55) - which
+            // are what is seen from far off, where the balls are not drawn. Greens in bundles and fish on ice (54, painted). Sacks of dry goods,
+            // their mouths rolled open - chillies, rice, beans, turmeric. Eggs, on a stack of their trays. And cloth: lengths of it hung from a
+            // rail over the table, more folded flat beneath (56).
+            const ball = (lx, ly, lz, r, ty, hq) => { const q = Wd(lx, lz); if (q[0] >= ox && q[0] < ox + CH && q[1] >= oz && q[1] < oz + CH) fruit.push(q[0], y + ly, q[1], r, ty, hq, 0, 0); };
+            const goods = (gx, y0, gz, w, d, sdG) => { let K = floor(sdG * 11.99); const h2 = (sdG * 97.3) % 1, k = w / 0.9, bs = (t) => (t + 0.1 + 0.8 * h2) / 7.99, sI = floor(sdG * 99999);
+              if (w < 0.8 && (K === 8 || K === 9 || K === 11)) K = K % 5;
+              if (K <= 4 || K === 7 || K === 10) { const ty = K === 10 ? 2 : K, r = [0.044, 0.052, 0.031, 0.034, 0.038, 0, 0, 0.1, 0, 0, 0.085][K], st = r * 1.92, nx = floor((w - 2 * r) / st), nz = floor((d - 2 * r) / (st * 0.866));
+                put(gx, y0 + 0.1, gz, w, 0.2, d, 54, bs(ty));
+                if (K === 7 || K === 10) put(gx, y0 + 0.26, gz, w * 0.7, 0.12, d * 0.68, 55, bs(ty));
+                else { put(gx, y0 + 0.225, gz, w * 0.86, 0.05, d * 0.84, 55, bs(ty)); put(gx + 0.02 * k, y0 + 0.275, gz, w * 0.66, 0.05, d * 0.64, 55, bs(ty)); put(gx + 0.04 * k, y0 + 0.32, gz, w * 0.42, 0.045, d * 0.4, 55, bs(ty)); }
+                for (let b = 0; b <= nz; b++) for (let a = 0; a <= nx - (b & 1); a++) { const lx = (a - nx / 2 + (b & 1) * 0.5) * st, lz = (b - nz / 2) * st * 0.866, m = max(abs(lx) / (w / 2), abs(lz) / (d / 2)), hq = ph(a * 37 + b, 600 + sI);
+                  ball(gx + lx + (hq - 0.5) * r * 0.3, y0 + 0.2 + 0.165 * (1 - Math.pow(m, 1.5)) + r * (0.25 + 0.5 * hq), gz + lz + (ph(a * 37 + b, 601 + sI) - 0.5) * r * 0.3, r * (0.9 + 0.2 * ph(a * 37 + b, 602 + sI)), K, hq); } }
+              else if (K === 5 || K === 6) { put(gx, y0 + 0.1, gz, w, 0.2, d, 54, bs(K)); if (K === 5) put(gx, y0 + 0.235, gz, w * 0.9, 0.07, d * 0.88, 55, bs(5)); }
+              else if (K === 8) { for (let a = 0; a < 3; a++) for (let b = 0; b < 2; b++) { const hq = ph(a * 2 + b, 610 + sI); ball(gx + (a - 1) * 0.3, y0 + 0.125 + 0.03 * hq, gz + (b - 0.5) * 0.38, 0.15 + 0.02 * hq, 8, hq); } }
+              else if (K === 9) { const hT = 0.08 + 0.12 * h2; put(gx, y0 + hT / 2, gz, w * 0.92, hT, d * 0.9, 18, 0.5);
+                for (let a = 0; a < 14; a++) for (let b = 0; b < 12; b++) ball(gx + (a - 6.5) * 0.057, y0 + hT + 0.014, gz + (b - 5.5) * 0.057, 0.023, 9, h2 < 0.5 ? 0.2 + 0.3 * ph(a * 13 + b, 620 + sI) : 0.6 + 0.4 * ph(a * 13 + b, 620 + sI)); }
+              else { for (const e of [-1, 1]) put(gx + e * 0.42, y0 + 0.68, gz, 0.035, 1.36, 0.035, 4); put(gx, y0 + 1.36, gz, 0.9, 0.03, 0.03, 4);
+                for (let a = 0; a < 3; a++) { const hc = ph(a, 630 + sI), L = 0.75 + 0.3 * ph(a, 631 + sI); put(gx + (a - 1) * 0.28, y0 + 1.35 - L / 2, gz + (a - 1) * 0.012, 0.25, L, 0.025, 56, hc); }
+                for (let a = 0; a < 3; a++) put(gx + (a - 1) * 0.29, y0 + 0.03 + 0.02 * (a % 2), gz + 0.1, 0.26, 0.06 + 0.04 * (a % 2), 0.42, 56, ph(a, 635 + sI)); } };
             for (const bx of [-10.5, 0, 10.5]) {
               put(X + bx, 3.5, -0.5, 9.4, 0.08, 9.5, 1, ph(bq, 410 + bx), bx ? 0.1 : -0.1);
               for (const px of [-4.3, 4.3]) for (const pz of [-4.8, 3.8]) put(X + bx + px, 1.7, pz, 0.12, 3.4, 0.12, 4);
-              for (let i = 0; i < 3; i++) { const tz = -3.4 + i * 3; put(X + bx, 0.95, tz, 6.6, 0.07, 1.1, 0, 0.7); for (let j = 0; j < 5; j++) put(X + bx - 2.6 + j * 1.3, 1.18, tz, 0.9, 0.36, 0.8, j % 2 ? 20 : 18, ph(bq * 5 + j, 420 + i + bx)); }
+              for (let i = 0; i < 3; i++) { const tz = -3.4 + i * 3; put(X + bx, 0.95, tz, 6.6, 0.07, 1.1, 0, 0.7); for (let j = 0; j < 5; j++) goods(X + bx - 2.6 + j * 1.3, 0.985, tz, 0.9, 0.8, ph(bq * 5 + j, 420 + i + bx)); }
             }
             for (const bx of [-5.25, 5.25]) put(X + bx, 3.05, 3.6, 3.6, 0.04, 3.2, 33, 0.48, 0.22);                         // blue tarpaulins strung between the roofs
-            for (let i = 0; i < 6; i++) { const bx = X - 12 + i * 4.6 + ph(bq, 470 + i) * 2, n = 1 + floor(ph(bq, 480 + i) * 3); for (let j = 0; j < n; j++) put(bx, 0.5 + j * 0.34, 3.9, 0.6, 0.32, 0.42, 33, ph(bq, 490 + i) < 0.5 ? 0.1 : 0.48); }      // stacks of plastic crates
-            for (let i = 0; i < 5; i++) { const bx = X - 13 + i * 6.5 + ph(bq, 430 + i) * 2; put(bx, 0.85, 5.3, 1.5, 0.9, 0.8, 0, 0.3); for (let j = 0; j < 3; j++) put(bx - 0.48 + j * 0.48, 1.38, 5.3, 0.42, 0.16, 0.62, 33, [0.63, 0.9, 0.1, 0.3][floor(ph(bq * 3 + j, 495 + i) * 3.99)]); put(bx, 1.6, 5.3, 0.05, 1.8, 0.05, 19); put(bx, 2.5, 5.3, 3.0, 0.06, 3.0, 29, ph(bq, 440 + i)); }
+            for (let i = 0; i < 6; i++) { const bx = X - 12 + i * 4.6 + ph(bq, 470 + i) * 2, n = 1 + floor(ph(bq, 480 + i) * 3); for (let j = 0; j < n; j++) put(bx + (ph(bq, 492 + i + j) - 0.5) * 0.06, 0.5 + j * 0.34, 3.5, 0.56, 0.32, 0.42, 57, ph(bq, 490 + i + j * 7)); }      // stacks of cardboard boxes
+            for (let i = 0; i < 5; i++) { const bx = X - 13 + i * 6.5 + ph(bq, 430 + i) * 2; put(bx, 0.85, 5.3, 1.5, 0.9, 0.8, 0, 0.3); for (let j = 0; j < 3; j++) goods(bx - 0.48 + j * 0.48, 1.3, 5.3, 0.44, 0.64, ph(bq * 3 + j, 495 + i)); put(bx, 1.6, 5.3, 0.05, 1.8, 0.05, 19); put(bx, 2.5, 5.3, 3.0, 0.06, 3.0, 29, ph(bq, 440 + i)); }
+            // The people of the market: shoppers in the aisles between the tables and at the stalls by the kerb, standing as people do - facing
+            // the goods, or one another in twos (addP, above; h: the figure's own numbers).
+            { const person = (lx, lz, face, h) => { const q = Wd(lx, lz); addP(q[0], q[1], yaw + face, h(1), h(2)); };
+              let np = 0; const hh = (i) => (j) => ph(bq * 131 + i * 17 + j, 700 + side);
+              for (const bx of [-10.5, 0, 10.5]) for (const az of [-1.9, 1.1]) for (let i = 0; i < 4; i++) { const h = hh(np++), lx = X + bx - 3 + i * 2 + (h(11) - 0.5) * 1.2; if (h(12) < 0.5) continue;
+                const tb = h(14) < 0.42 ? 0.55 : h(14) < 0.84 ? -0.55 : 0;      // (those looking at the goods stand up to the table, leaving the middle of the aisle to those walking)
+                person(lx, az + tb + (h(13) - 0.5) * 0.2, h(14) < 0.42 ? 0 : h(14) < 0.84 ? PI : (h(15) < 0.5 ? 1 : -1) * PI / 2, h);
+                if (h(16) < 0.35) person(lx + 0.5, az + tb + (h(13) - 0.5) * 0.2, (h(14) < 0.42 ? 0 : PI) + (h(17) - 0.5) * 0.8, hh(np++)); }      // a companion beside
+              for (let i = 0; i < 5; i++) { const bx = X - 13 + i * 6.5 + ph(bq, 430 + i) * 2; for (let j = 0, n = 1 + floor(ph(bq, 520 + i) * 2.99); j < n; j++) { const h = hh(np++); person(bx - 0.7 + j * 0.7 + (h(11) - 0.5) * 0.3, 4.55 + (h(13) - 0.5) * 0.12, (h(15) - 0.5) * 0.7, h); } }      // at the stalls by the kerb, facing them
+              // And those walking round it, as people go round a market: each on a ring of its own through the aisles - round one table, round
+              // a roof's tables and out past the crates in front, or the long way round two or all three roofs - stopping at a table now and then.
+              const ring = (lx, lz, la, lb, n) => { for (let i = 0; i < n; i++) { const h = hh(np++); if (h(21) < 0.2) continue; const q = Wd(lx, lz); addP(q[0], q[1], yaw, h(1), h(2), 0.7 + 0.5 * h(22), la, lb); } };
+              for (const bx of [-10.5, 0, 10.5]) { ring(X + bx, -0.4, 4.85, 1.5, 2); ring(X + bx, 1.05, 4.85, 2.95, 2); }
+              ring(X, -0.4, 15.4, 1.5, 3); ring(X - 5.25, 1.05, 10.1, 2.95, 2); ring(X + 5.25, 1.05, 10.1, 2.95, 2); ring(X, 1.05, 15.4, 2.95, 2);
+              // And in and out of it: rings that run along the footpath before it (sb - 0.4 out from the lot's middle line is the footpath's
+              // middle), in through a gap between the kerb's stalls, along before the tables and out by another gap; and some straight in from
+              // the footpath, down the way between two roofs to the aisles, and back.
+              // (the ways in: one in each of the two ways between the roofs, wherever in it is clearest of this market's own kerb stalls and crates)
+              { const fp = sb - 0.4, lane = (x0, x1) => { let bx2 = (x0 + x1) / 2, bc = -1; for (let x = x0; x <= x1 + 1e-6; x += 0.1) { let cl = 9; for (let i = 0; i < 5; i++) cl = min(cl, abs(x - (-13 + i * 6.5 + ph(bq, 430 + i) * 2)) - 0.75); for (let i = 0; i < 6; i++) cl = min(cl, abs(x - (-12 + i * 4.6 + ph(bq, 470 + i) * 2)) - 0.3); if (cl > bc) { bc = cl; bx2 = x; } } return bx2; };
+                const xa = lane(4.1, 6.5), xb = lane(-6.5, -4.1);
+                ring(X + (xa + xb) / 2, (fp + 1.1) / 2, (xa - xb) / 2, (fp - 1.1) / 2, 4);
+                for (const xl of [xa, xb]) for (let i = 0; i < 2; i++) { const h = hh(np++); if (h(21) < 0.3) continue; const q = Wd(X + xl + (h(23) - 0.5) * 0.3, fp); addP(q[0], q[1], yaw + PI, h(1), h(2), 0.75 + 0.4 * h(22), fp + 1.9); } }
+              // And those who sell, sitting: on a plastic stool at one end of a row of tables, and behind a stall at the kerb.
+              { const seat = (lx, lz, face, h) => { const sc = h(31); put(lx, 0.44, lz, 0.31, 0.035, 0.31, 33, sc); for (const ex2 of [-0.12, 0.12]) for (const ez2 of [-0.12, 0.12]) put(lx + ex2, 0.21, lz + ez2, 0.035, 0.42, 0.035, 33, sc);      // (a plastic stool: its seat and four legs)
+                const q = Wd(lx, lz); addP(q[0], q[1], yaw + face, h(1), h(2), -1); };
+                for (const bx of [-10.5, 0, 10.5]) for (let i = 0; i < 3; i++) { const h = hh(np++); if (h(32) < 0.35) continue; const e = h(33) < 0.5 ? -1 : 1; seat(X + bx + e * 3.55, -3.4 + i * 3 + (h(34) - 0.5) * 0.3, -e * PI / 2 + (h(35) - 0.5) * 0.5, h); }
+                for (let i = 0; i < 5; i++) { const h = hh(np++); if (h(32) < 0.3) continue; seat(X - 13 + i * 6.5 + ph(bq, 430 + i) * 2 + (h(34) - 0.5) * 0.6, 6.05, PI + (h(35) - 0.5) * 0.5, h); } }
+            }
           } else if (kind === 4) {     // the temple: a white wall and roofed gate, the hall with its stepped roofs and gilded finials, a white chedi
             put(X - 9.5, 0.75, 5.5, 13, 1.3, 0.3, 41); put(X + 9.5, 0.75, 5.5, 13, 1.3, 0.3, 41);
             for (const gx of [-2.6, 2.6]) put(X + gx, 1.6, 5.5, 0.7, 3.0, 0.7, 41); put(X, 3.9, 5.5, 6.6, 1.9, 2.4, 9, 0.05, 0, 1); put(X, 5.2, 5.5, 0.1, 0.8, 0.1, 15);
@@ -519,19 +579,22 @@ function buildChunk(cx, cz) {
         put(0, 0.3, F - SD / 2 + 0.2, Wf, 0.12, SD + 0.4, 2);                                        // the shop floor, a step above the footpath
         if (sk === 0 || u(64) < 0.12) put(0, sk === 0 ? 1.7 : 2.62, F - 0.14, Wf - 0.3, sk === 0 ? 2.7 : 0.86, 0.06, wood ? 35 : 32, u(63));      // the shutter: down, or left half way
         else if (wood) for (const d of [-1, 1]) put(d * (Wf / 2 - 0.36), 1.7, F - 0.16, 0.5, 2.7, 0.14, 35, u(63));                              // folding doors pushed back to the sides
-        if (sk === 1) {                // grocery (โชห่วย): shelves on three walls, a drinks fridge, crates and sacks out in front
+        // (what the shop's boards say is what the shop is - render.js SIGNS by number: a shut one is to let, or was anything; sgn: that word, in
+        // the colours of the seed given - the box shader's 23 reads a seed of 100 and over as 100 + the word + the colour's seed)
+        const SW = [u(141) < 0.4 ? [27, 26] : [11, 0, 5, 24, 25, 32, 33, 34, 41, 8], [11, 28, 29, 40, 45, 44, 11, 11], [0, 1, 2, 9, 22, 23, 30, 31, 21], [4], [3, 13, 14, 12, 20, 35, 19, 7, 6, 24, 25], [5, 16, 38]][sk], sWord = SW[floor(u(4) * SW.length * 0.999)], sgn = (hc) => 100 + sWord + 0.01 + 0.98 * hc;
+        if (sk === 1) {                // grocery (โชห่วย): shelves on three walls, a drinks fridge, cardboard boxes of stock out in front
           put(0, 1.72, zb, Wf - 0.3, 2.6, 0.08, 31, u(62)); for (const d of [-1, 1]) put(d * (Wf / 2 - 0.36), 1.45, F - SD / 2 - 0.4, 0.5, 2.1, SD - 1.4, 31, u(65 + d));
           put(1.22, 1.3, F - 0.55, 0.7, 1.9, 0.66, 19); put(1.22, 1.38, F - 0.2, 0.58, 1.55, 0.03, 17, 0.9);
-          for (let i = 0; i < 3; i++) { put(-1.45 + i * 0.6, 0.56, F + 0.5, 0.55, 0.4, 0.42, 33, u(70 + i)); if (u(73 + i) < 0.5) put(-1.45 + i * 0.6, 0.96, F + 0.5, 0.55, 0.4, 0.42, 33, u(76 + i)); }
+          for (let i = 0; i < 3; i++) { put(-1.45 + i * 0.6, 0.56, F + 0.5, 0.5 + 0.08 * u(70 + i), 0.4, 0.42, 57, u(70 + i)); if (u(73 + i) < 0.5) put(-1.45 + i * 0.6 + (u(76 + i) - 0.5) * 0.08, 0.93, F + 0.5, 0.46, 0.34, 0.38, 57, u(76 + i)); }
         } else if (sk === 2) {         // eating place: steel tables and plastic stools, the menu on the wall, the cook's cabinet out at the front
-          put(0, 2.3, zb, 2.4, 0.8, 0.06, 23, u(62)); put(0, 1.0, zb, Wf - 0.3, 1.2, 0.05, 19);
+          put(0, 2.3, zb, 2.4, 0.8, 0.06, 23, sgn(u(62))); put(0, 1.0, zb, Wf - 0.3, 1.2, 0.05, 19);
           table(-0.95, F - 1.3, u(65)); table(0.95, F - 2.9, u(66)); table(-0.95, F - 2.9, u(65)); if (u(67) < 0.6) table(0.6, F + 1.5, u(66));
           put(1.15, 0.86, F - 0.3, 1.2, 0.9, 0.62, 34); put(1.15, 1.6, F - 0.3, 1.1, 0.58, 0.52, 17, 0.9); put(1.15, 1.92, F - 0.3, 1.16, 0.05, 0.6, 34);
         } else if (sk === 3) {         // gold shop (ร้านทอง): everything red and gold, glass counters
           put(0, 1.72, zb, Wf - 0.3, 2.6, 0.08, 14); for (const d of [-1, 1]) put(d * (Wf / 2 - 0.14), 1.72, F - SD / 2, 0.06, 2.6, SD - 0.3, 14);
           put(0, 0.8, F - 1.3, 3.0, 0.9, 0.6, 14); put(0, 1.4, F - 1.3, 3.0, 0.3, 0.6, 17, 0.9); put(0, 2.84, F - 0.1, Wf - 0.3, 0.42, 0.08, 14);
         } else if (sk === 4) {         // glass-fronted and air-conditioned: a clinic, a pharmacy, a minimart, a phone shop
-          put(0, 1.7, F - 0.12, Wf - 0.34, 2.68, 0.05, 17, 0.5 + u(66) * 0.5); put(0, 0.56, F - 0.07, Wf - 0.3, 0.4, 0.09, 33, u(67)); put(0, 2.45, F - 0.09, Wf - 0.3, 0.07, 0.07, 19);
+          put(0, 1.7, F - 0.12, Wf - 0.34, 2.68, 0.05, 17, 0.5 + u(66) * 0.5); put(0, 0.56, F - 0.07, Wf - 0.3, 0.4, 0.09, 19); put(0, 2.45, F - 0.09, Wf - 0.3, 0.07, 0.07, 19);
           for (const mx of [-0.62, 0.62]) put(mx, 1.7, F - 0.09, 0.06, 2.68, 0.07, 19);
         } else if (sk === 5) {         // motorcycle workshop: parts on the wall, a machine up on the floor, an oil drum, tyres
           put(0, 1.72, zb, Wf - 0.3, 2.6, 0.08, 31, u(62)); bike(-0.9, F - 1.6, u(68)); cyl(1.3, 0.36, F - 0.7, 0.29, 1.3, 1.25, F - 0.7, 0.29, u(69) < 0.5 ? 4 : 2);
@@ -540,20 +603,20 @@ function buildChunk(cx, cz) {
         const trk = sk === 0 && sb > 10 && um > 0 && um < 7 && u(142) < 0.45; if (trk) truck(0, F + 1.45, u(143));
         const kz = F + sb - 4.75 - svW(z);                                                        // just inside the kerb (which, where frontage roads leave the main road for an underpass, stands out beyond them: at 4.75 m from the road's middle these stood in the frontage road's way)
         if (u(81) < 0.3) bike(u(82) * 2.8 - 1.4, kz, u(83)); if (u(84) < 0.12) bike(u(85) * 2.8 - 1.4, kz, u(86));      // motorcycles left at the kerb
-        if (sk && u(87) < 0.2) put(u(88) * 2 - 1, 0.78, F + 2.3, 0.6, 0.95, 0.05, 23, u(89), 0.18);                       // a board standing on the footpath
+        if (sk && u(87) < 0.2) put(u(88) * 2 - 1, 0.78, F + 2.3, 0.6, 0.95, 0.05, 23, sgn(u(89)), 0.18);                       // a board standing on the footpath
         if (wood) {
           put(-Wf / 2, Hh / 2, F + 0.05, 0.18, Hh, 0.18, 4); if (endU) put(Wf / 2, Hh / 2, F + 0.05, 0.18, Hh, 0.18, 4);      // posts (one between each pair of units, not two in the same place)
           put(0, 3.1, F + 1.05, Wf, 0.05, 2.3, 1, bs, 0.2);                                                                // tin lean-to over the footpath
           put(0, 5.0, F + 0.45, Wf, 0.08, 0.95, 0); put(0, 5.92, F + 0.9, Wf, 0.06, 0.07, 4); for (let x = -1.8; x <= 1.81; x += 0.4) put(x * Wf / UW, 5.48, F + 0.9, 0.04, 0.82, 0.04, 4);      // the long balcony
           put(-0.95, 6.15, F + 0.03, 0.85, 2.0, 0.06, u(90) < 0.5 ? 3 : 35, bs); for (const d of [-1, 1]) put(-0.95 + d * 0.66, 6.15, F + 0.05, 0.42, 2.0, 0.05, 35, bs);          // a door on to it, its leaves open
           put(0.95, 6.5, F + 0.03, 0.9, 1.2, 0.06, 3); for (const d of [-1, 1]) put(0.95 + d * 0.68, 6.5, F + 0.05, 0.44, 1.2, 0.05, 35, bs);                                     // a shuttered window
-          if (u(3) < 0.6) put(0, 4.2, F + 0.12, UW * 0.8, 0.8, 0.08, 23, u(4));
+          if (u(3) < (sk ? 0.6 : 0.3)) put(0, 4.2, F + 0.12, UW * 0.8, 0.8, 0.08, 23, sgn(u(9)));
         } else {
         put(-Wf / 2, Hh / 2, F + 0.1, 0.3, Hh, 0.32, 18, bs); if (endU) put(Wf / 2, Hh / 2, F + 0.1, 0.3, Hh, 0.32, 18, bs);   // party-wall piers
         put(0, 3.2, F + 0.85, Wf, 0.12, 1.7, 2); put(0, 3.05, F + 1.66, Wf, 0.3, 0.08, 2);            // concrete canopy with a downstand
         if (u(1) < 0.45) put(0, 2.72, F + 2.2, UW * 0.92, 0.04, 1.3, u(8) < 0.5 ? 36 : 1, u(8) < 0.5 ? [0.63, 0.63, 0.48, 0.48, 0.1][floor(u(2) * 4.99)] : u(2), 0.3);  // extra awning out over the footpath: tin, or striped canvas
-        if (u(3) < 0.78) put(0, 4.05, F + 0.12, UW * 0.84, 1.05, 0.1, 23, u(4));                     // the shop's sign across the front
-        if (u(5) < 0.1) put((u(6) < 0.5 ? -1 : 1) * (UW / 2 - 0.25), 3.98, F + 1.0, 0.14, 0.8, 1.2, 23, u(7));   // now and then a small lightbox standing out from the wall above the canopy
+        if (u(3) < (sk ? 0.78 : 0.4)) put(0, 4.05, F + 0.12, UW * (0.5 + 0.34 * (u(10) < 0.6 ? 1 : u(10))), 0.6 + 0.45 * u(11), 0.1, 23, sgn(u(9)));                     // the shop's sign across the front
+        if (u(5) < 0.1) put((u(6) < 0.5 ? -1 : 1) * (UW / 2 - 0.25), 3.98, F + 1.0, 0.14, 0.8, 1.2, 23, sgn(u(7)));   // now and then a small lightbox standing out from the wall above the canopy
         for (let f = 1; f < st; f++) {
           const yb = 5 + (f - 1) * 3;
           if (balc) {         // a balcony: slab, parapet or bars, a glazed door and a window behind
@@ -563,7 +626,7 @@ function buildChunk(cx, cz) {
             put(-0.85, yb + 1.15, F + 0.02, 1.0, 2.2, 0.08, 19); put(-0.85, yb + 1.13, F + 0.075, 0.86, 2.06, 0.04, 17, u(10 + f));
             put(0.95, yb + 1.55, F + 0.02, 1.4, 1.3, 0.08, 19); put(0.95, yb + 1.55, F + 0.075, 1.26, 1.16, 0.04, 17, u(20 + f)); put(0.95, yb + 1.55, F + 0.115, 0.04, 1.16, 0.02, 19);
             if (u(92 + f) < 0.3) { put(0, yb + 1.95, F + 0.98, Wf - 0.3, 1.85, 0.04, 27, bs); for (const d of [-1, 1]) put(d * (Wf / 2 - 0.17), yb + 1.95, F + 0.5, 0.04, 1.85, 0.95, 4); }      // caged in with steel bars (เหล็กดัด)
-            else if (u(96 + f) < 0.35) for (let i = 0; i < 4; i++) put(-1.2 + i * 0.75, yb + 1.75, F + 0.8, 0.5, 0.5 + u(100 + i + f * 4) * 0.4, 0.03, i % 2 ? 19 : 33, u(104 + i + f * 4));     // washing hung out
+            else if (u(96 + f) < 0.35) { put(0, yb + 2.02, F + 0.8, Wf - 0.6, 0.025, 0.025, 4); for (let i = 0; i < 5; i++) { const L = 0.45 + u(100 + i + f * 4) * 0.45; put(-1.4 + i * 0.68 + (u(104 + i + f * 4) - 0.5) * 0.15, yb + 2.0 - L / 2, F + 0.8, 0.34 + 0.2 * u(110 + i + f), L, 0.02, 56, u(104 + i + f * 4)); } }     // washing hung out on a rail: cloth, each piece its own length
           } else {            // a flat front: two windows, each under a concrete sunshade
             for (const wx of [-0.95, 0.95]) {
               put(wx, yb + 1.55, F + 0.02, 1.35, 1.4, 0.08, 19); put(wx, yb + 1.55, F + 0.075, 1.2, 1.26, 0.04, 17, u(30 + f + (wx > 0 ? 5 : 0))); put(wx, yb + 1.55, F + 0.115, 0.04, 1.26, 0.02, 19);
@@ -583,6 +646,10 @@ function buildChunk(cx, cz) {
           if (u(59) < 0.3) { cyl(-1.5, Hh, -4.5, 0.025, -1.5, Hh + 3.4, -4.5, 0.02, 1); for (let i = 0; i < 3; i++) cyl(-2.0 + i * 0.08, Hh + 3.3 - i * 0.3, -4.5, 0.012, -1.0 - i * 0.08, Hh + 3.3 - i * 0.3, -4.5, 0.012, 1); }   // television aerial
           if (u(55) < 0.14) { put(1.0, Hh + 1.25, -4.3, 1.5, 0.05, 1.5, 3, 0, 0.6); cyl(1.0, Hh, -4.3, 0.04, 1.0, Hh + 1.2, -4.3, 0.04, 0); }        // a black mesh satellite dish
         }
+        // (what runs down a front: a rainwater pipe from the roof beside the pier; the electricity meter in its grey box on the pier at head
+        // height, its wire up to the canopy)
+        if (!wood && u(120) < 0.6) put(Wf / 2 - 0.28, (Hh + 3.3) / 2, F + 0.16, 0.09, Hh - 3.3, 0.09, u(121) < 0.5 ? 19 : 50, 0.77);
+        if (!wood && sk && u(122) < 0.7) { put(-Wf / 2 + 0.2, 1.9, F + 0.29, 0.2, 0.3, 0.1, 19); put(-Wf / 2 + 0.2, 2.6, F + 0.27, 0.02, 1.1, 0.02, 3); }
         if (u(93) < 0.45) { put(0.3, 1.45, -F - 1.25, UW - 0.8, 2.3, 2.5, 18, u(94)); put(0.3, 2.78, -F - 1.4, UW - 0.3, 0.05, 3.1, 1, u(95), -0.13); }      // a kitchen built on at the back under a tin roof
         else { put(-0.9, 1.33, -F - 0.03, 0.9, 2.0, 0.06, 4); if (u(94) < 0.5) cyl(0.9, 0.3, -F - 0.7, 0.42, 0.9, 1.3, -F - 0.7, 0.36, 4); }                 // or just the back door and a water jar
         if (!wood && (last || um === 0) && u(97) < 0.3 && st > 2) put((last ? side : -side) * (Ww / 2 + 0.07), 8.2, 0.5, 0.08, 2.6, 6, 23, u(98));                   // a big advertisement on the end wall
@@ -652,11 +719,22 @@ function buildChunk(cx, cz) {
         const post = (lx, lz) => { put(lx, 1.0, lz, 0.32, 2.0, 0.32, 18, fs); put(lx, 2.03, lz, 0.4, 0.07, 0.4, 19); };
         if (u < 0.55) {                                         // the two-storey house; its own low wall, and a gate between the posts
           if (own) stamp(HOUSE2, x, y, z, yaw, h(13), h(14)); put(0, 0.8, 8, 1.6, 1.45, 0.05, 27, gs);
+          // (what each family adds: washing on a rail along the balcony; a satellite dish at its corner)
+          if (own && h(30) < 0.6) { put(0, 5.0, 5.55, 5.6, 0.025, 0.025, 4); for (let k = 0; k < 6; k++) { const L = 0.45 + 0.5 * h(40 + k); put(-2.4 + k * 0.95 + (h(46 + k) - 0.5) * 0.2, 5.0 - L / 2, 5.55, 0.36 + 0.25 * h(52 + k), L, 0.02, 56, h(58 + k)); } }
+          if (own && h(31) < 0.5) { put(3.1, 3.9, 5.5, 0.05, 1.6, 0.05, 4); { const q = W2(3.1, 5.4); boxes.push(q[0], y + 4.75, q[1], yaw, 0.8, 0.04, 0.8, -0.9, h(32) < 0.6 ? 50 : 3, 0.1024, 0.04, 0); } }
           if (h(15) < 0.6) tree(TREES[BL[floor(h(16) * 8)]], h(17) < 0.5 ? -6.6 : 6.6, -1 + h(18) * 5, 0.5 + h(19) * 0.3, 2); if (h(20) < 0.5) tree(TREES[8 + (h(21) < 0.5 ? 1 : 0)], h(17) < 0.5 ? 6.3 : -6.3, 6.5, 0.8);
           if (h(22) < 0.35) tree(TREES[9], h(17) < 0.5 ? 6.5 : -6.5, -3, 0.75);
           clear(W2(0, 6.5), yaw, 2.4, 9);          // the path from the door out through the gate to the lane
         } else {                                                // the one-storey house, or the old timber one, in a walled yard with a sliding gate across the drive
           const old = u > 0.88; if (own) stamp(old ? HOUSE : HOUSE3, x, y, z, yaw, h(13), h(14));
+          // What each family adds in its yard: a washing line between two posts, the day's washing on it; the big glazed water jars
+          // (โอ่ง) by the kitchen - always at the old houses; a satellite dish on a pole; a gas cylinder outside the kitchen wall.
+          if (own) { const jar = (lx, lz, r, hq) => { const q = W2(lx, lz); fruit.push(q[0], y + r * 1.05, q[1], r, 11, hq, 0, 0); };
+            if (h(30) < 0.65) { const lx = old ? 5.6 : 6.5, z0 = old ? -2.5 : -1.8; for (const e of [0, 3.6]) put(lx, 0.95, z0 + e, 0.07, 1.9, 0.07, 4); put(lx, 1.86, z0 + 1.8, 0.02, 0.02, 3.6, 3);
+              for (let k = 0; k < 6; k++) { const L = 0.45 + 0.55 * h(40 + k); if (h(64 + k) < 0.2) continue; put(lx, 1.85 - L / 2, z0 + 0.4 + k * 0.56, 0.02, L, 0.34 + 0.18 * h(52 + k), 56, h(58 + k)); } }
+            if (old || h(31) < 0.6) { const jx = old ? 1.3 : 0.6, jz = old ? 3.4 : -3.95; jar(jx, jz, 0.4, h(33)); if (h(34) < 0.7) jar(jx + 0.9, jz + (old ? 0.1 : 0), 0.34, h(35)); if (old && h(36) < 0.6) jar(jx + 0.45, jz + 0.75, 0.3, h(37)); }
+            if (!old && h(32) < 0.45) { put(5.2, 1.7, -2.6, 0.06, 3.4, 0.06, 4); { const q = W2(5.2, -2.7); boxes.push(q[0], y + 3.5, q[1], yaw, 0.85, 0.04, 0.85, -0.9, h(38) < 0.6 ? 50 : 3, 0.1024, 0.04, 0); } }
+            if (!old && h(39) < 0.5) { put(-1.9, 0.33, -3.5, 0.3, 0.66, 0.3, 50, 0.3555); put(-1.9, 0.72, -3.5, 0.14, 0.12, 0.14, 4); } }
           for (const [lx, lz, sx, sz] of [[0, -6.7, 16.7, 0.16], [-8.3, 0.8, 0.16, 15], [8.3, 0.8, 0.16, 15]]) { put(lx, 0.875, lz, sx, 1.75, sz, 18, fs); put(lx, 1.78, lz, sx + 0.08, 0.06, sz + 0.08, 19); } wallB(1.85, 8.3, 12.9, 0.16);
           post(-4.6, 8.3); post(-8.3, 8.3); post(8.3, 8.3); put(-6.45, 0.85, 8.3, 3.5, 1.6, 0.05, 27, gs);
           if (h(15) < 0.7) tree(TREES[BL[floor(h(16) * 8)]], 5.5 + h(17), old ? 5.5 : -4.2 - h(18), 0.5 + h(19) * 0.35, 2); if (h(20) < 0.6) tree(TREES[8 + (h(21) < 0.5 ? 1 : 0)], 6.8, 6.6, 0.8);
@@ -1410,8 +1488,24 @@ function buildChunk(cx, cz) {
     const y0 = ground(x0, z0), [x1, z1] = poleXZ(k + kn), y1 = kn ? ground(x1, z1) : y0, yaw = atan2(roadSl(z0), 1), c = cos(yaw), sn = sin(yaw), lv0 = lvAt(z0), lv = kn > 0 && lv0 && lvAt(z1);
     const put = (lx, ly, sx, sy, sz, mat) => boxes.push(x0 + lx * c, y0 + ly, z0 - lx * sn, yaw, sx, sy, sz, 0, mat, 0, 0, 0);
     for (let j = 0; j < 5; j++) put(0, 0.84 + j * 2.08, 0.24 - j * 0.02, 2.08, 0.20 - j * 0.015, 2);                    // the pole, slimmer toward the top
-    put(-0.05, 9.4, 2.0, 0.12, 0.12, 2); for (const ix of [-0.85, -0.3, 0.75]) put(ix, 9.59, 0.09, 0.26, 0.09, 4);          // crossarm and insulators
-    put(0, 10.6, 0.05, 0.8, 0.05, 34); if (lv0) put(-0.18, 7.3, 0.05, 0.8, 0.08, 34);                                       // the earth wire's spike; the low-voltage rack
+    // The crossarm, and what a real one has about it: two flat steel braces down to the pole; on each of its three steel pins a brown porcelain
+    // insulator - a wide skirt, a narrower one over it, the groove the wire lies in; the holes cast through the pole's upper half, one above
+    // another, for bolting things on (dark, seen through); the Authority's yellow number plate at a man's reach, facing the road; and at the
+    // foot the darker band where the damp rises.
+    put(-0.05, 9.4, 2.0, 0.12, 0.12, 2);
+    for (const ix of [-0.85, -0.3, 0.75]) { put(ix, 9.5, 0.03, 0.12, 0.03, 34); put(ix, 9.6, 0.15, 0.05, 0.15, 4); put(ix, 9.66, 0.11, 0.06, 0.11, 4); put(ix, 9.72, 0.07, 0.05, 0.07, 4); }
+    for (const e of [-1, 1]) far.push(x0 + e * 0.02 * c, y0 + 8.72, z0 - e * 0.02 * sn, 0.016, x0 + (e * 0.62 - 0.05) * c, y0 + 9.35, z0 - (e * 0.62 - 0.05) * sn, 0.016, -1, 1);
+    for (let j = 0; j < 7; j++) boxes.push(x0, y0 + 6.1 + j * 0.42, z0, yaw, 0.045, 0.085, 0.17 - j * 0.004, 0, 3, 0, 0, 0);
+    boxes.push(x0 - 0.115 * c, y0 + 2.7, z0 + 0.115 * sn, yaw, 0.012, 0.3, 0.2, 0, 50, 0.0868, 0, 0); boxes.push(x0, y0 + 0.14, z0, yaw, 0.25, 0.3, 0.21, 0, 2, 0.9, 0, 0);
+    // (the earth wire's spike; the low-voltage rack - a steel strap down the pole's road side with four white spool insulators on it, a wire to each)
+    put(0, 10.6, 0.05, 0.8, 0.05, 34); if (lv0) { put(-0.18, 7.3, 0.05, 0.8, 0.08, 34); for (let i = 0; i < 4; i++) put(-0.24, 7.0 + i * 0.2, 0.085, 0.075, 0.085, 19); }
+    // A stay, where the line turns: on a bend the wires pull the pole toward the inside of it, and a steel wire from near its top to an anchor in
+    // the ground on the outside holds it back. (How much the road turns here: the change of its direction over the two spans.)
+    { const turn = atan2(roadSl(z0 + 40), 1) - atan2(roadSl(z0 - 40), 1); if (abs(turn) > 0.09 && seaW(z0) < 0.25) { const e = turn > 0 ? 1 : -1, ax = x0 + e * 4.2 * c, az = z0 - e * 4.2 * sn, gy = ground(ax, az);
+        if (!gw[0] && abs(gy - y0) < 2 && abs(rdist(ax, az)) > 6.6) { far.push(x0 + e * 0.1 * c, y0 + 8.6, z0 - e * 0.1 * sn, 0.011, ax, gy + 0.05, az, 0.011, -1, 1); } } }
+    // In a town, the wires to the houses: from the low-voltage rack two pairs fall away across the footpath to the shop fronts on the pole's side.
+    if (lv0 && townW(z0) > 0.7 && !udOf(z0)) for (const dz of [-7, 6]) { const q = rp(z0 + dz, 8.4), n = 3; for (let i = 0; i < n; i++) { const t0 = i / n, t1 = (i + 1) / n, sg = (t) => -0.35 * 4 * t * (1 - t);
+        far.push(mix(x0 - 0.24 * c, q[0], t0), y0 + mix(7.2, 4.6, t0) + sg(t0), mix(z0 + 0.24 * sn, q[1], t0), 0.012, mix(x0 - 0.24 * c, q[0], t1), y0 + mix(7.2, 4.6, t1) + sg(t1), mix(z0 + 0.24 * sn, q[1], t1), 0.012, -1, 1); } }
     if (lv0 && townW(z0) < 0.4 && (k & 1)) { put(-0.7, 6.2, 1.3, 0.05, 0.05, 34); boxes.push(x0 - 1.25 * c, y0 + 6.14, z0 + 1.25 * sn, yaw, 0.9, 0.07, 0.12, 0, 10, 0, 0, 0); }      // a strip light on a short arm, as villages hang them on the poles
     // the last pole before a bridge of the island crossing, or the first after one: the line comes down from its top to the cable on the bridge's rail
     for (const dir of [-1, 1]) { if (!isOf(z0) || poleAt(k + dir)) continue; const zc = IS.zc, ze = [zc - 520, zc - 150, zc + 150, zc + 520].filter((q) => (q - z0) * dir > 0 && abs(q - z0) < 60)[0]; if (ze === undefined) continue;
@@ -1532,16 +1626,34 @@ function buildChunk(cx, cz) {
   const nL = leaves.length / 12, lf = new Float32Array(leaves.length), Rs = rng(cx * 31 + cz * 17 + 5);
   { const order = new Uint32Array(nL); for (let i = 0; i < nL; i++) order[i] = i; for (let i = nL - 1; i > 0; i--) { const j = floor(Rs() * (i + 1)), t = order[i]; order[i] = order[j]; order[j] = t; } for (let i = 0, o = 0; i < nL; i++) { const q = order[i] * 12; for (let k = 0; k < 12; k++) lf[o++] = LBUF[q + k]; } }
   let meshV = new Float32Array(0), meshI = new Uint32Array(0); let nMeshFar = 0, nMeshA = 0; if (meshP.length) { const ord = [0, 2, 1]; meshP.sort((a, b) => ord[a[2] || 0] - ord[b[2] || 0]); for (const q of meshP) { if (!q[2]) nMeshA += q[1].length; if (q[2] !== 1) nMeshFar += q[1].length; } let nv = 0, ni = 0; for (const [v, ix] of meshP) { nv += v.length; ni += ix.length; } meshV = new Float32Array(nv); meshI = new Uint32Array(ni); let ov = 0, oi = 0; for (const [v, ix] of meshP) { meshV.set(v, ov); const b = ov / 7; for (let q = 0; q < ix.length; q++) meshI[oi + q] = ix[q] + b; ov += v.length; oi += ix.length; } }
+  // Benches on a town's footpaths, against the shop fronts' side of it, here and there (about one every 40 m a side), and on most of them one,
+  // two or three people sitting, facing the street (addP with a pace of -1: seated - vsPpl).
+  for (let zi = Math.ceil(oz / 2); zi * 2 < oz + CH; zi++) { const z = zi * 2; if (townW(z) < 0.6 || (udOf(z) && svW(z) > 0.02) || nearRiv(z, 22)) continue;
+    for (const side of [-1, 1]) { const h = (j) => ph(zi * 2 + (side > 0 ? 1 : 0), 9300 + j); if (h(0) > 0.05) continue;
+      const ya = atan2(roadSl(z), 1), q = rp(z, side * 7.55), gy = ground(q[0], q[1]); if (!inside(q[0], q[1]) || gw[0] > 0) continue; const qb = rp(z, side * 7.78);
+      boxes.push(q[0], gy + 0.44, q[1], ya, 0.4, 0.05, 1.6, 0, 0, 0.3, 0.05, 0); boxes.push(qb[0], gy + 0.72, qb[1], ya, 0.05, 0.3, 1.6, 0, 0, 0.3, 0.3, 0);
+      for (const e of [-0.7, 0.7]) { const ql = rp(z + e, side * 7.6); boxes.push(ql[0], gy + 0.22, ql[1], ya, 0.42, 0.44, 0.06, 0, 4, 0.5, 0.44, 0); const qp = rp(z + e, side * 7.78); boxes.push(qp[0], gy + 0.5, qp[1], ya, 0.05, 0.75, 0.06, 0, 4, 0.5, 0.75, 0); }
+      for (let m = -1; m <= 1; m++) if (h(3 + m) < 0.5) { const qs = rp(z + m * 0.52, side * 7.5); addP(qs[0], qs[1], ya - side * PI / 2 + (h(7 + m) - 0.5) * 0.3, h(10 + m), h(13 + m), -1); } } }
   const nBoxFar = boxes.length / 12; for (const q of boxesD) boxes.push(q);      // (the fine detail goes last: drawn only from near to - see main.js; and it stops nothing)
   const allSeg = new Float32Array(far.length + segs.length); allSeg.set(far); allSeg.set(segs, far.length); nSegFar = far.length / 10;
-  return { cx, cz, x: ox + CH / 2, z: oz + CH / 2, y: hg[(M * M) >> 1], vb: vbuf(v), nSeg: allSeg.length / 10, nSegFar, segB: allSeg.length ? vbuf(allSeg) : null,
+  // People standing on a town's footpaths, both sides of the street, about one every 8 m of it (those walking along it are the stream of
+  // render.js STROLL, 5.7 to 7 m out from the road's middle: between the kerb, with its poles and parked scooters, and the shop fronts): alone looking at a shop or the street, or two together, face to face. None beside an underpass's cutting, nor at a bridge.
+  for (let zi = Math.ceil(oz / 2); zi * 2 < oz + CH; zi++) { const z = zi * 2; if (townW(z) < 0.6 || (udOf(z) && svW(z) > 0.02) || nearRiv(z, 22)) continue;
+    for (const side of [-1, 1]) { const h = (j) => ph(zi * 2 + (side > 0 ? 1 : 0), 9000 + j); if (h(0) > 0.32) continue;
+      const sl = roadSl(z), ya = atan2(sl, 1), walk = h(1) < 0.5, dist = walk ? 5.9 + 1.1 * h(2) : (h(3) < 0.5 ? 7.4 : 5.3) + 0.5 * h(2), q = rp(z, side * dist);
+      if (walk) continue;      // (those walking the footpath are not a chunk's: render.js STROLL)
+      { const fa = ya + (h(3) < 0.5 ? -side : side) * PI / 2 + (h(9) - 0.5) * 0.9; addP(q[0], q[1], fa, h(5), h(6));
+        if (h(10) < 0.45) addP(q[0] + sin(fa) * 0.75, q[1] + cos(fa) * 0.75, fa + PI + (h(11) - 0.5) * 0.5, h(12), h(13)); } } }
+  // (each list put in a chance order: at night only the first part of each is drawn - main.js - which must thin the people evenly)
+  for (const L of [ppl, pplW]) { const n = L.length / 12, R2 = rng(cx * 53 + cz * 29 + 11); for (let i = n - 1; i > 0; i--) { const j = floor(R2() * (i + 1)); for (let k = 0; k < 12; k++) { const t = L[i * 12 + k]; L[i * 12 + k] = L[j * 12 + k]; L[j * 12 + k] = t; } } }
+  return { cx, cz, x: ox + CH / 2, z: oz + CH / 2, y: hg[(M * M) >> 1], vb: vbuf(v), nPpl: (ppl.length + pplW.length) / 12, nFruit: fruit.length / 8, fruitB: fruit.length ? vbuf(new Float32Array(fruit)) : null, nPplM: ppl.length / 12, pplA: new Float32Array(ppl.concat(pplW)), pplB: ppl.length + pplW.length ? vbuf(new Float32Array(ppl.concat(pplW))) : null, nSeg: allSeg.length / 10, nSegFar, segB: allSeg.length ? vbuf(allSeg) : null,
     hgc: hg.slice(), hwc: hwet.slice(),          // the chunk's own heights and water marks, kept for growing its grass later without working the ground out again
     col: new Float32Array(col), soft: new Float32Array(soft),          // what stops the car, and what it flattens (see above)
     reach, lowFix, wat: watSpot, round: watRound, nMesh: meshI.length, nMeshFar, nMeshA, meshB: meshI.length ? vbuf(meshV) : null, meshIB: meshI.length ? vbuf(meshI, GPUBufferUsage.INDEX) : null, nBoxFar, nLeaf: nL, leafB: nL ? vbuf(lf) : null, nGrass: 0, grassB: null, house: dbgHouse, tw: twList, drives, nBox: boxes.length / 12, boxB: boxes.length ? vbuf(new Float32Array(signW(boxes))) : null };
 }
 // grass is only grown for the chunks around the camera (and let go again further away): blades on level ground off the road
 // (NGF: a chunk of flower fields may hold twice as many pieces - its plants are of several pieces each, and many stand without a flower)
-const NG = 42000, NGF = 84000, gr = new Float32Array(NGF * 12);
+const NG = 42000, NGT = 80000, NGF = 84000, gr = new Float32Array(NGF * 12);      // (NGT: what a chunk may hold where it is not flowers - turf is two or three pieces to a place)
 // GRASS_SNOW: 1 in the cool season, when the snowfield's grass is a few dry stalks out of the snow; 0 the rest of the year (set by worldclient.js)
 let GRASS_SNOW = 1;
 // A chunk's grass is grown over three or four frames, a share of it each time (grassJob: the chunk being done; one at a time, since they share
@@ -1556,7 +1668,7 @@ function growGrass(c) {
   // tens of thousands of blades, used to hold a frame up for 20 ms each time a chunk came into range
   const hgAt = (x, z) => { const fx = (x - ox) / GS + 1, fz = (z - oz) / GS + 1, ix = floor(fx), iz = floor(fz), u = fx - ix, w = fz - iz, k = iz * M + ix; gw[0] = HW[(iz + (w > 0.5 ? 1 : 0)) * M + ix + (u > 0.5 ? 1 : 0)] > 0 ? 1 : 0; return mix(mix(HG[k], HG[k + 1], u), mix(HG[k + M], HG[k + M + 1], u), w); };
   // what kind of country it is changes only along the road, and slowly: it is looked up once for every 2 m of the chunk's length, not once a blade
-  const ZT = [], ZS = [], ZN = [], ZH = [], ZV = [], ZP = [], ZB = [], ZQ = []; const WT = watOf(floor((oz + CH / 2) / SEG)), ZF = [], FLW = flwAt(oz + CH / 2), FK = flwKind(oz + CH / 2), CAP = FLW ? NGF : NG;
+  const ZT = [], ZS = [], ZN = [], ZH = [], ZV = [], ZP = [], ZB = [], ZQ = []; const WT = watOf(floor((oz + CH / 2) / SEG)), ZF = [], FLW = flwAt(oz + CH / 2), FK = flwKind(oz + CH / 2), CAP = FLW ? NGF : NGT;
   for (let j = 0; j < 32; j++) { const zz = oz + j * 2 + 1; ZT[j] = townW(zz); ZS[j] = seaW(zz); ZN[j] = snowW(zz); ZH[j] = hillW(zz); ZV[j] = vergeAt(zz); ZP[j] = pineAt(zz); ZB[j] = beachW(zz); ZQ[j] = max(seaZ(zz), plantW(zz)); ZF[j] = mix(VERGE + 4, 8.5, flwW(zz)); }      // (ZQ: no rice here - by the sea, or in a plantation)
   for (let i = c.gI; i < iEnd; i++) {
     if (ng >= CAP - 2) break;
@@ -1624,7 +1736,7 @@ function growGrass(c) {
       if (st === 0) { if (u > 0.3) continue;          // under water: in half of such plots nothing yet, in the rest young seedlings standing out of it in their rows
         if (ph(floor(x / PLX) + 7, floor(z / PLZ) + 3) < 0.5) continue;
         gr.set([hx, hy, hz, 0.18 + 0.12 * R(), R() * TAU, 1.3 + R() * 0.25, 0.009, 0.3, 3, R(), 1, 0.2], ng * 12); }
-      else if (st === 1 || st === 2) { if (ng >= NG - 3) break; const yw = R() * TAU, rp = st === 2, Lh = rp ? 1.0 + 0.2 * R() : 0.62 + 0.2 * R();
+      else if (st === 1 || st === 2) { if (ng >= CAP - 3) break; const yw = R() * TAU, rp = st === 2, Lh = rp ? 1.0 + 0.2 * R() : 0.62 + 0.2 * R();
         // a hill of rice: two upright cards crossed, each cut into a sheaf of leaves (and, ripe, the hanging ears) by the shader - kinds 12 and 13
         for (let q = 0; q < 2; q++) { gr.set([hx, hy - 0.03, hz, Lh, yw + q * 1.57 + R() * 0.3, 1.42 + R() * 0.12, 0.3 + 0.08 * R(), 0, rp ? 13 : 12, R(), 1, 0.5], ng * 12); if (q < 1) ng++; } }
       else { if (u > 0.3) continue; gr.set([hx, hy, hz, 0.07 + 0.06 * R(), R() * TAU, 1.3 + R() * 0.25, 0.009, 0.2, 4, R(), 1, 0.05], ng * 12); }
@@ -1632,15 +1744,19 @@ function growGrass(c) {
       gr.set([x, y - 0.02, z, 0.8 + 0.9 * R(), R() * TAU, 1.15 + R() * 0.35, 0.012 + R() * 0.008, 0.5 + R() * 0.9, 4, R(), 1, 0.7], ng * 12);
     } else {
       const tall = vnoise(x * 0.11, z * 0.11), L = (0.12 + 0.3 * R()) * (0.55 + 1.5 * tall * tall) * (town ? 0.6 : 1), tf = turfAt(x, z);
-      if (tf < 0.43 ? u > 0.03 : u > 0.72) continue;                                    // thick on the turf; on bare earth only the odd weed
-      gr.set([x, y - 0.02, z, L, R() * TAU, 1.0 + R() * 0.5, 0.011 + R() * 0.012, 0.4 + R() * 1.3, 2, R(), 1, 0.25], ng * 12);
+      if (tf < 0.43 ? u > 0.03 : u > 0.9) continue;                                    // thick on the turf; on bare earth only the odd weed
+      // (on the turf every place has two tufts - each a card of seven blades, kind 16, knee-high at most and two hands wide; single blades
+      // stand only on the bare earth: all single blades, seven to the square metre, the turf was the ground's paint with a few hairs on it)
+      if (tf >= 0.43 && ng < CAP - 6) { for (let q = 0; q < (FLW ? 1 : 2); q++) { const tx = q ? x + (R() - 0.5) * 0.7 : x, tz = q ? z + (R() - 0.5) * 0.7 : z, Lt = (0.2 + 0.24 * R()) * (0.6 + 1.3 * tall * tall) * (town ? 0.6 : 1);
+          gr.set([tx, (q ? hgAt(tx, tz) : y) - 0.03, tz, Lt, R() * TAU, 1.2 + R() * 0.3, 0.14 + 0.1 * R(), 0.1, 16, R(), 1, 0.25], ng * 12); if (q < (FLW ? 0 : 1)) ng++; } }      // (one tuft only in a chunk of flower fields, which is full of its flowers' pieces as it is)
+      else gr.set([x, y - 0.02, z, L, R() * TAU, 1.0 + R() * 0.5, 0.011 + R() * 0.012, 0.4 + R() * 1.3, 2, R(), 1, 0.25], ng * 12);
     }
     ng++;
   }
   c.gI = iEnd; c.gN = ng; if (iEnd < NG && ng < CAP - 2) return;          // more to do next frame
   c.nGrass = ng; c.grassB = ng ? vbuf(gr.subarray(0, ng * 12)) : null; c.grassTried = true; grassJob = null;
 }
-function dropChunk(c) { c.dead = true; c.meshB && c.meshB.destroy(); c.meshIB && c.meshIB.destroy(); c.boxB && c.boxB.destroy(); c.vb.destroy(); c.segB && c.segB.destroy(); c.leafB && c.leafB.destroy(); c.grassB && c.grassB.destroy(); }
+function dropChunk(c) { c.dead = true; c.pplB && c.pplB.destroy && c.pplB.destroy(); c.fruitB && c.fruitB.destroy && c.fruitB.destroy(); c.meshB && c.meshB.destroy(); c.meshIB && c.meshIB.destroy(); c.boxB && c.boxB.destroy(); c.vb.destroy(); c.segB && c.segB.destroy(); c.leafB && c.leafB.destroy(); c.grassB && c.grassB.destroy(); }
 const want = [];
 let cxS = 1e9, czS = 1e9;      // the chunk the eye counts as being in: it changes only when the eye is 8 m into the next one
 function updateChunks(px, pz, budget) {

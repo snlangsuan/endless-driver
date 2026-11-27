@@ -24,7 +24,7 @@ const WGSL = {};
 // some megabytes - and another when it is chosen.
 const PCARS = ['mx5', 'gr86'];
 let PCAR_ID = 'mx5'; try { const c = localStorage.getItem('endless.car'); if (PCARS.includes(c)) PCAR_ID = c; } catch (e) {}
-const ASSETS = GAME.assets || { scooter: 'assets/scooter.bin', scooterLo: 'assets/scooter_lo.bin', bicycle: 'assets/bicycle.bin', pickup: 'assets/pickup.bin', ranger: 'assets/ranger.bin', rangerLo: 'assets/ranger_lo.bin', [PCAR_ID]: 'assets/' + PCAR_ID + '.bin' }, ASSET = {};
+const ASSETS = GAME.assets || { scooter: 'assets/scooter.bin', scooterLo: 'assets/scooter_lo.bin', bicycle: 'assets/bicycle.bin', pickup: 'assets/pickup.bin', ranger: 'assets/ranger.bin', rangerLo: 'assets/ranger_lo.bin', people: 'assets/people.bin', [PCAR_ID]: 'assets/' + PCAR_ID + '.bin' }, ASSET = {};
 let adapter, device;
 // The loading screen (#load in the page) stays up until the first picture has been drawn. The scripts do their work in long unbroken stretches
 // - main.js builds the nearest of the world as it loads - so after each step the browser is given a moment to show the new progress. (The timer

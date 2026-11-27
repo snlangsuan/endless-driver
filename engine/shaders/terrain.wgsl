@@ -70,7 +70,9 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   var grass = mix(mix(vec3f(.045, .050, .020), gcol * .45, .5), gcol * 1.2, ss(.42, .82, blades));          // thatch in the gaps, lit blades over it
   grass = mix(grass, straw * 1.05, ss(.74, .9, s3) * ss(.4, .7, vn(P * .7 + 21.)) * .7);                      // dead blades, more in some patches
   grass *= (.62 + .62 * n2) * (.80 + .40 * n3);                                                             // clumps and the hollows between them
-  grass = mix(gcol * (.70 + .55 * n2) * (.9 + .2 * n3), grass, nk);
+  // (the painted blades kept faint: they are the thatch under the real tufts that stand on it (chunks.js: kind 16), not the grass itself -
+  // painted strongly, in long strokes, the turf was marbled paper)
+  grass = mix(gcol * (.70 + .55 * n2) * (.9 + .2 * n3), grass, nk * .4);
   let graze = pow(1. - max(Vg.y, 0.), 3.);
   grass = mix(grass, mix(gcol, vec3f(dot(gcol, vec3f(.3, .6, .1))), .2), graze * .45);                                        // looking along the ground you see only the tips
   var soil = mix(vec3f(.27, .15, .085), vec3f(.20, .13, .09), pn(P * .21)) * (.68 + .55 * n3);
@@ -238,11 +240,33 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     zebra = twz * step(zc, 1.6) * step(rdT, 3.0) * step(.5, fract(dxs / 1.1)) * max(xr, step(fract(so.z * .5), .25)) * (1. - ud) * step(sv, .05);      // (none either where the frontage roads leave the main road)
   }
   var road = vec3f(.034, .035, .038) * (.72 + .5 * n4) * (.85 + .3 * n2);
-  road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, abs(rdT - 3.2)) * (1. - lm));      // (rdT: beside an underpass, the frontage road's outer edge too)
-  road = mix(road, vec3f(.58, .42, .04), ss(.09, .05, rd) * max(step(.5, fract(wp.z / 9.)), ss(0., .2, hpw(wp.z))) * (1. - xm));      // a solid line round the switchbacks
-  road = mix(road, vec3f(.55, .55, .52) * (.8 + .25 * n4), zebra);
+  // Ultra: the asphalt as a road that has been driven on for years. Its tone changes by the length - older stretches paler and browner, newer
+  // ones near black - and here and there a lane has a square patch of fresh black where it was dug up and mended. The wheels have polished two
+  // tracks in each lane, darker and smoother than the rest, and down the middle of the lane runs the faint dark line of what engines drip.
+  // Fine cracks wander over the older lengths. Near to, the stones of its aggregate show, each a centimetre across, paler or darker than the
+  // tar between; dust and grit lie along its edges where no wheel goes. And the paint is worn: thinned and chipped where the tyres cross it
+  // (pw: how much of the paint is left, for the lines below).
+  var pw = 1.; var trk = 0.;
+  if (ULTRA) {
+    let age = vn(vec2f(wp.z * .021, 3.)); road *= mix(.8, 1.45, age) * mix(vec3f(1.), vec3f(1.1, 1.04, .94), age);
+    { let pc = floor(wp.z / 17.); let hp2 = h2(vec2f(pc, 5.)); if (hp2 > .78) { let side = sign(h2(vec2f(pc, 9.)) - .5); let q = vec2f((rdist(wp.xz) * side - 1.75) / 1.25, (wp.z - (pc + .5) * 17.) / (1.6 + 3.5 * h2(vec2f(pc, 2.))));
+      let m = ss(1.02, .98, max(abs(q.x), abs(q.y))); road = mix(road, vec3f(.021, .022, .024) * (.8 + .4 * n4), m * .9); road *= 1. - .35 * ss(.06, .0, abs(max(abs(q.x), abs(q.y)) - 1.)); } }
+    trk = ss(.45, .1, min(abs(rd - .95), abs(rd - 2.55))) * (1. - twz * .4);
+    road *= 1. - .2 * trk * (.55 + .45 * n2);
+    road *= 1. - .14 * ss(.4, .05, abs(rd - 1.75)) * ss(.3, .7, vn(vec2f(wp.z * .31, 2.)));
+    let ck = ss(.035, .0, abs(vnp(Pf * 1.40625 + 11., 360.) - .5)) * ss(.5, .75, vn(P * .11 + 9.) * .6 + age * .4) * (1. - ss(.5, 1.4, px * 24.));
+    road *= 1. - .45 * ck;
+    let nr = 1. - ss(.004, .014, px);
+    if (nr > 0.) { let q = Pf * 85.; let cid = floor(q); let hh = h2(cid); let f = fract(q) - .5 + (vec2f(h2(cid + 3.), h2(cid + 7.)) - .5) * .45;
+      road = mix(road, road * mix(.5, 2.6, hh * hh), ss(.42, .2, length(f)) * nr * .7 * (1. - .45 * trk)); }
+    road = mix(road, vec3f(.21, .16, .11) * (.7 + .5 * n4), ss(2.85, 3.6, rdT) * (.2 + .55 * n2) * (1. - twz) * (1. - nwz));
+    pw = 1. - (.25 + .6 * trk) * ss(.4, .75, vnp(Pf * vec2f(9., 2.5) + 3., 2304.) * .65 + n4 * .35) * (1. - ss(.5, 1.4, px * 9.));
+  }
+  road = mix(road, vec3f(.52, .52, .48), ss(.08, .04, abs(rdT - 3.2)) * (1. - lm) * pw);      // (rdT: beside an underpass, the frontage road's outer edge too)
+  road = mix(road, vec3f(.58, .42, .04), ss(.09, .05, rd) * max(step(.5, fract(wp.z / 9.)), ss(0., .2, hpw(wp.z))) * (1. - xm) * pw);      // a solid line round the switchbacks
+  road = mix(road, vec3f(.55, .55, .52) * (.8 + .25 * n4), zebra * pw);
   road = mix(road, vec3f(.56, .58, .63) * (.9 + .1 * n4), nwz * .85 * (1. - ss(.55, .25, min(abs(rd - .95), abs(rd - 2.55)))) * ss(.3, .6, vn(P * .45) + .15));      // snow on the road, worn away in the wheel tracks
-  alb = mix(alb, road, asp); bump = mix(bump, .25, asp); gloss = mix(gloss, .22, asp);
+  alb = mix(alb, road, asp); bump = mix(bump, .25, asp); gloss = mix(gloss, .22 + .3 * trk, asp);
   // under the cherries: fallen petals, on the verges and the road's edges and (on a cherry hill) all through the wood; fewer where the wheels run
   // (only while the trees are in flower: the cool season - g.ssn.x. And under the golden showers, yellow, in the hot season - kn, pse)
   let kn = kun(wp.z); let pse = select(g.ssn.x, ss(.55, .85, g.fog.w), kn);
@@ -271,12 +295,25 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
   }
   n = normalize(n - vec3f(bx + fbx * nk * 1.4 * (1. - asp * .7), 0., bz + fbz * nk * 1.4 * (1. - asp * .7)) * bump * (1. - wet));
   let L = g.sun.xyz; let V = normalize(g.cam.xyz - wp);
+  // (ultra: near to, the ground's own fine grain in the light - the grit of the asphalt and the crumbs of the soil, a few millimetres high, as a
+  // fine roughness of the surface fading out where a pixel is more than a centimetre across; and on the asphalt the odd stone of its aggregate
+  // polished by the tyres, catching the sun as a point of light)
+  var spark = 0.; var msh = 1.;
+  // (and, off the road, the clumps of the turf and the lumps of the earth throw small shadows on what lies beyond them from the sun - the lower
+  // the sun the longer: the ground's height a hand's breadth toward the sun against its height here)
+  if (ULTRA && f3 > 0.) { let ls = normalize(L.xz + vec2f(1e-4, 0.)); let hl = vn((P + ls * .1) * 3.7); msh = 1. - .5 * ss(.03, .28, hl - vn(P * 3.7)) * (1. - .7 * L.y) * f3 * (1. - asp) * (1. - wet); }
+  if (ULTRA) { let k = (1. - ss(.004, .012, px)) * (1. - wet);
+    if (k > .001) { let q = Pf * 55.; let h0 = vn(q); let dn = vec2f(vn(q + vec2f(.31, 0.)) - h0, vn(q + vec2f(0., .31)) - h0); n = normalize(n - vec3f(dn.x, 0., dn.y) * 1.1 * k);
+      let cell = floor(Pf * 160.); let st = step(.965, h2(cell)); let sn = normalize(n + (vec3f(h2(cell + 3.), 1., h2(cell + 7.)) - vec3f(.5, 0., .5)) * .6);
+      spark = st * pow(max(dot(reflect(-V, sn), L), 0.), 90.) * 3. * k * asp; } }
   let ndl = max(dot(n, L), 0.);
   let sh = shadow(wp + normalize(i.n) * .12);
-  let E = g.sunCol.rgb * sh;
+  let E = g.sunCol.rgb * sh * msh;
   var c = alb * (E * ndl + sky(n));
-  c += E * pow(max(dot(n, normalize(V + L)), 0.), 24.) * ndl * gloss;
+  c += E * pow(max(dot(n, normalize(V + L)), 0.), 24.) * ndl * gloss + E * spark;
   c += alb * head(wp, n);
+  // (ultra: looked along, asphalt has a sheen - it gives back a little of the sky at a low angle, most in the polished wheel tracks)
+  if (ULTRA) { let Rr = reflect(-V, n); c += mix(horizon(Rr), g.zen.rgb, ss(0., .7, max(Rr.y, 0.))) * pow(1. - max(dot(V, n), 0.), 5.) * asp * (.03 + .06 * trk) * (1. - wet); }
   // street lamps in town throw warm pools of light on the road at night
   if (g.misc.w * max(twz, swz) > 0.) { let zk = round((wp.z - 16.) / 32.) * 32. + 16.; let ld = length(vec2f(wp.x - (roadX(zk) - 3.4), wp.z - zk));
   c += alb * vec3f(1., .72, .36) * (g.misc.w * max(twz, swz) * 2.6 * ss(24., 3., ld) / (1. + ld * ld * .03)); }

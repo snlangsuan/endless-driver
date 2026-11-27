@@ -4,7 +4,10 @@ const IN_WORKER = typeof document === 'undefined';
 if (!IN_WORKER) device.addEventListener('uncapturederror', (e) => fail('GPU: ' + e.error.message));
 const canvas = IN_WORKER ? null : $('c'), ctx = IN_WORKER ? null : canvas.getContext('webgpu'), FMT = IN_WORKER ? null : navigator.gpu.getPreferredCanvasFormat();
 if (!IN_WORKER) ctx.configure({ device, format: FMT, alphaMode: 'opaque' });
-const Q = IN_WORKER ? null : device.queue, HDR = 'rgba16float', DEPTH = 'depth24plus', SHADOW = 4096, AA = 4;
+// ULTRA: the ultra picture quality (QUAL 3, render.js), as it was when the page was loaded - what it changes is built in at the start (the shadow map
+// twice as fine each way, 8192: 2.3 cm to a point of it; the shaders' finer work, const ULTRA in them): changing to it or from it loads the page again.
+const ULTRA = (() => { try { return !IN_WORKER && localStorage.getItem('endless.qual') === '3'; } catch (e) { return false; } })();
+const Q = IN_WORKER ? null : device.queue, HDR = 'rgba16float', DEPTH = 'depth24plus', SHADOW = ULTRA ? 8192 : 4096, AA = 4;
 const { sin, cos, abs, min, max, floor, sqrt, hypot, atan2, PI, exp } = Math, TAU = PI * 2;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v), mix = (a, b, t) => a + (b - a) * t;
 const sm = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };

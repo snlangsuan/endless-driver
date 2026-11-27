@@ -99,7 +99,8 @@ const tunOf = (z) => { const s = floor(z / SEG); if (zoneOf(s) !== 1 || !tunS(s)
 const inTun = (z) => tunOf(z) && abs(z - TN.zc) < TN.hl;
 const tunT = (z) => tunOf(z) ? 1 - sm(TN.hl - 30, TN.hl, abs(z - TN.zc)) : 0;
 const tunAt = (x, z) => inTun(z) && abs(x - roadX(z)) < 4.75;
-// The underpass (ทางลอด): at about half of a town's crossroads (the rest have traffic lights) the main road goes down a ramp into a cutting between
+// The underpass (ทางลอด): in some towns - four in ten, drawn by the town's stretch (twS, as townW leaves it); the rest have none - at about half
+// of its crossroads (the rest have traffic lights) the main road goes down a ramp into a cutting between
 // concrete walls, passes under the cross street on a slab, and comes up again, so that through traffic need not stop. udOf(z) finds the one z
 // belongs to (UD.zc: its middle); udip(z): how far below the street the road is at z (6.2 m under the slab, nothing 96 m out). roadY already has
 // it taken off; ground() puts it back for everything but the road; roadYs is the level of the street (kerbs, footpaths, buildings).
@@ -107,7 +108,7 @@ const UD = { zc: 0 };
 const UDC = new Map();          // (remembered by ten-block group: roadY asks this for every point of the ground)
 const udG = (g) => { let v = UDC.get(g);
   if (v === undefined) { UDC.set(g, 0);          // (so that asking about the road's height while this is being worked out finds 'none' and does not ask again)
-    const zc = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36 + 34; v = ph(g, 523) < 0.5 && townW(zc) > 0.6 && townW(zc - 104) > 0.6 && townW(zc + 104) > 0.6 && !nearRiv(zc, 112) ? zc : 0; UDC.set(g, v); }
+    const zc = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36 + 34; v = ph(g, 523) < 0.5 && townW(zc) > 0.6 && ph(twS, 527) < 0.4 && townW(zc - 104) > 0.6 && townW(zc + 104) > 0.6 && !nearRiv(zc, 112) ? zc : 0; UDC.set(g, v); }
   return v; };
 // (the nearest: two can be as little as 180 m apart, their ramps meeting - the first found, as before, put one underpass's walls in the other's
 // ramp and none of its own. Depth and width fall off alike either side of each, so taken from the nearer they meet level half way between.)

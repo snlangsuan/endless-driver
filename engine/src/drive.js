@@ -221,7 +221,9 @@ function drive(dt) {
     // (racing the rival, side by side with it or while the lead changes hands, it drives straight: two cars sliding side by side came together -
     // but two abreast through a bend on purpose, it slides as much as leaves the two bodies apart: rival.js, rivalTailK)
     // (ts was sized with last frame's tailK in it (gq): the room is looked at for the whole of the slide asked for)
-    car.tailK = auto.on && typeof rivalTailK === 'function' ? rivalTailK(ts / max(car.tailK ?? 1, 0.1)) : 1;
+    // (taken down over a third of a second, not at once: cut from the whole slide to a sixth of it the moment the rival came within 4.8 m, the
+    // car's tail snapped round - a jerk plain to see in the cinematic view, two cars drifting in close)
+    car.tailK = auto.on && typeof rivalTailK === 'function' ? max(rivalTailK(ts / max(car.tailK ?? 1, 0.1)), (car.tailKp ?? 1) - dt * 3) : 1;
     if (auto.on && PCAR && typeof pcSlideRoom === 'function') { if (auto.tick % 4 === 1) car.tailT = pcSlideRoom(PCAR, car.x, car.z, car.y, car.hd, kk, ts / max(car.tailK ?? 1, 0.1)); car.tailK = min(car.tailT ?? 1, car.tailK ?? 1, (car.tailKp ?? 1) + dt * 1.2); car.tailKp = car.tailK; } else car.tailK = car.tailKp = 1;
     // (by hand the nose is led by the path's own turning, so that it does not trail a few degrees behind a gentle turn - it read as the car not
     // answering the stick)
@@ -332,7 +334,11 @@ function drive(dt) {
   let mx = nx, mz = nz;
   if (!blocked) { const p0 = solidAt(car.x, car.z, car.y) + 0.002;
     if (solidAt(nx, nz, car.y) > p0) { if (solidAt(nx, car.z, car.y) <= p0) { mz = car.z; car.v *= 1 - min(1, dt * 2.5); } else if (solidAt(car.x, nz, car.y) <= p0) { mx = car.x; car.v *= 1 - min(1, dt * 2.5); } else blocked = true; } }
-  if (blocked) car.v *= -0.25; else { car.x = mx; car.z = mz; car.y += (gy - car.y) * (1 - exp(-dt * 14)); }
+  // (the height follows the land as it rises and falls at once, and only a step - more than the car's travel could climb in the frame on a 40%
+  // slope: onto a deck, into the gutter - is eased: eased throughout, it trailed the road by the speed times the slope over 14, a hand's breadth
+  // and more in the air going down a hill at speed, and the cinematic view's camera, framing the car by this height, rode up off it)
+  if (blocked) car.v *= -0.25; else { const dY = gy - (car.gyP ?? gy); if (abs(dY) < abs(car.v) * dt * 0.4 + 0.008) car.y += dY;
+    car.x = mx; car.z = mz; car.y += (gy - car.y) * (1 - exp(-dt * 14)); car.gyP = gy; }
   // (and its tail, swung out in a slide: into a balustrade, a parked scooter, a wall, it is knocked back in - the slide taken out of it, a
   // little speed lost, a jolt - rather than drawn through the thing: playercar.js)
   if (DRIFT && abs(car.slip || 0) > 0.04 && typeof pcTailHit === 'function' && PCAR && pcTailHit(PCAR, car.x, car.z, car.y, car.yaw, car.hd !== undefined ? car.hd : car.yaw)) {

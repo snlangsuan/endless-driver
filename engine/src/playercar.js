@@ -6,11 +6,28 @@
 // Its place is given to the shaders relative to the eye, worked out here in double precision (its whole metres and the rest apart), so that it
 // does not shimmer far from the world's origin.
 // What differs between the cars beyond their models: the name and the figures the garage panel shows, and the paint - its colour (linear) and
-// that of the light its metal flakes give back.
+// that of the light its metal flakes give back; and where its number plates go (plates: [height of the middle, z] at the front and the back - set
+// 6 mm proud of the outermost of the bumper behind them, measured from the model).
 const PCAR_INFO = {
-  mx5: { name: 'MX-5', sub: 'ND 2.0 · 2016', hp: 184, kg: 1060, paint: [0.30, 0.008, 0.012], flake: [1, 0.55, 0.45] },
-  gr86: { name: 'GR86', sub: '2.4 · 2021', hp: 235, kg: 1270, paint: [0.46, 0.016, 0.008], flake: [1, 0.6, 0.42] },
+  mx5: { name: 'MX-5', sub: 'ND 2.0 · 2016', hp: 184, kg: 1060, paint: [0.30, 0.008, 0.012], flake: [1, 0.55, 0.45], plates: [[0.35, 1.9351], [0.385, -1.9119]] },
+  gr86: { name: 'GR86', sub: '2.4 · 2021', hp: 235, kg: 1270, paint: [0.46, 0.016, 0.008], flake: [1, 0.6, 0.42], plates: [[0.36, 2.1207], [0.47, -2.1155]] },
 };
+// The number plate: a Thai private car's - white, a thin black rim with rounded corners, black lettering, the registration across the top in
+// large letters and the province under it - here ENDLESS over กรุงเทพมหานคร. Drawn once (both cars share it) on a square layer, the plate in
+// the top PLATE_V of it, 34:15 as the real one.
+const PLATE_V = 452 / 1024; let plateP = null;
+const pcPlate = () => plateP || (plateP = (async () => {
+  const S = 1024, H = Math.round(S * PLATE_V), cv = document.createElement('canvas'); cv.width = S; cv.height = S; const x = cv.getContext('2d');
+  const F = '"Sukhumvit Set", Thonburi, "Noto Sans Thai", Sarabun, "Leelawadee UI", Tahoma, sans-serif';
+  try { await document.fonts.load(`700 100px ${F}`, 'ENDLESSกรุงเทพมหานคร'); } catch (e) {}
+  x.fillStyle = '#f2f2ef'; x.fillRect(0, 0, S, S);
+  const rr = (m, r) => { x.beginPath(); x.roundRect(m, m, S - 2 * m, H - 2 * m, r); };
+  x.lineWidth = 9; x.strokeStyle = '#141414'; rr(16, 34); x.stroke();
+  x.fillStyle = '#141414'; x.textAlign = 'center'; x.textBaseline = 'alphabetic';
+  // (each line squeezed to its width, as the plates' tall narrow letters are)
+  const line = (t, px, w, y, wt) => { x.font = `${wt} ${px}px ${F}`; const m = x.measureText(t).width; x.save(); x.translate(S / 2, y); x.scale(min(1, w / m), 1); x.fillText(t, 0, 0); x.restore(); };
+  line('ENDLESS', 232, 860, 262, 700); line('กรุงเทพมหานคร', 112, 600, 392, 600);
+  return cv; })());
 function pcBuild(B, id) {
   if (!B) return null;
   const dv = new DataView(B), nv = dv.getUint32(4, true), ni = dv.getUint32(8, true), hub = new Float32Array(B, 12, 12);
@@ -18,16 +35,29 @@ function pcBuild(B, id) {
   // image decoded and put in as it comes, the car drawn meanwhile with what is there; see scripts/pcr2.py)
   const nt = dv.getUint32(60, true), imgs = []; let o = 64;
   for (let i = 0; i < nt; i++) { const l = dv.getUint32(o, true); imgs.push(new Uint8Array(B, o + 4, l)); o += 4 + l; }
-  const TS = 1024, mips = Math.log2(TS) + 1, tex = device.createTexture({ size: [TS, TS, max(nt, 1)], mipLevelCount: mips, format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  const TS = 1024, mips = Math.log2(TS) + 1, tex = device.createTexture({ size: [TS, TS, nt + 1], mipLevelCount: mips, format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   const live = { on: true };
   imgs.forEach(async (d, li) => { try { const bm = await createImageBitmap(new Blob([d]), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
     for (let m = 0, s = TS; m < mips && live.on; m++, s >>= 1) { const q = m ? await createImageBitmap(bm, { resizeWidth: s, resizeHeight: s, resizeQuality: 'high', colorSpaceConversion: 'none', premultiplyAlpha: 'none' }) : bm;
       if (live.on) Q.copyExternalImageToTexture({ source: q }, { texture: tex, origin: [0, 0, li], mipLevel: m }, [s, s]); } } catch (e) { console.warn(id + ' texture', li, e); } });
-  const smp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', maxAnisotropy: 8 });
-  const vb = vbuf(new Uint8Array(B, o, nv * 40)), ib = vbuf(new Uint32Array(B, o + nv * 40, ni), GPUBufferUsage.INDEX);
+  const smp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', maxAnisotropy: ULTRA ? 16 : 8 });
+  // (and the number plates, which the models have not: a layer of their own after the model's - pcPlate - and a quad at each end, material 15)
+  const info = PCAR_INFO[id] || PCAR_INFO.mx5, PL = info.plates || [];
+  pcPlate().then((cv) => { for (let m = 0, s = TS; m < mips && live.on; m++, s >>= 1) createImageBitmap(cv, { resizeWidth: s, resizeHeight: s, resizeQuality: 'high' })
+    .then((q) => { if (live.on) Q.copyExternalImageToTexture({ source: q }, { texture: tex, origin: [0, 0, nt], mipLevel: Math.log2(TS / s) }, [s, s]); }); }).catch((e) => console.warn('plate', e));
+  const vAll = new Uint8Array((nv + PL.length * 4) * 40), iAll = new Uint32Array(ni + PL.length * 6), vd = new DataView(vAll.buffer);
+  vAll.set(new Uint8Array(B, o, nv * 40)); iAll.set(new Uint32Array(B, o + nv * 40, ni));
+  PL.forEach(([yc, zc], j) => { const sg = Math.sign(zc), b0 = nv + j * 4;
+    // (34 x 15 cm, as a Thai car's; read from outside: seen from behind the car's left, +x, is on the left, from in front on the right)
+    [[-1, 1], [1, 1], [1, -1], [-1, -1]].forEach(([a, c], q) => { const b = (b0 + q) * 40, x = a * 0.17 * sg;
+      vd.setFloat32(b, x, true); vd.setFloat32(b + 4, yc + c * 0.075, true); vd.setFloat32(b + 8, zc, true);
+      vd.setFloat32(b + 12, 0, true); vd.setFloat32(b + 16, 0, true); vd.setFloat32(b + 20, sg, true);
+      vAll.set([255, 255, 255, 255, 15, 0, nt, 255], b + 24); vd.setFloat32(b + 32, (a + 1) / 2, true); vd.setFloat32(b + 36, (1 - c) / 2 * PLATE_V, true); });
+    iAll.set([b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3], ni + j * 6); });
+  const vb = vbuf(vAll), ib = vbuf(iAll, GPUBufferUsage.INDEX);
   const ub = device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }), U = new Float32Array(36);
   for (let w = 0; w < 4; w++) U.set([hub[w * 3], hub[w * 3 + 1], hub[w * 3 + 2], 0], 12 + w * 4);
-  const info = PCAR_INFO[id] || PCAR_INFO.mx5; U.set(info.paint, 28); U.set(info.flake, 32);      // (pu.pc, pu.fl)
+  U.set(info.paint, 28); U.set(info.flake, 32);      // (pu.pc, pu.fl)
   const bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {} },
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { viewDimension: '2d-array' } }, { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: {} }] });
   const bg = device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: ub } }, { binding: 2, resource: tex.createView({ dimension: '2d-array' }) }, { binding: 3, resource: smp }] });
@@ -38,7 +68,7 @@ function pcBuild(B, id) {
   // (where the wheels stand, from the hubs in the file: each wheel's place on the car's plan, the wheelbase and the track, and the tyres' radius -
   // the hub's height over the ground they stand on)
   const WH = [0, 1, 2, 3].map((w) => [hub[w * 3], hub[w * 3 + 2]]), base = (hub[2] + hub[5] - hub[8] - hub[11]) / 2, track = (hub[0] - hub[3] + hub[6] - hub[9]) / 2, tyre = (hub[1] + hub[4] + hub[7] + hub[10]) / 4;
-  return { id, info, WH, base, track, tyre, vb, ib, ni, ub, U, bg, pipe, pipeS, tex, live, ox: 0, oz: 0, spin: 0, pv: 0, brake: 0, cam: null, cp: null, phd: null, roll: 0, rollV: 0, dive: 0, diveV: 0, wa: 0, hop: 0, hopV: 0, t: 0 };
+  return { id, info, WH, base, track, tyre, vb, ib, ni: iAll.length, ub, U, bg, pipe, pipeS, tex, live, ox: 0, oz: 0, spin: 0, pv: 0, brake: 0, cam: null, cp: null, phd: null, roll: 0, rollV: 0, dive: 0, diveV: 0, wa: 0, hop: 0, hopV: 0, t: 0 };
 }
 let PCAR = pcBuild(ASSET[PCAR_ID], PCAR_ID);
 // Another car chosen (the garage panel): its model fetched if it has not been, then put in the old one's place - where it is on the road, how
@@ -48,7 +78,7 @@ function pcSwitch(id, done) {
   if (!PCARS.includes(id) || (PCAR && PCAR.id === id)) { if (done) done(true); return; }
   try { localStorage.setItem('endless.car', id); } catch (e) {}
   const go = () => { const old = PCAR, C = pcBuild(ASSET[id], id); if (!C) { if (done) done(false); return; }
-    if (old) { for (const k of ['ox', 'oz', 'spin', 'pv', 'brake', 'cam', 'cp', 'phd', 'roll', 'rollV', 'dive', 'diveV', 'wa', 'hop', 'hopV', 't', 'gy', 'gp', 'gr']) C[k] = old[k];
+    if (old) { for (const k of ['ox', 'oz', 'spin', 'pv', 'brake', 'cam', 'cp', 'phd', 'roll', 'rollV', 'dive', 'diveV', 'wa', 'hop', 'hopV', 't', 'gy', 'gp', 'gr', 'yMp']) C[k] = old[k];
       old.live.on = false; old.vb.destroy(); old.ib.destroy(); old.ub.destroy(); old.tex.destroy(); }
     PCAR = C; PCAR_ID = id; if (typeof CARS !== 'undefined' && CARS[id]) CARP = CARS[id];
     if (auto.limit > CARP.top) setLimit(CARP.top); else drvRead();      // (the self-driving's speed brought down to what this car can do)
@@ -101,7 +131,11 @@ function pcPose(C, S, dt, braking) {
   const cy = cos(S.yaw), sy = sin(S.yaw), WH = C.WH, hy4 = WH.map(([lx, lz]) => pcSurfY(S.x + ox + lx * cy + lz * sy, S.z + oz - lx * sy + lz * cy, S.y + 1));
   C.hy4 = hy4; C.wx = WH.map(([lx, lz]) => [S.x + ox + lx * cy + lz * sy, S.z + oz - lx * sy + lz * cy]);
   const yM = (hy4[0] + hy4[1] + hy4[2] + hy4[3]) / 4 + 0.012, pit = Math.atan2((hy4[0] + hy4[1] - hy4[2] - hy4[3]) / 2, C.base), rl = Math.atan2((hy4[0] + hy4[2] - hy4[1] - hy4[3]) / 2, C.track);
-  if (C.gy === undefined || dt > 0.3 || abs(C.gy - yM) > 1.5) { C.gy = yM; C.gp = pit; C.gr = rl; }
+  if (C.gy === undefined || dt > 0.3 || abs(C.gy - yM) > 1.5) { C.gy = yM; C.gp = pit; C.gr = rl; C.yMp = yM; }
+  // (The height follows the land as it rises and falls under the car at once; only a step - more than the car's own travel could climb in the
+  // frame on a 40% slope, as onto a deck or down into the gutter - is eased. Eased throughout, the car trailed the road by its speed times the
+  // slope over 25: down an underpass's ramp, or down a hill at speed, it stood a hand's breadth and more in the air, and sank into the climbs.)
+  { const dY = yM - (C.yMp ?? yM); C.yMp = yM; if (abs(dY) < abs(S.v) * dt * 0.4 + 0.008) C.gy += dY; }
   const kq = 1 - Math.exp(-dt * 25); C.gy += (yM - C.gy) * kq; C.gp += (pit - C.gp) * kq; C.gr += (rl - C.gr) * kq;
   const U = C.U, hx = Math.fround(S.x + ox), hy = Math.fround(C.gy), hz = Math.fround(S.z + oz);
   U[0] = hx; U[1] = hy; U[2] = hz; U[3] = S.yaw; U[4] = S.x + ox - hx; U[5] = C.gy - hy; U[6] = S.z + oz - hz; U[7] = C.gp; U[23] = C.gr;
@@ -167,6 +201,9 @@ function pcCam(dt) {
 // it goes - less on a wet road, where the water takes it, and off the road it is dust, brown. Each puff drifts on with a little of the car's
 // way, rises, swells from a hand's breadth to some metres and thins away over two seconds and more. Drawn last in the picture, see-through,
 // over the scene and behind nothing (vsSmoke/fsSmoke).
+// (A light haze, not a wall: 16 puffs a second from each tyre, half as thick, gone in a second or two, and thinned out near the eye. At 38 a
+// second, nearly twice as thick and lasting up to three seconds, it hung in a bank behind the car, and the cinematic view's cameras, following
+// low behind, saw nothing of the car through it.)
 const SMOKE = (() => {
   if (!PCAR) return null;
   const N = 360, inst = new Float32Array(N * 8), buf = device.createBuffer({ size: inst.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -182,10 +219,10 @@ function smokeStep(dt, ex, ey, ez) {
   for (const { C, S: T, i } of pcCars()) { const sl = abs(T.slip || 0), v = abs(T.v), off = abs(rdist(T.x, T.z)) > 4.6;
   const k = DRIFT ? clamp((sl - 0.15) / 0.4, 0, 1) * min(1, v / 15) * (1 - 0.75 * wet) : 0;
   if (k > 0) { const c = cos(T.yaw), s = sin(T.yaw);
-    for (let w = 0; w < 2; w++) { const a = i * 2 + w; S.acc[a] += dt * 38 * k; while (S.acc[a] >= 1 && S.P.length < S.N) { S.acc[a] -= 1;
+    for (let w = 0; w < 2; w++) { const a = i * 2 + w; S.acc[a] += dt * 16 * k; while (S.acc[a] >= 1 && S.P.length < S.N) { S.acc[a] -= 1;
       const lx = C.WH[w + 2][0] + (Math.random() - 0.5) * 0.2, lz = C.WH[w + 2][1] + (Math.random() - 0.5) * 0.3, x = T.x + C.ox + lx * c + lz * s, z = T.z + C.oz - lx * s + lz * c;
       const vx = sin(T.hd || T.yaw) * T.v * 0.22 + (Math.random() - 0.5) * 1.2, vz = cos(T.hd || T.yaw) * T.v * 0.22 + (Math.random() - 0.5) * 1.2;
-      S.P.push({ x, y: T.y + 0.12, z, vx, vy: 0.3 + Math.random() * 0.4, vz, age: 0, life: 1.8 + Math.random() * 1.2, sd: Math.random(), dust: off ? 1 : 0, a0: 0.22 + 0.18 * k }); } S.acc[a] = min(S.acc[a], 1); } } }
+      S.P.push({ x, y: T.y + 0.12, z, vx, vy: 0.3 + Math.random() * 0.4, vz, age: 0, life: 1.2 + Math.random() * 0.8, sd: Math.random(), dust: off ? 1 : 0, a0: 0.12 + 0.1 * k }); } S.acc[a] = min(S.acc[a], 1); } } }
   const dr = Math.exp(-dt * 1.4); let n = 0;
   for (let i = S.P.length - 1; i >= 0; i--) { const q = S.P[i]; q.age += dt; if (q.age > q.life) { S.P.splice(i, 1); continue; }
     q.vx *= dr; q.vz *= dr; q.vy = q.vy * dr + 0.35 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; }
@@ -242,4 +279,25 @@ function marksStep(dt, ex, ey, ez) {
     M.inst[q + 4] = M.seg[o + 3] - ex; M.inst[q + 5] = M.seg[o + 4] - ey; M.inst[q + 6] = M.seg[o + 5] - ez; M.inst[q + 7] = M.seg[o + 7] * fade; n++; }
   M.n = n; if (n) Q.writeBuffer(M.buf, 0, M.inst, 0, n * 8);
 }
+// The shade under each car (vsUnder/fsUnder): the ground beneath a car sees little of the sky, so it is darker there whatever the sun does - a
+// soft dark patch the size of the car and a little over, darkest under its middle, laid on the road at each corner's height (pcSurfY). Without
+// it a car whose shadow fell behind it, seen from the side by the cinematic view's low cameras, had the road as bright under it as round it,
+// and looked to float above it.
+const UNDER = (() => {
+  if (!PCAR) return null;
+  const inst = new Float32Array(2 * 6 * 6), buf = device.createBuffer({ size: inst.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+  const pipe = device.createRenderPipeline({ layout: plScene,
+    vertex: { module: mScene, entryPoint: 'vsUnder', buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }] },
+    fragment: { module: mScene, entryPoint: 'fsUnder', targets: [{ format: HDR, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'zero', dstFactor: 'one' } } }] },
+    primitive: { topology: 'triangle-list', cullMode: 'none' }, multisample: { count: AA }, depthStencil: { format: DEPTH, depthWriteEnabled: false, depthCompare: 'less-equal', depthBias: -4, depthBiasSlopeScale: -2 } });
+  return { inst, buf, pipe, n: 0 };
+})();
+function underStep(ex, ey, ez) {
+  const U = UNDER; if (!U) return; let n = 0;
+  for (const { C, S: T } of pcCars()) { const c = cos(T.yaw), s = sin(T.yaw), ox = T.x + C.ox, oz = T.z + C.oz;
+    const K = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => { const lx = a * 1.12, lz = b * 2.55, x = ox + lx * c + lz * s, z = oz - lx * s + lz * c; return [x - ex, pcSurfY(x, z, T.y + 1) + 0.02 - ey, z - ez, a, b]; });
+    for (const q of [0, 1, 2, 0, 2, 3]) { const k = K[q], o = n * 6; U.inst[o] = k[0]; U.inst[o + 1] = k[1]; U.inst[o + 2] = k[2]; U.inst[o + 3] = k[3]; U.inst[o + 4] = k[4]; U.inst[o + 5] = 0; n++; } }
+  U.n = n; if (n) Q.writeBuffer(U.buf, 0, U.inst, 0, n * 6);
+}
+function underDraw(p) { const U = UNDER; if (!U || !U.n) return; p.setPipeline(U.pipe); p.setVertexBuffer(0, U.buf); p.draw(U.n); }
 function marksDraw(p) { const M = MARKS; if (!M || !M.n) return; p.setPipeline(M.pipe); p.setVertexBuffer(0, M.buf); p.draw(6, M.n); }
