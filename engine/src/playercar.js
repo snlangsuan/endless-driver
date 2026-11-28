@@ -10,7 +10,7 @@
 // 6 mm proud of the outermost of the bumper behind them, measured from the model).
 const PCAR_INFO = {
   mx5: { name: 'MX-5', sub: 'ND 2.0 · 2016', hp: 184, kg: 1060, paint: [0.30, 0.008, 0.012], flake: [1, 0.55, 0.45], plates: [[0.35, 1.9351], [0.385, -1.9119]] },
-  ae86: { name: 'AE86', sub: '', hp: 128, kg: 940, paint: [0.62, 0.62, 0.6], flake: [1, 1, 1], plates: [] },      // (ae86.js: met on the passes; not in the garage)
+  ae86: { name: 'AE86', sub: '', hp: 128, kg: 940, paint: [0.62, 0.62, 0.6], flake: [1, 1, 1], plates: [], decal: { layer: 7, draw: (x, S) => e86Doors(x, S) } },      // (ae86.js: met on the passes; not in the garage)
   gr86: { name: 'GR86', sub: '2.4 · 2021', hp: 235, kg: 1270, paint: [0.46, 0.016, 0.008], flake: [1, 0.6, 0.42], plates: [[0.36, 2.1207], [0.47, -2.1155]] },
 };
 // The number plate: a Thai private car's - white, a thin black rim with rounded corners, black lettering, the registration across the top in
@@ -29,6 +29,22 @@ const pcPlate = () => plateP || (plateP = (async () => {
   const line = (t, px, w, y, wt) => { x.font = `${wt} ${px}px ${F}`; const m = x.measureText(t).width; x.save(); x.translate(S / 2, y); x.scale(min(1, w / m), 1); x.fillText(t, 0, 0); x.restore(); };
   line('ENDLESS', 232, 860, 262, 700); line('กรุงเทพมหานคร', 112, 600, 392, 600);
   return cv; })());
+// The AE86's doors: a tofu shop's name - its delivery car, white over black - in black lettering on the white of each door, over the field
+// scripts/ae86.py painted out. Drawn into the paint's own map (layer 7) as it is decoded. Where the doors are on that map, read from the
+// model: the car's left (x < 0) at u 0.43..0.64, its right at u 0.94..0.73 (mirrored), the door's upper white between v 0.81 and 0.86 (the lettering 0.82..0.857); v grows
+// up the car, so the lettering is drawn upside down on the map, and on both sides it then reads from left to right.
+const E86_SHOP = ['เต้าหู้สดบ้านดอย', 'ส่งทุกเช้า'];
+function e86Doors(x, S) {
+  const F = '"Sukhumvit Set", Thonburi, "Noto Sans Thai", Sarabun, "Leelawadee UI", Tahoma, sans-serif';
+  const one = (u0, u1, v0, v1) => {
+    x.save(); x.translate(S * (u0 + u1) / 2, S * (v0 + v1) / 2); x.scale(1, -1);
+    const w = S * abs(u1 - u0), h = S * (v1 - v0); x.fillStyle = '#121212'; x.textAlign = 'center'; x.textBaseline = 'alphabetic';
+    const line = (t, px, y, wt) => { x.font = `${wt} ${px}px ${F}`; const m = x.measureText(t).width; x.save(); x.translate(0, y); x.scale(min(1, w / m), 1); x.fillText(t, 0, 0); x.restore(); };
+    line(E86_SHOP[0], h * 0.62, h * 0.12, 700); line(E86_SHOP[1], h * 0.3, h * 0.48, 600);
+    x.restore(); };
+  one(0.455, 0.61, 0.82, 0.857);       // the left door
+  one(0.755, 0.91, 0.82, 0.857);       // the right
+}
 function pcBuild(B, id) {
   if (!B) return null;
   const dv = new DataView(B), nv = dv.getUint32(4, true), ni = dv.getUint32(8, true), hub = new Float32Array(B, 12, 12);
@@ -37,8 +53,12 @@ function pcBuild(B, id) {
   const nt = dv.getUint32(60, true), imgs = []; let o = 64;
   for (let i = 0; i < nt; i++) { const l = dv.getUint32(o, true); imgs.push(new Uint8Array(B, o + 4, l)); o += 4 + l; }
   const TS = 1024, mips = Math.log2(TS) + 1, tex = device.createTexture({ size: [TS, TS, nt + 1], mipLevelCount: mips, format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
-  const live = { on: true };
-  imgs.forEach(async (d, li) => { try { const bm = await createImageBitmap(new Blob([d]), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+  const live = { on: true }, DEC = (PCAR_INFO[id] || {}).decal;
+  imgs.forEach(async (d, li) => { try { let bm = await createImageBitmap(new Blob([d]), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+    // (a car's own lettering drawn over its map - info.decal - before it goes in; the map brought to 1024 first, as every layer is)
+    if (DEC && DEC.layer === li) { const cv = document.createElement('canvas'); cv.width = cv.height = TS; const x = cv.getContext('2d'); x.drawImage(bm, 0, 0, TS, TS);
+      try { await document.fonts.load('700 40px "Sukhumvit Set", Thonburi, "Noto Sans Thai", Sarabun, Tahoma, sans-serif', 'เต้าหู้'); } catch (e) {}
+      DEC.draw(x, TS); bm = await createImageBitmap(cv, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }); }
     for (let m = 0, s = TS; m < mips && live.on; m++, s >>= 1) { const q = m ? await createImageBitmap(bm, { resizeWidth: s, resizeHeight: s, resizeQuality: 'high', colorSpaceConversion: 'none', premultiplyAlpha: 'none' }) : bm;
       if (live.on) Q.copyExternalImageToTexture({ source: q }, { texture: tex, origin: [0, 0, li], mipLevel: m }, [s, s]); } } catch (e) { console.warn(id + ' texture', li, e); } });
   const smp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', maxAnisotropy: ULTRA ? 16 : 8 });
