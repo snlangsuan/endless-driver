@@ -15,6 +15,7 @@ struct XO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
     if (v.y > 0.) { vv.z = 0.; }
     if (abs(nv.z) > .5) { nn = normalize(vec3f(0., b.z * .5, sign(nv.z) * b.y)); }
   }
+  if (c.w > 128500. && hrsOpen(c.w) > .5) { vv = vec3f(0.); }      // a shop's shutter, down only while the shop is shut: while it is open, folded away to nothing (in the shadows too)
   var l = vv * b.xyz;
   if (c.x > 37.5 && c.x < 38.5) {                   // a flag is cloth: it is made of narrow upright strips (the seed says how far each is from the pole), and here a wave
     let d = c.y + l.x; let W = g.misc.y; let t = g.cam.w; let gs = gust(a.xz);      // runs out along them from the pole, bigger toward the free end and with the wind; in a calm the cloth hangs

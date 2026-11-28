@@ -78,6 +78,13 @@ function sculpt(key, chains, cell = 0.006, K = 0.011) {
     if (f !== (F[id(i, j, q + 1)] < 0)) quad(vid[cid(i - 1, j - 1, q)], vid[cid(i, j - 1, q)], vid[cid(i, j, q)], vid[cid(i - 1, j, q)]); }
   M = { v: new Float32Array(V), i: new Uint32Array(I) }; SCULPT.set(key, M); SCULPT.ms = (SCULPT.ms || 0) + performance.now() - T0; return M;
 }
+// A shop's hours, as they are kept in a country town: open from early morning, and by six to eight in the evening shut, its shutters down and
+// its lights and its board out - a grocery stays open a little later, to nine or ten; the convenience store never shuts (it carries no hours).
+// Each shop its own times, to the half hour, from those of its trade (r1, r2: its own random numbers). The shader reads them back from the
+// box's shape slot (common.wgsl hrsOpen): 1000 * H, H = 1 + c + 12 o, opening at 5.5 + o / 2 o'clock and shutting at 17 + c / 2; and +128000
+// on a shutter, which is there only while the shop is shut. kind: -1 shut for good (to let), 1-5 a shophouse's (sk), 10 a showroom, 11 a store.
+const HRS = (kind, r1 = 0, r2 = 0) => { const [o0, o1, c0, c1] = { [-1]: [9.5, 9.5, 17, 17], 1: [5.5, 6.5, 20, 22.5], 2: [6, 7, 17, 21], 3: [8.5, 9.5, 17, 18], 4: [8, 9, 18, 21], 5: [8, 8.5, 17, 18.5], 10: [8.5, 9.5, 17.5, 19], 11: [7, 8, 17, 18] }[kind];
+  const q = (a, b, r) => a + Math.round(r * (b - a) * 2) / 2; return 1000 * (1 + Math.round((q(c0, c1, r1) - 17) * 2) + 12 * Math.round((q(o0, o1, r2) - 5.5) * 2)); };
 // A convenience store's car park (see the street's blocks in buildChunk): the store stands CONV_BACK further back than the row it replaces, and
 // has two ways in across the footpath, one at each end of its apron. convOf(blk, side): the store's width if block blk has one on that side, else 0
 // (the same lots drawn as there - kind, the twelve-block spacing, the small kind - and the same tests of town and river at its middle unit);
@@ -630,7 +637,7 @@ function buildChunk(cx, cz) {
             { const q = Wd(X - 11, 4.2); far.push(q[0], y, q[1], 0.06, q[0], y + 8.3, q[1], 0.045, -1, 0); for (let i = 0; i < 9; i++) put(X - 10.95 + (i + 0.5) * 0.2, 7.6, 4.2, 0.2, 1.2, 0.02, 38, (i + 0.5) * 0.2); }      // the flag: nine strips of cloth (the vertex stage waves them as one)
             { const q = Wd(X + 4, -4); stamp(SALA, q[0], y + 0.3, q[1], yaw, 0.7, s1); }
           } else if (kind === 2) {     // one large shop set back behind its forecourt: an open or glazed front, a long sign, a pylon sign at the kerb
-            let shopW = s1; const conv = store, Wt = 20 + floor(s1 * 3) * 3, small = conv && ph(bq, 346 + seg) < 0.5, Wb = conv ? (small ? 11 : 20) : Wt, Hb = conv ? (small ? 3.7 : 5.1) : s2 < 0.5 ? 4.6 : 8;
+            let shopW = s1, shopH = 0; const conv = store, Wt = 20 + floor(s1 * 3) * 3, small = conv && ph(bq, 346 + seg) < 0.5, Wb = conv ? (small ? 11 : 20) : Wt, Hb = conv ? (small ? 3.7 : 5.1) : s2 < 0.5 ? 4.6 : 8;
             if (!conv) {               // the forecourt poured in concrete, level with the road, from the shop's front out to the footpath (in strips along
               // the street, each tilted to the street's grade, as the convenience store's car park is laid)
               const frF = fwd - 8.0 - svW(z), WF = Wb + 4, Wc2 = (px, pz) => [cx + px * c + pz * sn, cz - px * sn + pz * c];
@@ -705,7 +712,9 @@ function buildChunk(cx, cz) {
               // SIGNS): a showroom behind aluminium-framed glass (no pane is drawn - its frames, and what is inside, are what is seen): electrical
               // goods, furniture, or tyres; a store open to the street, its steel shutters rolled up - building materials, wholesale, fertiliser,
               // animal feed, rice; or, now and then, a shop to let, its shutters down.
-              const IN = 3, gh = 3.4, tA = ph(bq, 360 + seg), sort = tA < 0.42 ? 0 : tA < 0.9 ? 1 : 2, kW = sort === 0 ? [33, 34, 38][floor(ph(bq, 361 + seg) * 2.999)] : sort === 1 ? [8, 28, 44, 45, 40][floor(ph(bq, 361 + seg) * 4.999)] : 27, sw = (hc) => 100 + kW + 0.01 + 0.98 * hc;
+              const gh = 3.4, tA = ph(bq, 360 + seg), sort = tA < 0.42 ? 0 : tA < 0.9 ? 1 : 2, kW = sort === 0 ? [33, 34, 38][floor(ph(bq, 361 + seg) * 2.999)] : sort === 1 ? [8, 28, 44, 45, 40][floor(ph(bq, 361 + seg) * 4.999)] : 27, sw = (hc) => 100 + kW + 0.01 + 0.98 * hc;
+              // (its hours - HRS: a showroom keeps a shop's, a store open to the street a trader's; inside, lit by its own lamps (shape 3) only while it is open)
+              const hB = sort === 2 ? HRS(-1) : HRS(sort === 0 && kW !== 38 ? 10 : 11, ph(bq, 375 + seg), ph(bq, 376 + seg)), IN = 3 + hB, SHUT = hB + 128000;
               put(X, 0.34, -1.5, Wb, 0.08, 9, 19, 0, 0, IN); put(X, gh / 2 + 0.3, -5.9, Wb, gh, 0.2, 18, s1); for (const d of [-1, 1]) put(X + d * (Wb / 2 - 0.1), gh / 2 + 0.3, -1.5, 0.2, gh, 9, 18, s1);
               put(X, gh + 0.26, -1.5, Wb - 0.4, 0.06, 8.8, 44, 0, 0, IN); put(X, (gh + Hb) / 2 + 0.3, -1.5, Wb, Hb - gh, 9, 18, s1); put(X, (3.2 + gh + 0.3) / 2, 2.92, Wb, gh + 0.3 - 3.2, 0.16, 18, s1);
               const ow = Wb - 0.4, x0 = X - ow / 2;
@@ -743,7 +752,8 @@ function buildChunk(cx, cz) {
                   put(cx2 + 1.4, 0.8, bz - 1.4, 0.6, 0.85, 0.6, 50, 0.7619, 0, IN); put(cx2 + 1.4, 1.45, bz - 1.55, 0.7, 0.35, 0.35, 50, 0.7619, 0, IN); { const p0 = Wd(cx2 + 1.4, bz - 0.95), p1 = Wd(cx2 + 1.4, bz - 0.75); far.push(p0[0], y + 1.2, p0[1], 0.05, p1[0], y + 1.2, p1[1], 0.05, -1, 20); }      // the balancer
                   { const p0 = Wd(x0 + ow - 1.8, -4.4), p1 = Wd(x0 + ow - 0.6, -4.4); far.push(p0[0], y + 0.75, p0[1], 0.28, p1[0], y + 0.75, p1[1], 0.28, -1, 21); put(x0 + ow - 1.2, 1.15, -4.4, 0.4, 0.3, 0.35, 3, 0, 0, IN); } }      // the compressor's tank
                 for (let i = 0; i < 4; i++) { const ax = x0 + ow * 0.62 + i * 0.6, p0 = Wd(ax, -4.85), p1 = Wd(ax, -4.95); far.push(p0[0], y + 0.68, p0[1], 0.3, p1[0], y + 0.66, p1[1], 0.3, -1, 20); }      // alloy wheels leaning by the rack
-                for (let i = 0; i < 3; i++) put(x0 + 2 + i * (ow - 4) / 2, 3.0, -5.7, 2.4, 0.6, 0.03, 23, sw(ph(bq, 393 + i)), 0, 0);      // banners
+                for (let i = 0; i < 3; i++) put(x0 + 2 + i * (ow - 4) / 2, 3.0, -5.7, 2.4, 0.6, 0.03, 23, sw(ph(bq, 393 + i)), 0, hB);      // banners
+                put(X, 1.675, 2.92, ow, 2.59, 0.05, 32, s2, 0, SHUT);      // (out of hours its shutters down across the whole front)
               } else if (sort === 0) {         // aluminium frames: posts every 1.8 m or so, a rail at the foot and one at the door's head, the door a wider bay of two leaves
                 const nb = Math.round(ow / 1.8); for (let i = 0; i <= nb; i++) put(x0 + i * ow / nb, 1.79, 2.95, i === floor(nb / 2) || i === floor(nb / 2) + 1 ? 0.1 : 0.06, 2.82, 0.1, 19);
                 put(X, 0.42, 2.95, ow, 0.1, 0.1, 19); put(X, 2.55, 2.95, ow, 0.06, 0.08, 19); put(X, 3.17, 2.95, ow, 0.06, 0.1, 19); put(x0 + (floor(nb / 2) + 0.5) * ow / nb, 1.5, 2.98, 0.03, 0.3, 0.05, 3);
@@ -753,7 +763,7 @@ function buildChunk(cx, cz) {
                 else for (let i = 0; i < 7; i++) { const gx = x0 + 1.2 + i * (ow - 2.4) / 6; for (let j = 0, n = 3 + floor(ph(bq + i, 367) * 4); j < n; j++) cyl(gx, 0.38 + j * 0.22, -3.4 - (i % 2) * 1.6, 0.33, gx, 0.6 + j * 0.22, -3.4 - (i % 2) * 1.6, 0.33, 1); }      // (tyres stacked in columns)
               } else if (sort === 1) {  // open to the street: the rolled-up shutters' boxes along the top of each bay, a pier between bays; one bay with its shutter half down
                 const nb = 3 + floor(ph(bq, 362 + seg) * 2); for (let i = 0; i <= nb; i++) put(x0 + i * ow / nb, 1.79, 2.9, 0.35, 2.82, 0.3, 18, s1);
-                for (let i = 0; i < nb; i++) { const bx = x0 + (i + 0.5) * ow / nb, half = ph(bq + i, 368) < 0.3; put(bx, 3.08, 2.98, ow / nb - 0.3, 0.22, 0.2, 32, s2); if (half) put(bx, 2.55, 2.96, ow / nb - 0.35, 1.2, 0.05, 32, s2); }
+                for (let i = 0; i < nb; i++) { const bx = x0 + (i + 0.5) * ow / nb, half = ph(bq + i, 368) < 0.3; put(bx, 3.08, 2.98, ow / nb - 0.3, 0.22, 0.2, 32, s2); if (half) put(bx, 2.55, 2.96, ow / nb - 0.35, 1.2, 0.05, 32, s2); put(bx, 1.675, 2.92, ow / nb - 0.3, 2.59, 0.05, 32, s2, 0, SHUT); }      // (and out of hours every bay's shutter down)
                 // inside: what it sells, stacked on the floor and on steel racks along the back
                 const sackShop = kW === 40 || kW === 44 || kW === 45, cmS = kW === 40 ? 0.7137 : kW === 44 ? 0.9022 : 0.3973;
                 if (!sackShop) for (let i = 0; i < 6; i++) put(x0 + 1.4 + i * (ow - 2.8) / 5, 1.6, -5.5, ow / 7, 2.5, 0.6, 31, ph(bq + i, 369), 0, IN);
@@ -809,12 +819,12 @@ function buildChunk(cx, cz) {
                 if (kW === 8) for (let i = 0; i < 8; i++) cyl(x0 + 2, 0.45 + i * 0.07, -4.3 + (i % 3) * 0.08, 0.04, x0 + 2 + 5.5, 0.45 + i * 0.07, -4.3 + (i % 3) * 0.08, 0.04, 4);      // (lengths of pipe)
               } else {                  // to let: shutters down across it, the board says so
                 put(X, 1.79, 2.96, ow, 2.82, 0.06, 32, s2); }
-              put(X, 3.75, 3.1, Wb - 1, 1.0, 0.16, 23, sw(s2)); put(X, 3.2, 4.0, Wb, 0.12, 2.0, 2);
+              put(X, 3.75, 3.1, Wb - 1, 1.0, 0.16, 23, sw(s2), 0, hB); put(X, 3.2, 4.0, Wb, 0.12, 2.0, 2);
               // (upstairs, where there is one: five windows, each in its frame with a bar across the middle, a sill under it)
               if (Hb > 5) for (let i = 0; i < 5; i++) { const wx = X - Wb / 2 + (i + 0.5) * Wb / 5, ww = Wb / 5 - 1.2; put(wx, 6.2, 3.0, ww + 0.16, 1.66, 0.08, 19); put(wx, 6.2, 3.06, ww, 1.5, 0.04, 17, ph(bq, 400 + i)); put(wx, 6.2, 3.09, 0.05, 1.5, 0.03, 19); put(wx, 6.55, 3.09, ww, 0.04, 0.03, 19); put(wx, 5.38, 3.14, ww + 0.3, 0.07, 0.22, 2); put(wx, 7.1, 3.2, Wb / 5 - 0.9, 0.07, 0.45, 2); }
               put(X + Wb / 2 - 3, Hb + 0.75, -3, 2.4, 0.9, 1.2, 22); put(X - Wb / 2 + 3, Hb + 0.75, -2, 2.4, 0.9, 1.2, 22);
-              shopW = sw(s1); { const q = Wd(X, 3); bigShops.push(q[0], q[1], yaw, sort); } }
-            { const q = Wd(X - Wb / 2 - 1.5, 5.4); far.push(q[0], y, q[1], 0.11, q[0], y + 6.2, q[1], 0.09, -1, 0); } put(X - Wb / 2 - 1.5, 6.0, 5.4, 1.9, 2.3, 0.28, 23, conv ? 2 : shopW);
+              shopW = sw(s1); shopH = hB; { const q = Wd(X, 3); bigShops.push(q[0], q[1], yaw, sort); } }
+            { const q = Wd(X - Wb / 2 - 1.5, 5.4); far.push(q[0], y, q[1], 0.11, q[0], y + 6.2, q[1], 0.09, -1, 0); } put(X - Wb / 2 - 1.5, 6.0, 5.4, 1.9, 2.3, 0.28, 23, conv ? 2 : shopW, 0, conv ? 0 : shopH);
             if (!conv) tree(X + Wt / 2 + 2.5, 3, 0.6, s2); { const q = Wd(X - Wb / 2 - 2.4, 1.2); if (soiD(q[0], q[1]) > 3.9) stamp(SHRINE_B, q[0], y + 0.3, q[1], yaw, 0, 0); }      // the shop's spirit houses at the corner of its forecourt
           } else if (kind === 3) {     // the market: tin roofs on posts, tables of goods under them, stalls with umbrellas out at the kerb
             // The goods, on a table at height y0, in a place w by d: what the seed says, of twelve kinds. Fruit - oranges, mangoes, limes, rose
@@ -964,7 +974,7 @@ function buildChunk(cx, cz) {
           else { M(assetMesh('pickup'), (cd) => cd >= 32768 ? cd + 32768 * 3 : cd, 0, 0);      // (a Carry is always white: wheels black, windows dark, headlamps clear, tail lamps red)
             xcol.push(q[0], q[1], yaw + PI / 2, 0.85, 1.7, yt, yt + 1.6); } }]); };
         const table = (lx, lz, s2) => { put(lx, 1.04, lz, 0.75, 0.05, 0.75, 34); put(lx, 0.68, lz, 0.06, 0.7, 0.06, 34); for (const d of [-0.62, 0.62]) put(lx + d, 0.53, lz, 0.3, 0.46, 0.3, 33, s2); };
-        put(0, (Hh + GF) / 2 + par * 0.01, par * 0.015, Ww, Hh - GF + par * 0.02, DEP - par * 0.03, wood ? 16 : 6, wc);                            // the floors over the shop
+        put(0, (Hh + GF) / 2 + par * 0.01, par * 0.015, Ww, Hh - GF + par * 0.02, DEP - par * 0.03, wood ? 16 : 6, wc, 0, HRS(sk || -1, u(160), u(161)));      // (its underside the shop's ceiling, lit while the shop is open)                            // the floors over the shop
         put(0, GF / 2, -SD / 2 + par * 0.015, Ww, GF, DEP - SD - par * 0.03, wm, wc);                                    // behind the shop: store room, kitchen, stair
         put(-Wf / 2, GF / 2 + 0.01, F - SD / 2, 0.16, GF + 0.02, SD, wood ? 0 : 18, bs); if (endU) put(Wf / 2, GF / 2 + 0.01, F - SD / 2, 0.16, GF + 0.02, SD, wood ? 0 : 18, bs);      // party walls
         put(0, 0.3, F - SD / 2 + 0.2, Wf, 0.12, SD + 0.4, 2);                                        // the shop floor, a step above the footpath
@@ -972,23 +982,25 @@ function buildChunk(cx, cz) {
         else if (wood) for (const d of [-1, 1]) put(d * (Wf / 2 - 0.36), 1.7, F - 0.16, 0.5, 2.7, 0.14, 35, u(63));                              // folding doors pushed back to the sides
         // (what the shop's boards say is what the shop is - render.js SIGNS by number: a shut one is to let, or was anything; sgn: that word, in
         // the colours of the seed given - the box shader's 23 reads a seed of 100 and over as 100 + the word + the colour's seed)
+        // (and its hours - HRS: a shut one is dark at night, sign and all; the others pull a shutter down - or close the folding doors - at their hour, and put out their lights)
+        const hU = HRS(sk || -1, u(160), u(161)), SHUT = hU + 128000; if (sk) put(0, 1.7, F + 0.04, wood ? Wf - 0.1 : Wf - 0.3, 2.7, 0.06, wood ? 35 : 32, u(63), 0, SHUT);
         const SW = [u(141) < 0.4 ? [27, 26] : [11, 0, 5, 24, 25, 32, 33, 34, 41, 8], [11, 28, 29, 40, 45, 44, 11, 11], [0, 1, 2, 9, 22, 23, 30, 31, 21], [4], [3, 13, 14, 12, 20, 35, 19, 7, 6, 24, 25], [5, 16, 38]][sk], sWord = SW[floor(u(4) * SW.length * 0.999)], sgn = (hc) => 100 + sWord + 0.01 + 0.98 * hc;
         if (sk === 1) {                // grocery (โชห่วย): shelves on three walls, a drinks fridge, cardboard boxes of stock out in front
-          put(0, 1.72, zb, Wf - 0.3, 2.6, 0.08, 31, u(62)); for (const d of [-1, 1]) put(d * (Wf / 2 - 0.36), 1.45, F - SD / 2 - 0.4, 0.5, 2.1, SD - 1.4, 31, u(65 + d));
-          put(1.22, 1.3, F - 0.55, 0.7, 1.9, 0.66, 19); put(1.22, 1.38, F - 0.2, 0.58, 1.55, 0.03, 17, 0.9);
+          put(0, 1.72, zb, Wf - 0.3, 2.6, 0.08, 31, u(62), 0, hU); for (const d of [-1, 1]) put(d * (Wf / 2 - 0.36), 1.45, F - SD / 2 - 0.4, 0.5, 2.1, SD - 1.4, 31, u(65 + d), 0, hU);
+          put(1.22, 1.3, F - 0.55, 0.7, 1.9, 0.66, 19); put(1.22, 1.38, F - 0.2, 0.58, 1.55, 0.03, 17, 0.9, 0, hU);
           for (let i = 0; i < 3; i++) { put(-1.45 + i * 0.6, 0.56, F + 0.5, 0.5 + 0.08 * u(70 + i), 0.4, 0.42, 57, u(70 + i)); if (u(73 + i) < 0.5) put(-1.45 + i * 0.6 + (u(76 + i) - 0.5) * 0.08, 0.93, F + 0.5, 0.46, 0.34, 0.38, 57, u(76 + i)); }
         } else if (sk === 2) {         // eating place: steel tables and plastic stools, the menu on the wall, the cook's cabinet out at the front
-          put(0, 2.3, zb, 2.4, 0.8, 0.06, 23, sgn(u(62))); put(0, 1.0, zb, Wf - 0.3, 1.2, 0.05, 19);
+          put(0, 2.3, zb, 2.4, 0.8, 0.06, 23, sgn(u(62)), 0, hU); put(0, 1.0, zb, Wf - 0.3, 1.2, 0.05, 19);
           table(-0.95, F - 1.3, u(65)); table(0.95, F - 2.9, u(66)); table(-0.95, F - 2.9, u(65)); if (u(67) < 0.6) table(0.6, F + 1.5, u(66));
-          put(1.15, 0.86, F - 0.3, 1.2, 0.9, 0.62, 34); put(1.15, 1.6, F - 0.3, 1.1, 0.58, 0.52, 17, 0.9); put(1.15, 1.92, F - 0.3, 1.16, 0.05, 0.6, 34);
+          put(1.15, 0.86, F - 0.3, 1.2, 0.9, 0.62, 34); put(1.15, 1.6, F - 0.3, 1.1, 0.58, 0.52, 17, 0.9, 0, hU); put(1.15, 1.92, F - 0.3, 1.16, 0.05, 0.6, 34);
         } else if (sk === 3) {         // gold shop (ร้านทอง): everything red and gold, glass counters
           put(0, 1.72, zb, Wf - 0.3, 2.6, 0.08, 14); for (const d of [-1, 1]) put(d * (Wf / 2 - 0.14), 1.72, F - SD / 2, 0.06, 2.6, SD - 0.3, 14);
-          put(0, 0.8, F - 1.3, 3.0, 0.9, 0.6, 14); put(0, 1.4, F - 1.3, 3.0, 0.3, 0.6, 17, 0.9); put(0, 2.84, F - 0.1, Wf - 0.3, 0.42, 0.08, 14);
+          put(0, 0.8, F - 1.3, 3.0, 0.9, 0.6, 14); put(0, 1.4, F - 1.3, 3.0, 0.3, 0.6, 17, 0.9, 0, hU); put(0, 2.84, F - 0.1, Wf - 0.3, 0.42, 0.08, 14);
         } else if (sk === 4) {         // glass-fronted and air-conditioned: a clinic, a pharmacy, a minimart, a phone shop
-          put(0, 1.7, F - 0.12, Wf - 0.34, 2.68, 0.05, 17, 0.5 + u(66) * 0.5); put(0, 0.56, F - 0.07, Wf - 0.3, 0.4, 0.09, 19); put(0, 2.45, F - 0.09, Wf - 0.3, 0.07, 0.07, 19);
+          put(0, 1.7, F - 0.12, Wf - 0.34, 2.68, 0.05, 17, 0.5 + u(66) * 0.5, 0, hU); put(0, 0.56, F - 0.07, Wf - 0.3, 0.4, 0.09, 19); put(0, 2.45, F - 0.09, Wf - 0.3, 0.07, 0.07, 19);
           for (const mx of [-0.62, 0.62]) put(mx, 1.7, F - 0.09, 0.06, 2.68, 0.07, 19);
         } else if (sk === 5) {         // motorcycle workshop: parts on the wall, a machine up on the floor, an oil drum, tyres
-          put(0, 1.72, zb, Wf - 0.3, 2.6, 0.08, 31, u(62)); bike(-0.9, F - 1.6, u(68)); cyl(1.3, 0.36, F - 0.7, 0.29, 1.3, 1.25, F - 0.7, 0.29, u(69) < 0.5 ? 4 : 2);
+          put(0, 1.72, zb, Wf - 0.3, 2.6, 0.08, 31, u(62), 0, hU); bike(-0.9, F - 1.6, u(68)); cyl(1.3, 0.36, F - 0.7, 0.29, 1.3, 1.25, F - 0.7, 0.29, u(69) < 0.5 ? 4 : 2);
           for (let i = 0; i < 3; i++) cyl(1.2, 0.42 + i * 0.2, F - 2.2, 0.3, 1.2, 0.6 + i * 0.2, F - 2.2, 0.3, 1);
         }
         // the row's apron, from its front out to the footpath (8 m from the road's middle) at the footpath's height, tilted along the street to
@@ -998,20 +1010,20 @@ function buildChunk(cx, cz) {
         const trk = sk === 0 && sb > 10 && um > 0 && um < 7 && u(142) < 0.45; if (trk) truck(0, F + 1.45, u(143));
         const kz = F + sb - 4.75 - svW(z);                                                        // just inside the kerb (which, where frontage roads leave the main road for an underpass, stands out beyond them: at 4.75 m from the road's middle these stood in the frontage road's way)
         if (u(81) < 0.3) bike(u(82) * 2.8 - 1.4, kz, u(83)); if (u(84) < 0.12) bike(u(85) * 2.8 - 1.4, kz, u(86));      // motorcycles left at the kerb
-        if (sk && u(87) < 0.2) put(u(88) * 2 - 1, 0.78, F + 2.3, 0.6, 0.95, 0.05, 23, sgn(u(89)), 0.18);                       // a board standing on the footpath
+        if (sk && u(87) < 0.2) put(u(88) * 2 - 1, 0.78, F + 2.3, 0.6, 0.95, 0.05, 23, sgn(u(89)), 0.18, hU);                       // a board standing on the footpath
         if (wood) {
           put(-Wf / 2, Hh / 2, F + 0.05, 0.18, Hh, 0.18, 4); if (endU) put(Wf / 2, Hh / 2, F + 0.05, 0.18, Hh, 0.18, 4);      // posts (one between each pair of units, not two in the same place)
           put(0, 3.1, F + 1.05, Wf, 0.05, 2.3, 1, bs, 0.2);                                                                // tin lean-to over the footpath
           put(0, 5.0, F + 0.45, Wf, 0.08, 0.95, 0); put(0, 5.92, F + 0.9, Wf, 0.06, 0.07, 4); for (let x = -1.8; x <= 1.81; x += 0.4) put(x * Wf / UW, 5.48, F + 0.9, 0.04, 0.82, 0.04, 4);      // the long balcony
           put(-0.95, 6.15, F + 0.03, 0.85, 2.0, 0.06, u(90) < 0.5 ? 3 : 35, bs); for (const d of [-1, 1]) put(-0.95 + d * 0.66, 6.15, F + 0.05, 0.42, 2.0, 0.05, 35, bs);          // a door on to it, its leaves open
           put(0.95, 6.5, F + 0.03, 0.9, 1.2, 0.06, 3); for (const d of [-1, 1]) put(0.95 + d * 0.68, 6.5, F + 0.05, 0.44, 1.2, 0.05, 35, bs);                                     // a shuttered window
-          if (u(3) < (sk ? 0.6 : 0.3)) put(0, 4.2, F + 0.12, UW * 0.8, 0.8, 0.08, 23, sgn(u(9)));
+          if (u(3) < (sk ? 0.6 : 0.3)) put(0, 4.2, F + 0.12, UW * 0.8, 0.8, 0.08, 23, sgn(u(9)), 0, hU);
         } else {
         put(-Wf / 2, Hh / 2, F + 0.1, 0.3, Hh, 0.32, 18, bs); if (endU) put(Wf / 2, Hh / 2, F + 0.1, 0.3, Hh, 0.32, 18, bs);   // party-wall piers
         put(0, 3.2, F + 0.85, Wf, 0.12, 1.7, 2); put(0, 3.05, F + 1.66, Wf, 0.3, 0.08, 2);            // concrete canopy with a downstand
         if (u(1) < 0.45) put(0, 2.72, F + 2.2, UW * 0.92, 0.04, 1.3, u(8) < 0.5 ? 36 : 1, u(8) < 0.5 ? [0.63, 0.63, 0.48, 0.48, 0.1][floor(u(2) * 4.99)] : u(2), 0.3);  // extra awning out over the footpath: tin, or striped canvas
-        if (u(3) < (sk ? 0.78 : 0.4)) put(0, 4.05, F + 0.12, UW * (0.5 + 0.34 * (u(10) < 0.6 ? 1 : u(10))), 0.6 + 0.45 * u(11), 0.1, 23, sgn(u(9)));                     // the shop's sign across the front
-        if (u(5) < 0.1) put((u(6) < 0.5 ? -1 : 1) * (UW / 2 - 0.25), 3.98, F + 1.0, 0.14, 0.8, 1.2, 23, sgn(u(7)));   // now and then a small lightbox standing out from the wall above the canopy
+        if (u(3) < (sk ? 0.78 : 0.4)) put(0, 4.05, F + 0.12, UW * (0.5 + 0.34 * (u(10) < 0.6 ? 1 : u(10))), 0.6 + 0.45 * u(11), 0.1, 23, sgn(u(9)), 0, hU);                     // the shop's sign across the front
+        if (u(5) < 0.1) put((u(6) < 0.5 ? -1 : 1) * (UW / 2 - 0.25), 3.98, F + 1.0, 0.14, 0.8, 1.2, 23, sgn(u(7)), 0, hU);   // now and then a small lightbox standing out from the wall above the canopy
         for (let f = 1; f < st; f++) {
           const yb = 5 + (f - 1) * 3;
           if (balc) {         // a balcony: slab, parapet or bars, a glazed door and a window behind

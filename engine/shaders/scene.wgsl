@@ -553,7 +553,7 @@ fn pal(h: f32) -> vec3f {
   let bd1 = dpdx(uv); let bd2 = dpdy(uv); let bw1 = dpdx(i.wp); let bw2 = dpdy(i.wp); let bdet = bd1.x * bd2.y - bd2.x * bd1.y; let bsg = select(-1., 1., bdet >= 0.);
   let Tub = normalize((bw1 * bd2.y - bw2 * bd1.y) * bsg + vec3f(1e-7, 0., 0.)); let Tvb = normalize((bw2 * bd1.x - bw1 * bd2.x) * bsg + vec3f(0., 1e-7, 0.));
   var gsl = vec2f(0.);      // (the lie of a surface that is painted as rounded things - the goods of a market, below: it turns the light as they would)
-  let mat = i32(i.m.x + .5); let sd = i.m.y; var alb = vec3f(.5); var gloss = 0.; var emi = vec3f(0.); var refl = 0.;      /* (refl: glass - how much of the sky it gives back) */ let night = g.misc.w * (1. - g.camM.w);      /* (camM.w: a place without power - no lamp or window is lit) */ let dcb = distance(g.cam.xyz, i.wp); let fN = 1. - ss(12., 30., dcb);      // fN: 1 near, 0 where a wall's fine grain is smaller than a pixel (there it is left out)
+  let mat = i32(i.m.x + .5); let sd = i.m.y; var alb = vec3f(.5); var gloss = 0.; var emi = vec3f(0.); var refl = 0.;      /* (refl: glass - how much of the sky it gives back) */ let night = g.misc.w * (1. - g.camM.w);      /* (shp: the shape, from the slot that also carries a shop's hours; nOp: night where the shop is open, 0 where it has shut) */ let hk = floor(i.m.w / 1000.); let shp = i.m.w - hk * 1000.; let opn = hrsOpen(i.m.w); let nOp = night * opn;      /* (camM.w: a place without power - no lamp or window is lit) */ let dcb = distance(g.cam.xyz, i.wp); let fN = 1. - ss(12., 30., dcb);      // fN: 1 near, 0 where a wall's fine grain is smaller than a pixel (there it is left out)
   if (mat == 0) {            // upright boards, each its own shade, dark joints, grain
     let b = uv.x / .17; let id = floor(b); let fb = fract(b);
     let tone = mix(vec3f(.30, .19, .11), vec3f(.26, .24, .21), step(.55, sd));       // teak brown or sun-greyed
@@ -670,7 +670,7 @@ fn pal(h: f32) -> vec3f {
       wall = mix(wall, wall * .7, ss(.55, .8, vn(vec2f(dz * .4, y0 * .5) + sd * 3.)) * .45);
     }
     if (i.ln.y > .5) { wall = vec3f(.33, .32, .30) * (.8 + .3 * vn(i.lp.xz * 2.)); }
-    if (i.ln.y < -.5) { wall = vec3f(.42, .41, .39); emi = vec3f(1., .82, .55) * night * .5 * step(abs(i.lp.x), .7) * step(4., i.lp.z); }      // the shop's ceiling and its strip lights
+    if (i.ln.y < -.5) { wall = vec3f(.42, .41, .39); emi = vec3f(1., .82, .55) * nOp * .5 * step(abs(i.lp.x), .7) * step(4., i.lp.z); }      // the shop's ceiling and its strip lights (out when it has shut)
     alb = wall;
   }
   else if (mat == 31) {      // shelves of goods from floor to ceiling
@@ -692,7 +692,7 @@ fn pal(h: f32) -> vec3f {
     let lc = mix(vec3f(.85, .83, .76), mix(vec3f(.75, .12, .08), vec3f(.85, .7, .1), step(.5, fract(hk * 3.1))), step(.5, fract(hk * 5.7)));
     itc = mix(itc, lc * (.75 + .25 * step(.3, fract(yy * 9.)) ), lab * step(abs(fx), wdt * .92) * .85);
     alb = mix(vec3f(.06, .05, .045), itc, on);
-    alb = mix(alb, vec3f(.36, .30, .22) * (.85 + .2 * vn(vec2f(uv.x * 3., uv.y * 60.))), step(fy, .09)); alb = mix(alb, vec3f(.20, .17, .14), ss(25., 70., dcb)); emi = alb * night * 1.3;
+    alb = mix(alb, vec3f(.36, .30, .22) * (.85 + .2 * vn(vec2f(uv.x * 3., uv.y * 60.))), step(fy, .09)); alb = mix(alb, vec3f(.20, .17, .14), ss(25., 70., dcb)); emi = alb * nOp * 1.3;
   }
   else if (mat == 42) {      // a modern shop shelf: white steel, levels 30 cm apart, small packets in rows (each kind four facings wide), a white price strip along every shelf's edge
     // On each level a run of one kind of thing, four or five facings of it side by side, then another kind: bags of snacks (pillowed, crimped
@@ -807,7 +807,7 @@ fn pal(h: f32) -> vec3f {
       cc *= .85 + .15 * vn(q * 8.); cc = mix(cc, vec3f(.10, .10, .10), ss(.5, .8, vn(vec2f(q.x * .3, q.y * 3.) + 5.)) * .35);
     }
     // the joints between the 2 m lengths, dark lines across
-    cc *= mix(.35, 1., ss(.0, .025, (i.m.w - 20.) * .5 - abs(i.lp.z)));
+    cc *= mix(.35, 1., ss(.0, .025, (shp - 20.) * .5 - abs(i.lp.z)));
     alb = cc;
   }
   else if (mat == 47) {      // a concrete slab carrying a road along its length (local x): asphalt down the middle with a broken yellow centre line and white edge lines; bare concrete beside it and on its sides
@@ -838,9 +838,9 @@ fn pal(h: f32) -> vec3f {
       alb = road; gloss = .22;
     }
   }
-  else if (mat == 44) {      // a shop ceiling: white tiles, set with rows of light panels that are on day and night
+  else if (mat == 44) {      // a shop ceiling: white tiles, set with rows of light panels that are on while the shop is open (day and night, at the convenience store)
     let q = i.lp.xz; let lp = step(.3, fract(q.x / 1.2)) * step(.72, fract(q.y / 1.25));
-    alb = vec3f(.86, .86, .84) * (.97 + .03 * step(.03, fract(q.x / .6)) * step(.03, fract(q.y / .6))); emi = vec3f(1., 1., .94) * lp * (1.1 + 1.6 * night);
+    alb = vec3f(.86, .86, .84) * (.97 + .03 * step(.03, fract(q.x / .6)) * step(.03, fract(q.y / .6))); emi = vec3f(1., 1., .94) * lp * (1.1 + 1.6 * night) * opn;
   }
   else if (mat == 32) {      // roller shutter: steel slats, bare or painted, rust creeping up from the foot
     let hh = i.m.z * .5; let slat = mix(.92, .68 + .32 * ss(.0, .5, abs(fract(uv.y * 11.) - .5) * 2.), fN);
@@ -888,7 +888,7 @@ fn pal(h: f32) -> vec3f {
   }
   else if (mat == 36) { var q = uv; if (abs(i.ln.y) > .5) { q = i.lp.xz; } alb = mix(pal2(sd), vec3f(.78, .77, .72), step(.5, fract(q.x / .14))) * (.75 + .2 * vn(q * 3.)); }      // striped canvas awning (narrow stripes)
   else if (mat == 23) {      // a sign board. The name in one row of large letters of even height, with the small marks Thai writes above some letters and below a few;
-    // under it a row of small figures (the telephone number). A lightbox at night, unless the height slot is negative (road signs are not lit).
+    // under it a row of small figures (the telephone number). A lightbox at night, unless the height slot is negative (road signs are not lit), or its shop has shut.
     var q = i.lp.xy; if (abs(i.ln.x) > .5) { q = i.lp.zy; }
     if (i.ln.z < -.5 || i.ln.x > .5) { q.x = -q.x; }                 // so the words read the right way round on every face
     // (a seed of 3 or more names the road word itself: 3 + its number among the sixteen, and the fraction is the seed for the board's colour)
@@ -908,7 +908,7 @@ fn pal(h: f32) -> vec3f {
       else { sty = 4.; bg = mix(mix(vec3f(.03, .06, .20), vec3f(.03, .16, .08), step(.35, lc)), vec3f(.22, .03, .04), step(.7, lc)); } }
     if (i.m.z < 0. && dot(bg, vec3f(.3, .6, .1)) > .45) { fg = vec3f(.04); }
     // which words: a shop name (0-47) or, on a road board, one of the road words (48-63); written across, or downward on a tall board
-    var wd = hgt * 4.; if (i.m.w > 10.05) { wd = i.m.w - 10.; }
+    var wd = hgt * 4.; if (shp > 10.05) { wd = shp - 10.; }
     var idx = floor(h2(vec2f(sd * 91., 5.)) * 46.99); if (i.m.z < 0.) { idx = 48. + floor(h2(vec2f(sd * 57., 9.)) * 15.99); } if (named) { idx = 48. + floor(sd0 - 3.); } if (shopw) { idx = floor(sd0 - 100.); }
     if (shopw && idx == 4.) { sty = 2.; bg = vec3f(.42, .02, .02); fg = vec3f(.85, .62, .12); frame = 1.; }      // (a gold shop's: red, its letters gold)
     if (brand) { idx = 47.; bg = vec3f(.24, .07, .36); fg = vec3f(.97, .96, .92); }      // the made-up chain's colours: purple, white letters, a yellow line above and below
@@ -934,7 +934,7 @@ fn pal(h: f32) -> vec3f {
     if (sty > 1.5 && sty < 2.5) { alb *= .8 + .3 * vn(vec2f(q.x * 3., q.y * 40.) + sd * 9.); }
     if (sty > 2.5 && sty < 3.5) { alb = mix(alb, vec3f(.33, .27, .2), ss(.5, .8, vn(q * vec2f(2., 5.) + sd * 31.)) * .5); alb *= .85 + .15 * vn(vec2f(q.x * 30., q.y * 1.5)); }
     if (brand) { let vv = abs(q.y) / hgt; alb = mix(alb, vec3f(.95, .72, .08), step(.36, vv) * step(vv, .43)); }
-    emi = alb * night * 1.4 * step(0., i.m.z) * select(1., select(.0, .25, sty > 3.5), sty > 1.5); gloss = .25;      // (only the lightbox and the vinyl are lit from within; the painted boards are not)
+    emi = alb * nOp * 1.4 * step(0., i.m.z) * select(1., select(.0, .25, sty > 3.5), sty > 1.5); gloss = .25;      // (only the lightbox and the vinyl are lit from within; the painted boards are not)
     if (abs(i.ln.y) > .5 || (abs(i.ln.z) > .5 && abs(i.ln.x) > .5)) { alb = vec3f(.2); }
   }
   else if (mat == 24) {      // retaining wall of fitted rubble stone, pale mortar between
@@ -1001,7 +1001,7 @@ fn pal(h: f32) -> vec3f {
   else if (mat == 17) {      // window glass: dark inside, a reflection of the sky at a slant, lit at night in some
     let fr = .06 + .94 * pow(1. - max(dot(n, V), 0.), 4.); let R = reflect(-V, n);
     alb = vec3f(.03, .04, .05);
-    emi = mix(horizon(R), g.zen.rgb, ss(0., .7, max(R.y, 0.))) * fr * .7 + vec3f(1., .74, .40) * night * step(.45, sd) * 1.3;
+    emi = mix(horizon(R), g.zen.rgb, ss(0., .7, max(R.y, 0.))) * fr * .7 + vec3f(1., .74, .40) * nOp * step(.45, sd) * 1.3;
     gloss = .8;
   }
   else if (mat == 18) {      // painted cement render: soft blotches, red dust splashed up from the ground, streaks below the eaves
@@ -1016,7 +1016,7 @@ fn pal(h: f32) -> vec3f {
   else if (mat == 20) { let bd = vec3f(i.lp.x, i.lp.y, i.lp.z) * 22.; alb = mix(vec3f(.95, .50, .03), vec3f(1., .78, .08), vn(bd.xy + bd.z)) * (.75 + .35 * abs(sin(bd.x + bd.y + bd.z))); emi = alb * g.sunCol.rgb * .04; }   // marigold garland
   else if (mat == 14) { alb = mix(vec3f(.62, .08, .06), vec3f(.80, .60, .12), step(.5, fract(i.lp.y * 9.)) * .6); gloss = .3; }      // spirit house: red and gold
   else if (mat == 15) { alb = vec3f(.82, .62, .12) * (.8 + .3 * vn(uv * 20.)); gloss = .6; }
-  else if (mat == 10) { alb = vec3f(.6); emi = vec3f(1., .8, .5) * max(night, .55 * step(3.5, i.m.w) * step(i.m.w, 4.5)) * 9.; }      // a lamp: lit at night (shape 4, a tunnel's: by day as well)
+  else if (mat == 10) { alb = vec3f(.6); emi = vec3f(1., .8, .5) * max(night, .55 * step(3.5, shp) * step(shp, 4.5)) * 9.; }      // a lamp: lit at night (shape 4, a tunnel's: by day as well)
   else if (mat == 30) {      // a bridge deck: the road carried across, concrete at its edges and underneath
     // (The lengths overlap a little at their joints, and where the deck crests the end of one stands a hair - a fraction of a millimetre - above
     // the next one's top: that sliver of pale concrete showed as a dashed white line across the road, plainest at night. The top 5 cm of the
@@ -1121,14 +1121,14 @@ fn pal(h: f32) -> vec3f {
   }
   let ndl = max(dot(nb, L), 0.);
   let E = g.sunCol.rgb * shadow(i.wp + n * .1);
-  if (i.m.w > 4.5 && i.m.w < 5.5) { alb *= .30; emi += alb * vec3f(1.25, 1.05, .75) * .9; }      // (shape 5) inside a tunnel: dim concrete under the yellow of its lamps, not the light of the sky
-  if (i.m.w > 2.5 && i.m.w < 3.5) { emi += alb * (.36 + .7 * night); }      // (shape 3) indoors under the shop's own lights, which are on all the time
+  if (shp > 4.5 && shp < 5.5) { alb *= .30; emi += alb * vec3f(1.25, 1.05, .75) * .9; }      // (shape 5) inside a tunnel: dim concrete under the yellow of its lamps, not the light of the sky
+  if (shp > 2.5 && shp < 3.5) { emi += alb * (.36 + .7 * night) * opn; }      // (shape 3) indoors under the shop's own lights, on all the time it is open (all the time, at the convenience store)
   // Snow lying - in the snowfield in the cool season, or everywhere when snow is chosen (camM.z), as on the ground (terrain.wgsl) - on what is
   // built too: the top of every wall, rail, roof and deck under the open sky, and on the roads that are built rather than painted on the
   // ground (bridge decks, the slab over an underpass, the frontage roads) the same cover as the road beside them, worn away in the wheel
   // tracks. (Left bare, every bridge was a dark strip across a white land.) Not in a tunnel, nor indoors.
   { let snw = max(nw(i.wp.z) * g.ssn.x, g.camM.z);
-    if (snw > .01 && n.y > .6 && tunk(i.wp.z) < .5 && !(i.m.w > 2.5 && i.m.w < 5.5) && mat != 10) {
+    if (snw > .01 && n.y > .6 && tunk(i.wp.z) < .5 && !(shp > 2.5 && shp < 5.5) && mat != 10) {
       let roadM = mat == 30 || mat == 47 || mat == 49 || mat == 51;
       var cov = snw * ss(.3, .6, vn(i.wp.xz * .45) + select(.45, .15, roadM));
       var sc = vec3f(.70, .73, .80);

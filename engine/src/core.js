@@ -20,5 +20,5 @@ const ph = (i, j) => { let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263
 const pn = (x, y) => { const ix = floor(x), iy = floor(y), fx = x - ix, fy = y - iy, ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy); return mix(mix(ph(ix, iy), ph(ix + 1, iy), ux), mix(ph(ix, iy + 1), ph(ix + 1, iy + 1), ux), uy); };
 const turfAt = (x, z) => pn(x * 0.09, z * 0.09) * 0.5 + pn(x * 0.37, z * 0.37) * 0.32 + pn(x * 1.3, z * 1.3) * 0.18;
 // a sign board carries its own width (in its last number), so that the words can be fitted to it
-const signW = (B) => { for (let i = 0; i < B.length; i += 12) if (B[i + 8] === 23) B[i + 11] = 10 + Math.max(B[i + 4], B[i + 6]); return B; };
+const signW = (B) => { for (let i = 0; i < B.length; i += 12) if (B[i + 8] === 23) B[i + 11] = 10 + Math.max(B[i + 4], B[i + 6]) + 1000 * Math.max(0, Math.floor(B[i + 11] / 1000)); return B; };      // (a shop's hours, 1000 * H in the same slot, are kept: chunks.js HRS)
 const rng = (seed) => { let s = (seed >>> 0) || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); };

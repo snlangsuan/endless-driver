@@ -4,7 +4,7 @@
 // in front of this text.
 struct G { vp: mat4x4f, sm: mat4x4f, cam: vec4f, sun: vec4f, sunCol: vec4f, fwd: vec4f, right: vec4f, up: vec4f,
   fog: vec4f, res: vec4f, amb: vec4f, misc: vec4f, zen: vec4f, hor: vec4f, camM: vec4f, crush: array<vec4f, 8>, wake: array<vec4f, 8>, ssn: vec4f };
-// ssn: x how far it is the cool season (0..1): the snowfield (nw) is under snow only then, and green upland the rest of the year
+// ssn: x how far it is the cool season (0..1): the snowfield (nw) is under snow only then, and green upland the rest of the year; y the hour (0..24)
 // wake: where the car has just been, newest first - x, z, the time it was there, w how hard its passing blows (0: none, or no such point)
 // cam.w time · fwd/right/up: camera basis (right.w, up.w = tan half fov x, y) · fog: x density, y far edge, z cloud cover, w dry season
 // crush: plants the car has pressed down - x, z where, z how far (0..1), w how far round · misc: x headlights, y wind, z exposure, w night · camM: xy the eye's place in its 256 m tile, z snow lying everywhere (snow chosen by hand)
@@ -46,6 +46,12 @@ fn vn(p: vec2f) -> f32 { let i = floor(p); let f = fract(p); let u = f * f * (3.
   return mix(mix(h2(i), h2(i + vec2f(1., 0.)), u.x), mix(h2(i + vec2f(0., 1.)), h2(i + vec2f(1., 1.)), u.x), u.y); }
 fn fbm(p: vec2f) -> f32 { var s = 0.; var a = .5; var q = p; for (var i = 0; i < 4; i++) { s += a * vn(q); q = q * 2.03 + vec2f(17.1, 9.7); a *= .5; } return s / .9375; }
 fn ph(c: vec2i) -> f32 { var h = bitcast<u32>(c.x) * 374761393u + bitcast<u32>(c.y) * 668265263u; h = (h ^ (h >> 13u)) * 1274126177u; h = h ^ (h >> 16u); return f32(h) / 4294967296.; }
+// Shop hours (chunks.js HRS). A country town shuts early: by six to eight in the evening most shops have pulled their shutters down and put
+// out their lights, a grocery keeps open a little later, and only the convenience store is open all night. A box that belongs to a shop
+// keeping hours carries 1000 * H in its shape slot, H = 1 + c + 12 o: the shop opens at 5.5 + o / 2 o'clock and shuts at 17 + c / 2
+// (and 128 more: a shutter, there only while the shop is shut). hrsOpen: 1 while it is open (and for a box with no hours), else 0.
+fn hrsOpen(w: f32) -> f32 { var k = floor(w / 1000.); if (k < .5) { return 1.; } if (k > 128.5) { k -= 128.; }
+  let c = (k - 1.) % 12.; let o = floor((k - 1.) / 12.); let h = g.ssn.y; return step(5.5 + o * .5, h) * (1. - step(17. + c * .5, h)); }
 fn ss(a: f32, b: f32, x: f32) -> f32 { let t = clamp((x - a) / (b - a), 0., 1.); return t * t * (3. - 2. * t); }
 // wind: the whole plant leans with height; nearby parts share a phase so leaves stay on their branches
 // The flower fields by season (g.fog.w: 0 after the rains, about a quarter in the cool season, near 1 in the hot dry one). fbloom: the share of the

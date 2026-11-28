@@ -126,6 +126,7 @@ function frame(now) {
   UB[80] = ((ex % 256) + 256) % 256; UB[81] = ((ez % 256) + 256) % 256;      // where the eye stands in its 256 m tile (camM)
   UB[82] = T.snowG; UB[83] = deadWorld;      // (camM.z: snow lying everywhere, from snow chosen by hand)
   UB[148] = T.cool;      // (ssn.x: the cool season - the snowfield's snow lies only then)
+  UB[149] = tday * 24;      // (ssn.y: the hour - the shops keep theirs: chunks.js HRS)
   for (let i = 0; i < 8; i++) { const q = CRUSH[i], s = q[2]; UB[84 + i * 4] = q[0]; UB[85 + i * 4] = q[1]; UB[86 + i * 4] = s * s * (3 - 2 * s); UB[87 + i * 4] = q[3]; }      // (crush: plants pressed down by the car)
   // (wake: the car's last places, for what its passing blows about - the first is where it is now; a new one is kept every second or so of travel)
   { const st = min(1, abs(car.v) / 14), W0 = WAKE[0], W1 = WAKE[1]; const lead = clamp(car.v * 0.4, -6, 12);
