@@ -46,7 +46,10 @@ const HOUSE = (() => {
   for (const dx of [-0.52, 0.52]) { B.box(sx + dx, FL / 2 - 0.02, vz + 0.15 + n * sgo / 2, 0.06, 0.2, hypot(n * sgo, FL) + 0.2, 4, Math.atan2(FL, n * sgo)); B.box(sx + dx, FL / 2 + 0.85, vz + 0.15 + n * sgo / 2, 0.05, 0.06, hypot(n * sgo, FL) + 0.1, 4, Math.atan2(FL, n * sgo)); }
   // a lean-to kitchen at the back on the ground, and the water jars
   B.box(-1.4, 1.1, -3.6, 3.4, 2.2, 2.4, 0); B.box(-1.4, 2.35, -3.75, 3.9, 0.05, 3.0, 1, -0.16);
-  B.box(1.9, 0.45, 3.3, 0.7, 0.9, 0.7, 2);
+  // (the water jars are the lot's - chunks.js: real round ones.) In the shade under the house, where the day is spent: a low wooden platform
+  // to sit and lie on (แคร่), slatted; and firewood stacked against a post.
+  for (let k = 0; k < 6; k++) B.box(-1.0, 0.47, -0.45 + k * 0.22, 2.1, 0.035, 0.18, 0); for (const x of [-1.95, -0.05]) for (const z of [-0.45, 0.65]) B.box(x, 0.23, z, 0.07, 0.46, 0.07, 4); for (const z of [-0.45, 0.65]) B.box(-1.0, 0.4, z, 2.0, 0.07, 0.05, 4);
+  for (let k = 0; k < 4; k++) B.box(2.3, 0.1 + k * 0.13, -1.2, 0.9, 0.12, 0.5 - k * 0.06, 0);
   return B;
 })();
 // 2. the house most families build now: one storey of painted block on a plinth, tiled gable roof, a porch on square columns, a carport
@@ -62,6 +65,12 @@ const HOUSE3 = (() => {
   addWindow(B, 'b', -2.6, P + 1.55, 1.2, 1.1, D / 2, 19); addWindow(B, 'b', 2.2, P + 1.75, 0.7, 0.6, D / 2, 19);
   addWindow(B, 'l', -0.6, P + 1.55, 1.4, 1.2, W / 2, 19); addWindow(B, 'r', 0.9, P + 1.55, 1.4, 1.2, W / 2, 19);
   B.box(W / 2 + 0.25, P + 2.0, -1.6, 0.3, 0.55, 0.85, 19);                                                // air conditioner
+  // What such a house has besides: a band of bare cement render round the foot of its walls, a hand high, left unpainted or painted darker;
+  // a thin concrete shade over each front window; on the porch a wooden bench by the door, and the row of shoes left at the step.
+  for (const e of [-1, 1]) { B.box(e * 2.55, P + 0.42, D / 2 + 0.02, 3.9, 0.84, 0.04, 19); B.box(e * (W / 2 + 0.02), P + 0.42, 0, 0.04, 0.84, D, 19); B.box(e * 2.9, P + 2.32, D / 2 + 0.32, 1.9, 0.06, 0.62, 2, 0.22); }
+  B.box(0, P + 0.42, -D / 2 - 0.02, W, 0.84, 0.04, 19);
+  B.box(1.75, P + 0.43, D / 2 + 0.42, 1.3, 0.05, 0.36, 0); for (const x of [1.2, 2.3]) B.box(x, P + 0.21, D / 2 + 0.42, 0.06, 0.42, 0.32, 0); B.box(1.75, P + 0.75, D / 2 + 0.25, 1.3, 0.3, 0.04, 0);
+  for (let k = 0; k < 4; k++) B.box(-0.75 + k * 0.5 + (k % 2) * 0.06, P + 0.035, D / 2 + 1.75 - (k % 2) * 0.05, 0.22, 0.07, 0.27, k % 2 ? 4 : 3);
   // carport beside the house: sheet roof on steel posts
   B.box(-W / 2 - 1.9, 2.75, 0.6, 3.6, 0.05, 5.4, 1, 0.07);
   for (const z of [-1.9, 3.1]) B.box(-W / 2 - 3.5, 1.35, z, 0.09, 2.7, 0.09, 4);
@@ -87,6 +96,9 @@ const HOUSE2 = (() => {
   addDoor(B, 'f', -1.6, 0, 1.0, 2.1, D / 2, 19, 4); addWindow(B, 'f', 1.5, 1.5, 1.8, 1.2, D / 2, 19);
   addDoor(B, 'f', 1.4, 3.07, 0.9, 2.0, D / 2, 19, 4); addWindow(B, 'f', -1.5, 4.5, 1.6, 1.2, D / 2, 19);
   for (const y of [1.5, 4.5]) { addWindow(B, 'l', -1.5, y, 1.3, 1.1, W / 2, 19); addWindow(B, 'l', 1.8, y, 1.3, 1.1, W / 2, 19); addWindow(B, 'r', 0, y, 1.3, 1.1, W / 2, 19); addWindow(B, 'b', 0, y, 1.5, 1.1, D / 2, 19); }
+  // (a tin shade over the ground floor's front window; air conditioners on the side walls; the bare render band round the foot of the walls)
+  B.box(1.5, 2.3, D / 2 + 0.38, 2.3, 0.05, 0.75, 1, 0.24); B.box(W / 2 + 0.2, 4.6, 1.2, 0.32, 0.55, 0.8, 22); B.box(-W / 2 - 0.2, 1.9, -1.6, 0.32, 0.55, 0.8, 22);
+  for (const e of [-1, 1]) B.box(e * (W / 2 + 0.02), 0.42, 0, 0.04, 0.84, D, 19); B.box(0, 0.42, -D / 2 - 0.02, W, 0.84, 0.04, 19);
   B.box(-2.75, 0.65, 8, 3.5, 1.3, 0.16, 18).box(2.75, 0.65, 8, 3.5, 1.3, 0.16, 18).box(-4.6, 0.65, 2, 0.16, 1.3, 12, 18).box(4.6, 0.65, 2, 0.16, 1.3, 12, 18).box(-0.95, 0.85, 8, 0.3, 1.7, 0.3, 19).box(0.95, 0.85, 8, 0.3, 1.7, 0.3, 19);
 }
 // a shrub: a low dome of small leaves; some bloom (bougainvillea)
@@ -183,29 +195,31 @@ const SALA = [[-1.6, 1.2, -1, 0.12, 2.4, 0.12, 0, 4], [1.6, 1.2, -1, 0.12, 2.4, 
 const FIELDHUT = [[-1.1, 1.15, -1, 0.1, 2.3, 0.1, 0, 4], [1.1, 1.15, -1, 0.1, 2.3, 0.1, 0, 4], [-1.1, 1.15, 1, 0.1, 2.3, 0.1, 0, 4], [1.1, 1.15, 1, 0.1, 2.3, 0.1, 0, 4],
   [0, 0.85, 0, 2.5, 0.07, 2.3, 0, 0], [0, 2.55, -0.62, 3.0, 0.05, 1.6, -0.5, 1], [0, 2.55, 0.62, 3.0, 0.05, 1.6, 0.5, 1]];
 const TREES = [
-  makeTree(11, { H: 8, r: 0.34, n: [9, 5, 3], ang: [1.1, 0.9, 0.85], crown: 0.32, len0: 0.5, lenR: 0.6, trop: 0.2, wob: 0.2, per: 4, leaf: 0.62, wide: 0.3 }),
-  makeTree(23, { H: 10, r: 0.4, n: [10, 5, 3], ang: [1.15, 0.9, 0.85], crown: 0.38, len0: 0.46, lenR: 0.6, trop: 0.18, wob: 0.22, per: 4, leaf: 0.66, wide: 0.3 }),
-  makeTree(37, { H: 6.5, r: 0.26, n: [8, 4, 3], ang: [1.2, 0.95, 0.85], crown: 0.28, len0: 0.6, lenR: 0.62, trop: 0.14, wob: 0.26, per: 4, leaf: 0.56, wide: 0.3 }),
+  // 0 a mango (มะม่วง): a short trunk and a dense round dark head of long leaves in whorls; 1 a pterocarpus (ประดู่): pinnate leaves on boughs that
+  // droop at their ends; 2 a bodhi (โพธิ์): a pale smooth trunk and a broad head of heart-shaped leaves with long tips
+  makeTree(11, { H: 8, r: 0.36, n: [9, 5, 3], ang: [1.15, 0.95, 0.85], crown: 0.28, len0: 0.5, lenR: 0.6, trop: 0.2, wob: 0.2, per: 6, leaf: 0.7, wide: 0.42, sp: 6 }),
+  makeTree(23, { H: 10, r: 0.4, n: [10, 5, 3], ang: [1.15, 0.9, 0.85], crown: 0.38, len0: 0.46, lenR: 0.6, trop: 0.18, wob: 0.22, per: 5, leaf: 0.66, wide: 0.3 }),
+  makeTree(37, { H: 7.5, r: 0.34, n: [8, 4, 3], ang: [1.25, 0.95, 0.85], crown: 0.28, len0: 0.62, lenR: 0.62, trop: 0.14, wob: 0.26, per: 5, leaf: 0.6, wide: 0.36, sp: 7 }),
   makePalm(71), makePalm(79), makeSugarPalm(91), makeSugarPalm(97), makeBanana(105), makeBush(121, false), makeBush(127, true),
   // a rain tree (จามจุรี): short thick trunk under a wide flat umbrella; and a tall forest tree with a clean bole and a high crown
-  makeTree(53, { H: 8.5, r: 0.52, n: [11, 6, 3], ang: [1.38, 1.0, 0.9], crown: 0.34, len0: 0.9, lenR: 0.6, trop: 0.04, wob: 0.26, per: 4, leaf: 0.55, wide: 0.3 }),
-  makeTree(67, { H: 17, r: 0.44, n: [10, 5, 3], ang: [1.05, 0.9, 0.85], crown: 0.62, len0: 0.3, lenR: 0.6, trop: 0.2, wob: 0.14, per: 4, leaf: 0.64, wide: 0.3 }),
+  makeTree(53, { H: 8.5, r: 0.52, n: [11, 6, 3], ang: [1.38, 1.0, 0.9], crown: 0.34, len0: 0.9, lenR: 0.6, trop: 0.04, wob: 0.26, per: 6, leaf: 0.58, wide: 0.3, sp: 1 }),
+  makeTree(67, { H: 17, r: 0.44, n: [10, 5, 3], ang: [1.05, 0.9, 0.85], crown: 0.62, len0: 0.3, lenR: 0.6, trop: 0.2, wob: 0.14, per: 5, leaf: 0.72, wide: 0.4, sp: 2 }),
 ];
 TREES.push(makeCasuarina(141), makeCasuarina(149));      // 12, 13
 // พญาเสือโคร่ง in flower (14, 15): a dark crooked trunk clear to well above a car's roof, then boughs that climb as they spread, making a full round head
 // high over the verge (no limb hangs down across the road); hardly a leaf - the whole crown is pink
-TREES.push(makeTree(163, { H: 8.5, r: 0.36, n: [9, 5, 3], ang: [0.92, 0.9, 0.85], crown: 0.44, len0: 0.5, lenR: 0.62, trop: 0.26, wob: 0.3, per: 4, leaf: 0.62, wide: 0.38, bloom: 0.93 }),
-  makeTree(171, { H: 9.5, r: 0.42, n: [10, 5, 3], ang: [0.98, 0.9, 0.85], crown: 0.46, len0: 0.48, lenR: 0.62, trop: 0.24, wob: 0.28, per: 4, leaf: 0.64, wide: 0.38, bloom: 0.96 }));
+TREES.push(makeTree(163, { H: 8.5, r: 0.36, n: [9, 5, 3], ang: [0.92, 0.9, 0.85], crown: 0.44, len0: 0.5, lenR: 0.62, trop: 0.26, wob: 0.3, per: 5, leaf: 0.62, wide: 0.38, bloom: 0.93, sp: 4 }),
+  makeTree(171, { H: 9.5, r: 0.42, n: [10, 5, 3], ang: [0.98, 0.9, 0.85], crown: 0.46, len0: 0.48, lenR: 0.62, trop: 0.24, wob: 0.28, per: 5, leaf: 0.64, wide: 0.38, bloom: 0.96, sp: 4 }));
 // ยางพารา (16): a rubber tree as a plantation grows it - a straight slender trunk, clear for half its height, then a few steep boughs and a light crown
-TREES.push(makeTree(181, { H: 15, r: 0.19, n: [6, 3, 2], ang: [0.7, 0.85, 0.85], crown: 0.52, len0: 0.36, lenR: 0.62, trop: 0.3, wob: 0.1, per: 4, leaf: 0.66, wide: 0.5, kind: 14 }));
+TREES.push(makeTree(181, { H: 15, r: 0.19, n: [6, 3, 2], ang: [0.7, 0.85, 0.85], crown: 0.52, len0: 0.36, lenR: 0.62, trop: 0.3, wob: 0.1, per: 5, leaf: 0.66, wide: 0.5, kind: 14 }));
 TREES.push(makeOilPalm(193), makeOilPalm(199));      // 17, 18
 // small slender trees (19, 20), for the hedgerows of the flower fields: a thin stem, a light round head not much above a man's height
-TREES.push(makeTree(211, { H: 4.4, r: 0.085, n: [7, 4, 2], ang: [1.0, 0.9, 0.85], crown: 0.42, len0: 0.42, lenR: 0.6, trop: 0.22, wob: 0.2, per: 4, leaf: 0.5, wide: 0.42 }),
-  makeTree(223, { H: 5.2, r: 0.1, n: [8, 4, 2], ang: [0.85, 0.9, 0.85], crown: 0.5, len0: 0.36, lenR: 0.6, trop: 0.3, wob: 0.16, per: 4, leaf: 0.48, wide: 0.4 }));
+TREES.push(makeTree(211, { H: 4.4, r: 0.085, n: [7, 4, 2], ang: [1.0, 0.9, 0.85], crown: 0.42, len0: 0.42, lenR: 0.6, trop: 0.22, wob: 0.2, per: 5, leaf: 0.5, wide: 0.42 }),
+  makeTree(223, { H: 5.2, r: 0.1, n: [8, 4, 2], ang: [0.85, 0.9, 0.85], crown: 0.5, len0: 0.36, lenR: 0.6, trop: 0.3, wob: 0.16, per: 5, leaf: 0.48, wide: 0.4 }));
 // ราชพฤกษ์ (21, 22), the golden shower, for the avenues of its stretches: a medium tree, its trunk dividing low into a few boughs that spread and
 // droop into a broad open head, green all year, and in the hot season hung all over with long chains of yellow flowers
-TREES.push(makeTree(233, { H: 9, r: 0.3, n: [9, 5, 3], ang: [1.12, 0.95, 0.85], crown: 0.4, len0: 0.55, lenR: 0.6, trop: 0.1, wob: 0.26, per: 4, leaf: 0.58, wide: 0.32, hang: 0.9 }),
-  makeTree(241, { H: 10.5, r: 0.34, n: [10, 5, 3], ang: [1.08, 0.95, 0.85], crown: 0.42, len0: 0.5, lenR: 0.6, trop: 0.12, wob: 0.24, per: 4, leaf: 0.6, wide: 0.32, hang: 0.9 }));
+TREES.push(makeTree(233, { H: 9, r: 0.3, n: [9, 5, 3], ang: [1.12, 0.95, 0.85], crown: 0.4, len0: 0.55, lenR: 0.6, trop: 0.1, wob: 0.26, per: 5, leaf: 0.62, wide: 0.36, hang: 0.9, sp: 3 }),
+  makeTree(241, { H: 10.5, r: 0.34, n: [10, 5, 3], ang: [1.08, 0.95, 0.85], crown: 0.42, len0: 0.5, lenR: 0.6, trop: 0.12, wob: 0.24, per: 5, leaf: 0.64, wide: 0.36, hang: 0.9, sp: 3 }));
 const DEMO = Number(new URLSearchParams(location.search).get('plant') ?? -1);
 const BL = [0, 1, 2, 10, 11, 0, 1, 2];      // the broadleaf kinds, the rarer ones met less often
 

@@ -57,10 +57,18 @@ fn runs(p: vec2f, sl: f32, t: f32, sc: f32, dens: f32, vel: f32) -> vec4f {
 fn vn2(p: vec2f) -> f32 { let i = floor(p); let f = fract(p); let u = f * f * (3. - 2. * f);
   return mix(mix(hash3(i).x, hash3(i + vec2f(1., 0.)).x, u.x), mix(hash3(i + vec2f(0., 1.)).x, hash3(i + vec2f(1., 1.)).x, u.x), u.y); }
 fn aces(x: vec3f) -> vec3f { return clamp((x * (2.51 * x + .03)) / (x * (2.43 * x + .59) + .14), vec3f(0.), vec3f(1.)); }
+// The scene as this point of the screen sees it. When the picture is drawn larger than the screen (uu.f.z: how many times, see resize() in render.js)
+// it is shrunk back here, four filtered taps across the screen pixel's own footprint, so a fine edge is averaged rather than skipped over.
+fn scn(uv: vec2f) -> vec3f {
+  let r = uu.f.z; if (r < 1.05) { return textureSampleLevel(tS, s, uv, 0.).rgb; }
+  let o = .25 * r / vec2f(textureDimensions(tS));
+  return (textureSampleLevel(tS, s, uv + vec2f(-o.x, -o.y), 0.).rgb + textureSampleLevel(tS, s, uv + vec2f(o.x, -o.y), 0.).rgb
+        + textureSampleLevel(tS, s, uv + vec2f(-o.x, o.y), 0.).rgb + textureSampleLevel(tS, s, uv + vec2f(o.x, o.y), 0.).rgb) * .25;
+}
 @fragment fn fs(i: VO) -> @location(0) vec4f {
   let u = uu.a; let b = uu.b;
   let ck = uu.f.x;
-  var c = textureSampleLevel(tS, s, i.uv, 0.).rgb + textureSampleLevel(tB, s, i.uv, 0.).rgb * (.22 + .08 * ck);
+  var c = scn(i.uv) + textureSampleLevel(tB, s, i.uv, 0.).rgb * vec3f(1.04, 1.0, .94) * (.28 + .06 * ck);      // (the bloom a touch warm, as sunlight on paint and glass glares)
   // (the film look: the red and the blue drawn a hair apart toward the edges, as a lens fringes them)
   if (ck > .001) { let q0 = (i.uv - .5) * dot(i.uv - .5, i.uv - .5) * .012 * ck;
     c = vec3f(textureSampleLevel(tS, s, i.uv + q0, 0.).r + textureSampleLevel(tB, s, i.uv + q0, 0.).r * (.22 + .08 * ck), c.g, textureSampleLevel(tS, s, i.uv - q0, 0.).b + textureSampleLevel(tB, s, i.uv - q0, 0.).b * (.22 + .08 * ck)); }
@@ -194,9 +202,18 @@ fn aces(x: vec3f) -> vec3f { return clamp((x * (2.51 * x + .03)) / (x * (2.43 * 
       c += vec3f(.72, .78, .88) * r * (.05 + lum * .35) * (.5 + .5 * ry);
     }
   }
-  let q = i.uv - .5; c *= 1. - dot(q, q) * (.45 + .55 * ck);
+  let q = i.uv - .5; c *= 1. - dot(q, q) * (.22 + .78 * ck);
   c = aces(c);
-  let l = dot(c, vec3f(.2126, .7152, .0722)); c = mix(vec3f(l), c, 1.06);
+  // The everyday look: bright and saturated. Vibrance lifts the duller colours more than the already strong ones (so the sky and the grass come up
+  // without the red kerbs going garish), a gentle S of contrast gives the picture its punch, and the lights are warmed a touch, like a summer day.
+  // Tuned toward the look of today's open-world racers: crisp and rich rather than soft - deeper contrast in the middle, shadows a little cool
+  // and clean (never muddy brown), sunlit things warm, the colours full but the skin of the world natural; the blacks kept black.
+  { let l = dot(c, vec3f(.2126, .7152, .0722)); let sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+    c = max(mix(vec3f(l), c, 1.2 + .28 * (1. - ss(0., .5, sat))), vec3f(0.));
+    c = mix(c, c * c * (3. - 2. * c), .34);
+    let sh = 1. - ss(.0, .38, l); let hi = ss(.45, 1., l);
+    c *= mix(vec3f(1.), vec3f(.95, .99, 1.06), sh * .55) * mix(vec3f(1.), vec3f(1.04, 1.0, .95), hi);
+    c = max(c - vec3f(.006), vec3f(0.)) * 1.006; }
   // The film look, by ck: the shadows drawn toward teal and the lights toward a warm amber - set by each pixel's brightness, its own hue kept -
   // a soft S of contrast about the middle, the blacks lifted a touch as on a print, a shade less colour overall.
   if (ck > .001) {

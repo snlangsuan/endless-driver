@@ -12,7 +12,7 @@ let capT = 0, last = performance.now(), time = 0, fN = 0, fT = 0, fWorst = 0, fp
 let glassF = 0;      // how misted the inside of the windscreen is
 let glassP = 0;      // how much snow has piled on the windscreen of the standing car
 let glassR = 0, glassS = 0; const glassSl = [0, 0, 0], glassV = [1, 1, 1], glassUp = [0, 0, 0];      // how wet the windscreen is, how much snow lies on it; for its big, middling and small drops: how far the running ones have slid, which way they go, how far the standing ones have crept up
-const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let TANV = TANH, shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0, coverK = 0, lodK = 1; const ordC = [], seenC = [];      // lodK: 1 = full drawing distances for leaves, twigs and grass; lowered (to 0.9 at least) when the frame rate cannot be held otherwise
+const NEAR = 0.3, FAR = 1500, TANH = Math.tan(62 * PI / 360), SHR = 95; let TANV = TANH, shL = null, shYaw = 0, upOK = 0, rBest = 0, rPrev = 0, rFlat = 0, rSince = 99, rLid = 1, rLidN = 0, rKnown = 0, coverK = 0, lodK = QP[QUAL].lod; const ordC = [], seenC = [];      // lodK: 1 = full drawing distances for leaves, twigs and grass; lowered (to 0.9 at least) when the frame rate cannot be held otherwise
 updateChunks(car.x, car.z, 30);
 function frame(now) {
   requestAnimationFrame(frame);
@@ -25,7 +25,7 @@ function frame(now) {
   if (fT > 500) {
     fps = fN * 1000 / fT;
     // Hold the frame rate up without spoiling the picture: when it falls a fifth below what the display shows (or under 60), first
-    // draw the picture a little smaller, then draw a little less of the far leaves, twigs and grass (lodK), then a little smaller again; give it
+    // draw the picture a little smaller (once the drawing distances of the far leaves, twigs and grass were cut too - lodK - but no more); give it
     // back in the reverse order. Looks come first: see the floor below.
     // The picture is drawn smaller when the frame rate is low and back at full size when it has recovered. "Low" is judged against the best
     // rate this display has shown, so a screen that runs at 30 or 50 Hz is not mistaken for a slow one; and if a step down did not help
@@ -33,26 +33,41 @@ function frame(now) {
     if (fWorst < 400) {
       if (fps > rBest) rBest = fps;
       if (rPrev) { rFlat = fps < rPrev * 1.04 ? rFlat + 1 : 0; rPrev = 0; if (rFlat >= 2) { rBest = fps; rFlat = 0; rKnown = 1; } }
-      const sF = smooth ? 0.5 : 0.85, lF = smooth ? 0.6 : 0.9;      // the floors: how small the picture may be drawn, how far the drawing distances may be cut ('smooth' gives up far more)
-      const lock = fpsCap ? (rKnown ? min(fpsCap, rBest) : fpsCap) : 0, dn = lock ? lock * 0.95 : smooth ? 56 : rKnown || rBest > 50 ? min(60, rBest * 0.8) : 34, up = lock ? lock * 0.985 : smooth ? 70 : min(100, rBest * 0.95);      // (locked: the rate asked for is the one to hold - what is given up to hold it has the same floors - and since a locked rate cannot show what is to spare, quality is given back while the lock is held, and kept down for a while where that proved too much: rLid. A display slower than the lock is not taken for a slow machine: rKnown)
+      // the floor: how small the picture may be drawn, by the quality chosen (QP in render.js). The drawing distances of leaves, twigs and grass are
+      // the quality's too (lodK) and are not cut however the frame rate goes: the woods stay as full, and the picture is drawn smaller instead.
+      const sF = QP[QUAL].floor;
+      const lock = fpsCap ? (rKnown ? min(fpsCap, rBest) : fpsCap) : 0, dn = QP[QUAL].hold ? QP[QUAL].hold + 2 : lock ? lock * 0.95 : smooth ? 56 : rKnown || rBest > 50 ? min(60, rBest * 0.8) : 34, up = QP[QUAL].hold ? QP[QUAL].hold * 1.3 : lock ? lock * 0.985 : smooth ? 70 : min(100, rBest * 0.95);      // (locked: the rate asked for is the one to hold - what is given up to hold it has the same floors - and since a locked rate cannot show what is to spare, quality is given back while the lock is held, and kept down for a while where that proved too much: rLid. A display slower than the lock is not taken for a slow machine: rKnown)
            // (smooth: hold 60 - a steady rate is what a recording needs - and give quality back only when well clear of it)      // looks before speed: nothing is given up until the rate is a fifth below the display's (or under 60)      // (until a step down has been seen not to help, 34 is the mark: a slow machine must not be taken for a capped display)
       if (rLidN > 0 && --rLidN === 0) rLid = 1;
       rSince++;
-      // Quality has a floor: the picture is never drawn below 85% size nor the drawing distances cut below 90%. Past that the frame rate is let fall.
-      if (fps < dn && (scale > sF || lodK > lF)) {
-        if (smooth) { const k = fps < dn * 0.75 ? 0.88 : 0.95; if (lodK > lF && (lodK > scale || scale <= sF)) lodK = max(lF, lodK * k); else scale = max(sF, scale * k); if (fpsCap && rSince <= 2) { rLid = scale; rLidN = 120; } }      // (smooth: both together, in bigger steps while far short)
-        else if (scale > 0.92 || lodK <= 0.9) { scale = max(0.85, scale * 0.95); if (rSince <= 2) { rLid = scale; rLidN = 120; } } else lodK = max(0.9, lodK * 0.95);
+      // Quality has a floor: the picture is never drawn below the quality's floor (QP, render.js: 75% at high). Past that the frame rate is let fall.
+      // The extra size on a plain 1x screen (ssOn, render.js) is all or nothing, and the first thing given up: taken only after a few seconds held
+      // at the full 60 with everything else at full, dropped at once when the rate slips under 56 - and then not tried again for a minute, two the
+      // next time, and so on. (Shrunk and grown by small steps like the rest, the picture was made again every few seconds - each time a hitch -
+      // and sat just under 60, every other frame shown twice: in the cinematic view the picture stuttered.)
+      let ssStep = false;
+      if (QP[QUAL].keep) ssOn = true;      // (ultra: the extra size kept, whatever the rate)
+      else if (ssCan()) { const tgt = rKnown ? min(rBest, 60) : 60;
+        if (ssOn && fps < tgt * 0.93) { ssOn = false; ssWait = ssBack; ssBack = min(ssBack * 2, 1920); ssOK = 0; upOK = 0; rPrev = 0; ssStep = true; }
+        else if (!ssOn && scale >= 1 && --ssWait <= 0) { ssOK = fps >= tgt * 0.98 ? ssOK + 1 : 0; if (ssOK >= 6) { ssOn = true; ssOK = 0; ssStep = true; } } }
+      // (ultra, already at its smallest picture and still under the rate it holds: the leaves' and twigs' extra reach given up, back to high's, and
+      // taken again when there is rate to spare)
+      if (QP[QUAL].hold && scale <= sF && fps < dn) lodK = max(1, lodK * 0.95); else if (QP[QUAL].hold && fps > up && scale >= QP[QUAL].base * 0.99 && lodK < QP[QUAL].lod) lodK = min(QP[QUAL].lod, lodK * 1.04);
+      if (ssStep) upOK = 0;
+      else if (fps < dn && scale > sF) {
+        if (smooth) { const k = fps < dn * 0.75 ? 0.88 : 0.95; scale = max(sF, scale * k); if (fpsCap && rSince <= 2) { rLid = scale; rLidN = 120; } }      // (smooth: in bigger steps while far short)
+        else { scale = max(sF, scale * (fps < dn * 0.8 ? 0.88 : 0.95)); if (rSince <= 2) { rLid = scale; rLidN = 120; } }
         upOK = 0; rPrev = fps;
       }
-      else if (fps > up && (scale < rLid || lodK < 1)) { if (++upOK >= 6) { if (scale < 0.92 || lodK >= 1) scale = min(rLid, scale * 1.05); else lodK = min(1, lodK * 1.08); upOK = 0; rSince = 0; } }
+      else if (fps > up && scale < min(rLid, QP[QUAL].base)) { if (++upOK >= 6) { scale = min(rLid, QP[QUAL].base, scale * 1.05); upOK = 0; rSince = 0; } }
       else upOK = 0;
     }
     // (with the words hidden (H) the frame rate alone stays, at the top left)
-    hud.textContent = hudText ? hudText() : document.body.classList.contains('noui') ? `${fps.toFixed(0)} fps` : `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${W}x${H} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${hudInfo()}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
+    hud.textContent = hudText ? hudText() : document.body.classList.contains('noui') ? `${fps.toFixed(0)} fps` : `${fps.toFixed(0)} fps · ช้าสุด ${fWorst.toFixed(0)} ms · ${CVW}x${CVH}${W !== CVW ? ` (วาด ${W}x${H})` : ""} · ${(tris / 1e6).toFixed(1)}M สามเหลี่ยม\n${hudInfo()}\n${SND ? SND.info || '' : 'กดปุ่มใดก็ได้เพื่อเปิดเสียง'}`;
     fN = 0; fT = 0; fWorst = 0;
   }
   resize();
-  pollPad(dt); if (typeof lookStep === 'function') lookStep(dt); crushRecover(dt); if (fly.on) flyMove(dt); else onRoad = drive(dt); if (typeof rivalStep === 'function') rivalStep(dt);
+  pollPad(dt); if (typeof lookStep === 'function') lookStep(dt); crushRecover(dt); if (fly.on) flyMove(dt); else onRoad = drive(dt); if (typeof rivalStep === 'function') rivalStep(dt); if (typeof e86Step === 'function') e86Step(dt);
   updateSound(dt); if (SHOW_CAR) placeCar(dt);
   if (gameTick) gameTick(dt);      // a game's own doings each frame (it may fill EXTRA with boxes that move: see render.js)
   // camera
@@ -68,7 +83,8 @@ function frame(now) {
     // (in comfort mode it looks round less far into the slide, and does not shake)
     if (DRIFT) { const sl = car.slip || 0; yaw -= sl * (COMFORT ? 0.2 : 0.35); if (!COMFORT) ey += (sin(time * 37) + sin(time * 23)) * 0.012 * min(1, abs(sl) * 2) * min(1, abs(car.v) / 15); } }
   updateChunks(ex, ez, 1);
-  if (typeof pcUpdate === 'function') { pcUpdate(dt); smokeStep(dt, Math.fround(ex), Math.fround(ey), Math.fround(ez)); marksStep(dt, Math.fround(ex), Math.fround(ey), Math.fround(ez)); }
+  if (typeof pcUpdate === 'function') { pcUpdate(dt); smokeStep(dt, Math.fround(ex), Math.fround(ey), Math.fround(ez)); marksStep(dt, Math.fround(ex), Math.fround(ey), Math.fround(ez)); underStep(Math.fround(ex), Math.fround(ey), Math.fround(ez)); }
+  POP = popAt(tday * 24); if (STROLL) STROLL.step(ex, ey, ez); else PNEAR.length = 0; pplNear(time);
   // The car's state, drawn from above at the foot of the screen (there is no bonnet or boot in the picture to tell by): the car turned against
   // the way it is going by its slide, its front wheels by the steering, the rear wheels red under the handbrake, one side's wheels blue down in a
   // gutter; and the gear (the pad's, or by the way the car rolls) and how far it is sideways.
@@ -144,7 +160,7 @@ function frame(now) {
   { const sn = T.snow * (1 - coverK), sp = abs(car.v);
     glassP = clamp(glassP + dt * (sp > 1.5 ? -(0.05 + sp * 0.02) : sn > 0.05 ? sn / 45 : -1 / 40), 0, 1); }
   const onGlass = !fly.on && !ext ? 1 : 0;
-  Q.writeBuffer(uFinal, 0, new Float32Array([T.ex, (T.snow > T.rain ? -T.snow : T.rain) * (1 - coverK), time, 0.25 + 0.12 * T.wind, glassR * onGlass, glassS * onGlass, abs(car.v), W / H, ...glassSl, glassF * onGlass, ...glassV, glassP * onGlass, ...glassUp, 0, typeof CINE !== 'undefined' ? CINE.k : 0, typeof CINE !== 'undefined' ? CINE.bar : 0, 0, 0]));
+  Q.writeBuffer(uFinal, 0, new Float32Array([T.ex, (T.snow > T.rain ? -T.snow : T.rain) * (1 - coverK), time, 0.25 + 0.12 * T.wind, glassR * onGlass, glassS * onGlass, abs(car.v), W / H, ...glassSl, glassF * onGlass, ...glassV, glassP * onGlass, ...glassUp, 0, typeof CINE !== 'undefined' ? CINE.k : 0, typeof CINE !== 'undefined' ? CINE.bar : 0, W / CVW, 0]));
 
   // Which chunks the picture shows, nearest first, and how finely - worked out before anything is drawn, for the leaves and grass of each are first
   // culled on the graphics card (cull.wgsl) and then drawn from what that leaves.
@@ -155,8 +171,8 @@ function frame(now) {
   seenC.length = 0;
   for (const c of ordC) {
     const dx = c.x - ex, dz = c.z - ez, d = c.dd;
-    if (d < 150 && !c.grassTried && grassBudget > 0) { grassBudget--; growGrass(c); }      // (before the test below: grass must be there already when a chunk comes into view)
-    else if (d > 230 && c.grassB) { c.grassB.destroy(); c.grassB = null; c.nGrass = 0; c.grassTried = false; }
+    if (d < 150 * max(1, QP[QUAL].grass) && !c.grassTried && grassBudget > 0) { grassBudget--; growGrass(c); }      // (before the test below: grass must be there already when a chunk comes into view)
+    else if (d > 230 * max(1, QP[QUAL].grass) && c.grassB) { c.grassB.destroy(); c.grassB = null; c.nGrass = 0; c.grassTried = false; }
     if (d > CH) {                          // behind the camera or off to the side of what the screen shows
       // In plan the screen's edge runs at slope k from the eye; a chunk is a disc of radius Rc about its middle (its own corners at 45 m, and the
       // buildings and crowns that stand on its edge and reach beyond), so its middle may be Rc * sqrt(1 + k^2) outside that edge before nothing of it shows.
@@ -166,7 +182,7 @@ function frame(now) {
     seenC.push(c);
     // how finely its leaves and grass are drawn (l: which density, -1 none; n: how many of them), and - culled - their draw's place (s) and list (o)
     c.lL = c.nLeaf ? (d < 62 * lodK ? 0 : d < 150 * lodK ? 1 : d < 250 * lodK ? 2 : 3) : -1; c.lN = c.lL >= 0 ? floor(c.nLeaf / LODN[c.lL]) : 0; c.lS = -1;
-    c.gL = c.nGrass && d < 130 * lodK ? (d < 48 * lodK ? 0 : d < 85 * lodK ? 1 : 2) : -1; c.gN = c.gL >= 0 ? floor(c.nGrass / LODN[c.gL]) : 0; c.gS = -1;
+    const gK = QP[QUAL].grass; c.gL = c.nGrass && d < 130 * gK ? (d < 48 * gK ? 0 : d < 85 * gK ? 1 : 2) : -1; c.gN = c.gL >= 0 ? floor(c.nGrass / GLODN[c.gL]) : 0; c.gS = -1;
   }
   // the culling: a place in the lists and an indirect draw for every leaf and grass draw whose buffer can be culled
   let nCull = 0;
@@ -175,15 +191,15 @@ function frame(now) {
     cullRoom(room + big);
     // the sides of the view, from the matrix the shaders use (it takes positions relative to the eye): left, right, bottom, top, near
     const M = UB, pl = [[3, 0, 1], [3, 0, -1], [3, 1, 1], [3, 1, -1], [2, 2, 0]];
-    let off = 0; const slot = (n, l, buf) => { if (nCull >= CULLD) return -1; const q = nCull++, P = CU.P, A = CU.A;
+    let off = 0; const slot = (n, l, buf, ws, nv) => { if (nCull >= CULLD) return -1; const q = nCull++, P = CU.P, A = CU.A;
       for (let k = 0; k < 5; k++) { const [r0, r1, sg] = pl[k], v = [0, 1, 2, 3].map((j) => M[j * 4 + r0] + sg * M[j * 4 + r1]), L = hypot(v[0], v[1], v[2]) || 1; for (let j = 0; j < 4; j++) P[q * 64 + k * 4 + j] = v[j] / L; }
       // (the eye: the instances' places are in the world, the sides of the view are about the eye)
       for (let j = 0; j < 4; j++) P[q * 64 + 20 + j] = 0; P[q * 64 + 24] = ex; P[q * 64 + 25] = ey; P[q * 64 + 26] = ez; P[q * 64 + 27] = 0;
-      const PU = new Uint32Array(P.buffer, q * 256 + 112, 1); PU[0] = n; P[q * 64 + 29] = LODW[l];
-      A[q * 64] = LODV[l]; A[q * 64 + 1] = 0; A[q * 64 + 2] = 0; A[q * 64 + 3] = 0; cullBG(buf); buf._o = buf._o || []; const o = off; off += Math.ceil(n / 64) * 64; return [q, o]; };
+      const PU = new Uint32Array(P.buffer, q * 256 + 112, 1); PU[0] = n; P[q * 64 + 29] = ws;
+      A[q * 64] = nv; A[q * 64 + 1] = 0; A[q * 64 + 2] = 0; A[q * 64 + 3] = 0; cullBG(buf); buf._o = buf._o || []; const o = off; off += Math.ceil(n / 64) * 64; return [q, o]; };
     for (const c of seenC) { const S2 = GPUBufferUsage.STORAGE;
-      if (c.lN && c.leafB.usage & S2) { const r = slot(c.lN, c.lL, c.leafB); if (r) { c.lS = r[0]; c.lO = r[1]; } }
-      if (c.gN && c.grassB.usage & S2) { const r = slot(c.gN, c.gL, c.grassB); if (r) { c.gS = r[0]; c.gO = r[1]; } } }
+      if (c.lN && c.leafB.usage & S2) { const r = slot(c.lN, c.lL, c.leafB, LODW[c.lL] * LODL[c.lL], LODV[c.lL]); if (r) { c.lS = r[0]; c.lO = r[1]; } }
+      if (c.gN && c.grassB.usage & S2) { const r = slot(c.gN, c.gL, c.grassB, GLODW[c.gL], GLODV[c.gL]); if (r) { c.gS = r[0]; c.gO = r[1]; } } }
     if (nCull) { Q.writeBuffer(CU.par, 0, CU.P, 0, nCull * 64); Q.writeBuffer(CU.args, 0, CU.A, 0, nCull * 64); } }
   const enc = device.createCommandEncoder();
   // 1. shadows
@@ -194,8 +210,11 @@ function frame(now) {
     p.setPipeline(pTerrainS); p.setVertexBuffer(0, c.vb); p.setIndexBuffer(ibGrid, 'uint16'); p.drawIndexed(gridI.length);
     if (c.nSegFar) { p.setPipeline(pBranchS); p.setVertexBuffer(0, vbTube4); p.setVertexBuffer(1, c.segB); p.setIndexBuffer(ibTube4, 'uint16'); p.drawIndexed(tubeI4.length, c.nSegFar); }
     if (c.nBox) { const nb = c.nBoxFar === undefined ? c.nBox : c.nBoxFar; if (nb) { p.setPipeline(pBoxS); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, c.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, nb); } }
+    if (c.nPpl && PPL && dc < 60 + CH) { p.setPipeline(pPplS); p.setVertexBuffer(1, c.pplB); for (let sx = 0; sx < 2; sx++) { const n = Math.round((sx ? c.nPpl - c.nPplM : c.nPplM) * POP), M = PPL[sx][1]; if (n) { p.setVertexBuffer(0, M.vb); p.setIndexBuffer(M.ib, 'uint32'); p.drawIndexed(M.ni, n, 0, 0, sx ? c.nPplM : 0); } } }      // (people throw shadows only near)
     if (c.nLeaf) { if (dc > 230 * lodK) continue; const l = dc > 52 * lodK ? 2 : 1; p.setPipeline(l === 2 ? pLeafS2 : pLeafS); p.setVertexBuffer(0, c.leafB); p.draw(6, floor(c.nLeaf / LODN[l])); }
   }
+  if (STROLL) STROLL.draw(p, true);
+  if (typeof DRV !== 'undefined' && (fly.on || ext)) { DRV.draw(p, true, true); DRV.drawCap(p, true); }
   if (EXTRA.nBox) { p.setPipeline(pBoxS); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, EXTRA.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, EXTRA.nBox); }
   for (const c of chunks.values()) if (c.nMesh && hypot(c.x - sc[0], c.z - sc[2]) < SHR * 1.45 + CH + 60) { const A = c.nMeshA ?? c.nMesh, Fr = c.nMeshFar ?? c.nMesh; p.setPipeline(pMeshS); p.setVertexBuffer(0, c.meshB); p.setIndexBuffer(c.meshIB, 'uint32'); if (hypot(c.x - ex, c.z - ez) < 75 + CH) { if (A) p.drawIndexed(A); if (c.nMesh > Fr) p.drawIndexed(c.nMesh - Fr, 1, Fr); } else if (Fr) p.drawIndexed(Fr); }
   if (SHOW_CAR) { p.setPipeline(pCarS); p.setVertexBuffer(0, carVB); p.setIndexBuffer(carIB, 'uint16'); p.drawIndexed(CAR.idx.length); }
@@ -246,15 +265,22 @@ function frame(now) {
       tris += nR * SIDES * 2 + n4 * 8;
     }
     // (a chunk may keep fine detail at the end of its boxes - the last after nBoxFar - which is drawn only from near to: the small things of a temple)
+    // (the men first in the chunk's list, then the women; the full figures only in the chunks next the eye)
+    if (c.nPpl && PPL && d < 150 + CH) { p.setPipeline(pPpl); p.setVertexBuffer(1, c.pplB); for (let sx = 0; sx < 2; sx++) { const n = Math.round((sx ? c.nPpl - c.nPplM : c.nPplM) * POP), M = PPL[sx][d < 14 + CH / 2 ? 0 : 1]; if (n) { p.setVertexBuffer(0, M.vb); p.setIndexBuffer(M.ib, 'uint32'); p.drawIndexed(M.ni, n, 0, 0, sx ? c.nPplM : 0); tris += M.ni / 3 * n; } } }      // (the people of the place: not drawn beyond 150 m, where each is a few points)
+    if (c.nFruit && d < 45 + CH / 2) { p.setPipeline(pFruit); p.setVertexBuffer(0, FRUIT.vb); p.setVertexBuffer(1, c.fruitB); p.setIndexBuffer(FRUIT.ib, 'uint16'); p.drawIndexed(FRUIT.ni, c.nFruit); tris += c.nFruit * 32; }      // (a market's fruit, from near to)
     if (c.nBox) { const nb = d < 110 * lodK || c.nBoxFar === undefined ? c.nBox : c.nBoxFar; if (nb) { p.setPipeline(pBox); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, c.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, nb); tris += nb * 12; } }
     // (culled: drawn from the list, as many as the graphics card counted; else all n)
     if (c.lN) { const l = c.lL; if (c.lS >= 0) { p.setPipeline(pLeafC[l]); p.setBindGroup(1, c.leafB._rg, [c.lO * 4]); p.drawIndirect(CU.args, c.lS * 256); } else { p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.leafB); p.draw(LODV[l], c.lN); } tris += c.lN * (LODV[l] - 2); }
-    if (c.gN) { const l = c.gL; if (c.gS >= 0) { p.setPipeline(pLeafC[l]); p.setBindGroup(1, c.grassB._rg, [c.gO * 4]); p.drawIndirect(CU.args, c.gS * 256); } else { p.setPipeline(pLeaf[l]); p.setVertexBuffer(0, c.grassB); p.draw(LODV[l], c.gN); } tris += c.gN * (LODV[l] - 2); }
+    if (c.gN) { const l = c.gL; if (c.gS >= 0) { p.setPipeline(pGrassC[l]); p.setBindGroup(1, c.grassB._rg, [c.gO * 4]); p.drawIndirect(CU.args, c.gS * 256); } else { p.setPipeline(pGrass[l]); p.setVertexBuffer(0, c.grassB); p.draw(GLODV[l], c.gN); } tris += c.gN * (GLODV[l] - 2); }
   }
   if (EXTRA.nBox) { p.setPipeline(pBox); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, EXTRA.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, EXTRA.nBox); tris += EXTRA.nBox * 12; }
   // the ground last (but for the sky): its paint is the dearest there is, and this way none is spent where a tree or a house stands in front of it
   p.setPipeline(pTerrain); p.setIndexBuffer(ibGrid, 'uint16'); for (const c of seenC) { p.setVertexBuffer(0, c.vb); p.drawIndexed(gridI.length); tris += GN * GN * 2; }
   p.setPipeline(pSky); p.draw(3);
+  if (typeof DRV !== 'undefined' && (fly.on || ext)) tris += DRV.draw(p, false, true) + DRV.drawCap(p, false);      // (the open car's driver: playercar.js)
+  if (STROLL) tris += STROLL.draw(p, false);      // (those walking the town's footpaths)
+  if (typeof underDraw === 'function') underDraw(p);      // (the shade under the cars, under the tyre marks)
+  if (STROLL) STROLL.glow(p);      // (the rubber tappers' lamps)
   if (typeof marksDraw === 'function') marksDraw(p);      // (tyre marks on the road, then the smoke over them)
   if (typeof smokeDraw === 'function') smokeDraw(p);      // (see-through, so after all else)
   p.end();

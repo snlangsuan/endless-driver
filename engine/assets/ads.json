@@ -1,0 +1,17 @@
+{
+  "_help": [
+    "Pictures for the advertisement boards on the end walls of shophouse rows (render.js: ADS).",
+    "ads: up to four are shown; with fewer they take turns; with none the boards are painted as shop boards.",
+    "image: a file under engine/ (for example \"assets/ads/my-ad.png\") or a web address (https://...) that allows being drawn (CORS).",
+    "fit: \"cover\" (fills the board, cuts off what overhangs) or \"contain\" (shows the whole picture on the background colour).",
+    "background: the colour behind a \"contain\" picture. enabled: false leaves an entry out without deleting it.",
+    "The board is 6 m wide by 2.6 m high; each picture is drawn into a 1024 x 512 place (2:1), so a picture near 2:1 fits best.",
+    "The list is read once when the game loads: reload the page after changing it."
+  ],
+  "ads": [
+    { "image": "assets/ads/example.png", "fit": "cover", "background": "#ffffff", "enabled": false },
+    { "image": "https://scontent.fbkk22-6.fna.fbcdn.net/v/t39.30808-6/484798702_1051382693692471_2014963460745172034_n.jpg?stp=dst-jpg_tt6&cstp=mx2048x1366&ctp=s2048x1366&_nc_cat=102&_nc_map=urlgen_bucketless&ccb=1-7&_nc_sid=127cfc&_nc_ohc=FvoAXA30uOQQ7kNvwGkSvrW&_nc_oc=AdpdUDjkOTh4ZsXlgnlOkxVmsYRcisbGgPqzjFMl1kfqQ5tfBXM97iC2tlS-Bo1OujAyrYQJJbeDjgBNmaobxLGY&_nc_zt=23&_nc_ht=scontent.fbkk22-6.fna&_nc_gid=vLhJhatd5rn-cfbiPAjvNw&_nc_ss=7b3a8&oh=00_AQXcJRX1eRW0wCZU-_9IxwadnoRi5O2SokG5P05DPkDGIA&oe=6B0EFD45", "fit": "cover", "background": "#ffffff" },
+    { "image": "https://buzzebees.blob.core.windows.net/dashboard/8ad05143-bda5-4820-8c0f-7bf1c6b8e61e", "fit": "contain", "background": "#ffffff" },
+    { "image": "https://scontent.fbkk29-5.fna.fbcdn.net/v/t39.30808-6/686361825_1439332741571569_3905832848907329706_n.avif?stp=dst-jpg_tt6&cstp=mx2071x759&ctp=s2071x759&_nc_cat=103&_nc_map=urlgen_bucketless&ccb=1-7&_nc_sid=cc71e4&_nc_ohc=W_KEuXBg9nYQ7kNvwE8l5Lo&_nc_oc=AdpGl0bmRLd1xc6B_Z_wNC3OWZu3pU8hhLIIRhtNK9Az0jzuVSG5Q2lp2Y0sD_DCHUNy4o0v-fOH3Nvxw-0KXfIM&_nc_zt=23&_nc_ht=scontent.fbkk29-5.fna&_nc_gid=2bGkK1iy-Kk2gP3KirCkeQ&_nc_ss=7b3a8&oh=00_AQUw9Gqs4wtZqU51ccRBPGjMoIcYm4X8ARwIguGdneuNuw&oe=6B0EF6EC", "fit": "cover", "background": "#ffffff"}
+  ]
+}

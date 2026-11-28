@@ -43,7 +43,8 @@ const tunS = (s) => s !== 2 && (ph(s, 31) > 0.45 || ((s % 4) + 4) % 4 === 2);
 // (and half of those stretches are a long mountain pass - tgS: the road climbs 95 m by switchbacks over nearly the whole stretch - about a
 // minute's climb and a minute's descent at a drift, the pass compressed from the five-kilometre mountain roads it is after - U-bend after U-bend, with a
 // concrete gutter along the uphill edge; the others have a short flight of them in the middle)
-const tgS = (s) => ph(s, 34) < 0.5;
+// (every pass is the long kind now - 1.1 km of switchbacks: half of them were short, 580 m. hpw in the shaders the same.)
+const tgS = (s) => true;
 const hpW = (z) => { const p = z / SEG, s = floor(p); if (zoneOf(s) !== 1 || tunS(s)) return 0; const w = tgS(s) ? 0.47 : 0.24; return 1 - sm(w - 0.08, w, abs(p - s - 0.5)); };
 const hpX = (z) => { const e = hpW(z); return e <= 0 ? 0 : e * 100 * sin(0.0262 * (z - (floor(z / SEG) + 0.5) * SEG)); };
 // Where the road runs far from straight along z, distances from it must be measured square to the road, not along x.
@@ -89,7 +90,10 @@ const ism = (x, z) => { if (!isOf(z)) return -99; const dz = z - IS.zc, s = ((IS
 const isBr = (z) => isOf(z) && abs(z - IS.zc) > 150 && abs(z - IS.zc) < 520;
 const nearRiv = (z, m) => (rivOf(z) && abs(z - RV.zr) < RV.W / 2 + m) || (isOf(z) && abs(z - IS.zc) > 150 - m && abs(z - IS.zc) < 520 + m);      // near a river's crossing, or the sea's
 const brSpan = (z) => (rivOf(z) && abs(z - RV.zb) < RV.W / 2 + 7) || isBr(z);
-const brAt = (x, z) => brSpan(z) && abs(x - roadX(z)) < 4.4;
+// (the deck's whole width - 10.4 m on an island bridge, 9.4 over a river - not just the road's 8.8: between the road's edge and the rail there
+// was half a metre of deck that did not count as deck, and a car that got a wheel's width out onto it - sliding, or backing up against the
+// rail - stood on the ground under the bridge instead, 1.8 m down inside the deck.)
+const brAt = (x, z) => brSpan(z) && abs(x - roadX(z)) < (isBr(z) ? 5.15 : 4.65);
 // Tunnels. A hill stretch that has no switchbacks has a mountain standing across the road in its middle, and the road goes through it in a
 // tunnel 220-320 m long. tunOf(z) finds the tunnel of z's stretch and leaves it in TN (zc: its middle, hl: half its length); inTun: z is inside
 // it; tunT: how much of the mountain stands over the road at z (it rises over the first 30 m inside each mouth); tunAt: on the tunnel's floor.
@@ -99,7 +103,8 @@ const tunOf = (z) => { const s = floor(z / SEG); if (zoneOf(s) !== 1 || !tunS(s)
 const inTun = (z) => tunOf(z) && abs(z - TN.zc) < TN.hl;
 const tunT = (z) => tunOf(z) ? 1 - sm(TN.hl - 30, TN.hl, abs(z - TN.zc)) : 0;
 const tunAt = (x, z) => inTun(z) && abs(x - roadX(z)) < 4.75;
-// The underpass (ทางลอด): at about half of a town's crossroads (the rest have traffic lights) the main road goes down a ramp into a cutting between
+// The underpass (ทางลอด): in some towns - four in ten, drawn by the town's stretch (twS, as townW leaves it); the rest have none - at about half
+// of its crossroads (the rest have traffic lights) the main road goes down a ramp into a cutting between
 // concrete walls, passes under the cross street on a slab, and comes up again, so that through traffic need not stop. udOf(z) finds the one z
 // belongs to (UD.zc: its middle); udip(z): how far below the street the road is at z (6.2 m under the slab, nothing 96 m out). roadY already has
 // it taken off; ground() puts it back for everything but the road; roadYs is the level of the street (kerbs, footpaths, buildings).
@@ -107,7 +112,7 @@ const UD = { zc: 0 };
 const UDC = new Map();          // (remembered by ten-block group: roadY asks this for every point of the ground)
 const udG = (g) => { let v = UDC.get(g);
   if (v === undefined) { UDC.set(g, 0);          // (so that asking about the road's height while this is being worked out finds 'none' and does not ask again)
-    const zc = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36 + 34; v = ph(g, 523) < 0.5 && townW(zc) > 0.6 && townW(zc - 104) > 0.6 && townW(zc + 104) > 0.6 && !nearRiv(zc, 112) ? zc : 0; UDC.set(g, v); }
+    const zc = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36 + 34; v = ph(g, 523) < 0.5 && townW(zc) > 0.6 && ph(twS, 527) < 0.4 && townW(zc - 104) > 0.6 && townW(zc + 104) > 0.6 && !nearRiv(zc, 112) ? zc : 0; UDC.set(g, v); }
   return v; };
 // (the nearest: two can be as little as 180 m apart, their ramps meeting - the first found, as before, put one underpass's walls in the other's
 // ramp and none of its own. Depth and width fall off alike either side of each, so taken from the nearer they meet level half way between.)
@@ -155,8 +160,12 @@ const shoreX = (z) => shore0(z) + (1 - sm(0.5, 0.9, seaW(z))) * 500;
 const pineWt = (z) => zoneOf(floor(z / SEG)) === 3 ? sm(0.55, 0.75, seaW(z)) * sm(0.25, 0.45, beachW(z)) * sm(0.4, 0.6, 0.5 + 0.5 * sin(z * 0.0105 + 1)) : 0;      // avenue and open beach take turns, about 300 m each
 const pineAt = (z) => pineWt(z) > 0.5;
 const railGap = (k) => beachW(k * 4) > 0.6 && ((k % 40) + 40) % 40 < 3;        // openings in the guard rail where you can drive down to the sand
+const PASS_Q = -0.14;
 const roadY = (z) => {
-  const pz = z / SEG, tg = tgS(floor(pz)), hp = hpW(z) > 0 ? (tg ? 95 : 34) * (1 - sm(0.02, tg ? 0.47 : 0.24, abs(pz - floor(pz) - 0.5))) : 0;         // the climb to the pass (on a long pass 75 m)
+  // the climb to the pass: 105 m up, and its top not in the middle of the switchbacks but a third of the way in (PASS_Q) - a short steep way
+  // up from the south and a long way down to the north, two thirds of the switchbacks' length: some 1.4 km of road falling all the way,
+  // hairpin after hairpin. (It was 95 m, the top in the middle: 560 m of z up and as much down.)
+  const pz = z / SEG, q = pz - floor(pz) - 0.5, hp = hpW(z) > 0 ? 105 * (q < PASS_Q ? sm(-0.47, PASS_Q - 0.02, q) : 1 - sm(PASS_Q + 0.02, 0.47, q)) : 0;
   const base = 5 * sin(z * 0.003 + 0.4) + 2.5 * sin(z * 0.0085 + 2) + hillW(z) * (14 * sin(z * 0.0021) + 6 * sin(z * 0.0057 + 1)) + hp, sea = seaW(z);
   if (isOf(z)) { const dz = abs(z - IS.zc), t = (dz - 150) / 370;          // the island crossing: the road 9 m above the sea on the island, rising 6 m more over the middle of each bridge
     return mix(base, SEA + 9 + (t > 0 && t < 1 ? 6 * sin(PI * t) : 0), 1 - sm(520, 592, dz)); }
@@ -186,6 +195,7 @@ const laneSd = (b) => (xroad(b) ? 0 : ph(b, 531) < 0.4 ? (ph(b, 532) < 0.5 ? 1 :
 const soiD = (x, z) => { const s0 = roadX(z + 0.5) - roadX(z - 0.5), b0 = Math.round((z + s0 * (x - roadX(z)) - 34) / 36); let o = 99;
   for (let b = b0 - 1; b <= b0 + 1; b++) { const zl = b * 36 + 34, s = (roadX(zl + 1) - roadX(zl - 1)) / 2; if (laneRiv(b)) continue;
     { const sd = laneSd(b); if (sd && ((x - roadX(zl)) - (z - zl) * s) / Math.sqrt(1 + s * s) * sd < -3.05) continue; }      // (not on the side it does not go off on, beyond the road itself: see soi in land.wgsl)
+    { const al = ((x - roadX(zl)) - (z - zl) * s) / Math.sqrt(1 + s * s); if (abs(al) > laneL(b, al > 0 ? 1 : -1)) continue; }      // (nor past its end: laneL)
     o = min(o, abs(((x - roadX(zl)) * s + z - zl) / sqrt(1 + s * s)) - (xroad(b) ? 1.65 : 0)); }      // (a cross street is 3.3 m wider than a lane: measured from where a lane's edge would be)
   return o; };
 // plot under a point: [stage 0 flooded / 1 green / 2 ripe / 3 cut, metres to the nearest bund]. A third of the plots lie under water with
@@ -251,7 +261,11 @@ function ground(x, z) {
   if (tw > 0.3 && d > 25) { const s0 = roadX(z + 0.5) - roadX(z - 0.5), b0 = Math.round((z + s0 * (x - rx) - 34) / 36); let ds = 99, zb = 0;
     for (let b = b0 - 1; b <= b0 + 1; b++) { const zl = b * 36 + 34, s = (roadX(zl + 1) - roadX(zl - 1)) / 2, q = ((x - roadX(zl)) * s + z - zl) / Math.sqrt(1 + s * s); if (abs(q) < abs(ds)) { ds = q; zb = zl; } }
     // (the street's level - roadYs - not the road's: beside an underpass the road is down in its cutting; and less the dip here, which is put back below)
-    h = mix(h, mix(roadYs(zb), roadYs(zb + (ds > 0 ? 36 : -36)), 0.5 * sm(15.5, 18, abs(ds))) - udip(z), sm(25, 29, d) * sm(0.3, 0.6, tw)); }
+    // (a school's ground or a football field - civSites, chunks.js - lies level across both its lanes' halves, at lane b's level, taking the step
+    // to lane b + 1 only at its far edge: the terrace's step ran down the middle of the pitch)
+    let lv = mix(roadYs(zb), roadYs(zb + (ds > 0 ? 36 : -36)), 0.5 * sm(15.5, 18, abs(ds)));
+    if (typeof civLane === 'function') { const cl = civLane(x, z); if (cl) lv = mix(roadYs(cl[0]), roadYs(cl[0] + 36), sm(34, 36, cl[1])); }
+    h = mix(h, lv - udip(z), sm(25, 29, d) * sm(0.3, 0.6, tw)); }
   gw[0] = 0; const tt = tunT(z);
   if (hw > 0.001) {
     h += hw * (1 - pad) * sm(7, 70, d) * ((fbm(x * 0.005, z * 0.005) - 0.44) * 58 + (fbm(x * 0.021 + 3, z * 0.021, 3) - 0.5) * 7);
@@ -341,8 +355,23 @@ const zlim = (z) => isOf(z) && abs(z - IS.zc) < 540 ? 70 : townW(z) > 0.02 ? 50 
 const xroad = (b) => { const g = floor(b / 10); return b === g * 10 + 2 + floor(ph(g, 520) * 6) && townW(b * 36 + 34) > 0.9 && !laneRiv(b); };
 // A post beside a town street (off metres out on that side) is not stood in the mouth of a lane: where its place along the road falls in one, it is
 // moved along by the least that clears the mouth. (Worked out from z alone, so every chunk agrees where a pole and the next one stand.)
-const clearZ = (z, side, off) => { if (townW(z) < 0.45) return z; for (const d of [0, 5, -5, 8, -8, 11, -11]) { const zz = z + d; if (soiD(roadX(zz) + side * off, zz) > 3.3) return zz; } return z; };
+const clearZ = (z, side, off) => { if (townW(z) < 0.45) return z; for (const d of [0, 5, -5, 8, -8, 11, -11]) { const zz = z + d; if (soiD(roadX(zz) + side * off, zz) > 3.3 && !(typeof convDr === 'function' && convDr(zz, side, 0.3))) return zz; } return z; };
 const laneLen = (zl) => mix(26, 160, sm(0.5, 0.9, townW(zl)));
+// How far lane b runs out on one side (side 1: +x): to the back of its last house - a lane is made to reach the houses, and where the last lots
+// are empty it ends at the last one built on, instead of running on to its full length across waste ground; a side with no house at all has
+// no lane. (A cross street runs its full length.) The lots and which stand empty are the house builder's (chunks.js: u and h(0) there); laneL in
+// land.wgsl is the same.
+const LLC = new Map(), laneL = (b, side) => { const key = b * 2 + (side > 0 ? 1 : 0); let v = LLC.get(key); if (v !== undefined) return v; const tw0 = twS, rz0 = rzs;      // (twS, rzs, RV: put back as they were - this is asked in the middle of other work)
+  const zl = b * 36 + 34, full = laneLen(zl);
+  // (a lot is left empty, too, out of the town, by a river, too near the road, or squeezed by the next lane where the road bends: the builder's tests)
+  if (xroad(b)) v = full; else { townW(zl); const seg = twS, keep = Object.assign({}, RV), sl = (roadX(zl + 1) - roadX(zl - 1)) / 2, ca = 1 / Math.sqrt(1 + sl * sl), sa = sl * ca, ox0 = roadX(zl); v = 0;
+    for (let i = 0; i < 8; i++) { const t = side * (32.5 + i * 17); if (abs(t) + 8.5 > full) break;
+      for (const ls of [1, -1]) { const hq = b * 64 + i * 4 + (side > 0 ? 2 : 0) + (ls > 0 ? 1 : 0); if (ph(hq, 500 + seg) < 0.08 || ph(hq, 510 + seg) < (i - 3) * 0.1) continue;
+        const x = ox0 + t * ca + ls * 11 * sa, z = zl - t * sa + ls * 11 * ca; if (townW(z) < 0.45 || nearRiv(z, 16) || abs(rdist(x, z)) < 29) continue;
+        let ok = true; for (const b2 of [b - 1, b + 1]) { const z2 = b2 * 36 + 34, s2 = (roadX(z2 + 1) - roadX(z2 - 1)) / 2; if (abs(((x - roadX(z2)) * s2 + z - z2) / Math.sqrt(1 + s2 * s2)) < 20) ok = false; }
+        if (ok) v = abs(t) + 9; } }
+    Object.assign(RV, keep); }
+  twS = tw0; rzs = rz0; if (LLC.size > 8000) LLC.clear(); LLC.set(key, v); return v; };
 const tlOf = (g) => { const zs = (g * 10 + 2 + floor(ph(g, 520) * 6)) * 36 + 34; return townW(zs) > 0.9 && !nearRiv(zs, 24) && !udG(g) ? zs : null; };      // (not where the road goes under instead)
 const tlNext = (z, dir) => { for (let g = floor((z - 34) / 360), i = 0; i < 3; i++, g += dir) { const zs = tlOf(g); if (zs !== null && (zs - z) * dir > -4) return [zs, ph(g, 521)]; } return null; };
 const tlState = (off, t) => { const p = (t / 30 + off) % 1; return p > 19 / 30 ? 2 : p > 16 / 30 ? 1 : 0; };

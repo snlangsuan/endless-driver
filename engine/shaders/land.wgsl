@@ -12,6 +12,10 @@ fn tspan(s: i32) -> vec2f { if (zoneOf(s) != 2) { return vec2f(0.); } var v = ve
 fn tw(z: f32) -> f32 { let p = z / SEG; let s0 = i32(floor(p)); var w = 0.;
   for (var k = -1; k <= 1; k++) { let sp = tspan(s0 + k); let q = p - f32(s0 + k) - .5; let e = select(sp.y, sp.x, q < 0.); if (e > 0.) { w = max(w, 1. - ss(e - .09, e, abs(q))); } }
   return w; }
+// the stretch whose town reaches z the most (townW's twS in land.js): the town an underpass belongs to - only four towns in ten have any
+fn twSeg(z: f32) -> i32 { let p = z / SEG; let s0 = i32(floor(p)); var w = 0.; var b = s0;
+  for (var k = -1; k <= 1; k++) { let sp = tspan(s0 + k); let q = p - f32(s0 + k) - .5; let e = select(sp.y, sp.x, q < 0.); if (e > 0.) { let v = 1. - ss(e - .09, e, abs(q)); if (v > w) { w = v; b = s0 + k; } } }
+  return b; }
 fn sw(z: f32) -> f32 { return zw(z, 3, .45, .5); }
 // 1 on a stretch with the sea beside it (the coast road, the island crossing) and for 40 m into its neighbours: no rice is grown there (seaZ in land.js)
 // the one flower each part of a flower stretch grows - the parts lie between its canals (flwKind in land.js): 0 sunflowers, 1 hydrangeas, 2 tulips, 3 lilies; tulc: a tulip band's colour
@@ -30,7 +34,7 @@ fn seaz(z: f32) -> f32 { let p = z / SEG; let s = i32(floor(p)); let q = (p - fl
 fn nw(z: f32) -> f32 { return zw(z, 4, .46, .6); }
 fn roadX(z: f32) -> f32 { return 60. * sin(z * .004) + 25. * sin(z * .011 + 1.3) + 9. * sin(z * .023 + .7) + sw(z) * 16. * sin(z * .019) + hpx(z); }
 fn tunS(s: i32) -> bool { return s != 2 && (ph(vec2i(s, 31)) > .45 || ((s % 4) + 4) % 4 == 2); }      // a hill stretch with a tunnel and not switchbacks (tunS in land.js)
-fn hpw(z: f32) -> f32 { let p = z / SEG; let s = floor(p); let si = i32(s); if (zoneOf(si) != 1 || tunS(si)) { return 0.; } let w = select(.24, .47, ph(vec2i(si, 34)) < .5); return 1. - ss(w - .08, w, abs(p - s - .5)); }      // (tgS in land.js: a long pass)
+fn hpw(z: f32) -> f32 { let p = z / SEG; let s = floor(p); let si = i32(s); if (zoneOf(si) != 1 || tunS(si)) { return 0.; } let w = .47; return 1. - ss(w - .08, w, abs(p - s - .5)); }      // (tgS in land.js: every pass a long one)
 fn hpx(z: f32) -> f32 { let e = hpw(z); if (e <= 0.) { return 0.; } return e * 100. * sin(.0262 * (z - (floor(z / SEG) + .5) * SEG)); }
 // 1 where the plots of a flower stretch come up to the road (flwW in the script)
 // the cherry stretches (chyAt in src/land.js): 1 a hill whose woods are mostly cherry, 2 a flat stretch with an avenue, 0 neither
@@ -66,9 +70,24 @@ fn tlb(b: f32) -> f32 { let g = floor(b / 10.); return step(abs(b - (g * 10. + 2
 // 1 where the lane at zl would come out at the neck of a bridge, onto its rail: there is none there (nearRiv(zl, 16) in land.js)
 fn lriv(zl: f32) -> f32 { let r = rivOf(zl); return step(.001, r.y) * step(abs(zl - r.x), r.y * .5 + 16.); }
 fn lanel(zl: f32) -> f32 { return mix(26., 160., ss(.5, .9, tw(zl))); }
+// how far lane b runs out on side sd (1: +x) - to the back of its last house, none where it has no house on that side (laneL in land.js; the
+// lots and what keeps a lot empty are the house builder's in chunks.js: drawn empty, out of the town, by a river, or squeezed by the next lane
+// where the road bends)
+fn laneL(b: f32, sd: f32) -> f32 { let zl = b * 36. + 34.; let full = lanel(zl); if (tlb(b) > .5) { return full; }
+  let seg = twSeg(zl); let bi = i32(b); var v = 0.; let sl = (roadX(zl + 1.) - roadX(zl - 1.)) * .5; let ca = inverseSqrt(1. + sl * sl); let sa = sl * ca; let ox0 = roadX(zl);
+  let sn = (roadX(zl - 35.) - roadX(zl - 37.)) * .5; let sp = (roadX(zl + 37.) - roadX(zl + 35.)) * .5; let xn = roadX(zl - 36.); let xp = roadX(zl + 36.);
+  for (var i = 0; i < 8; i++) { let t = sd * (32.5 + f32(i) * 17.); if (abs(t) + 8.5 > full) { break; }
+    for (var l = 0; l < 2; l++) { let ls = select(-1., 1., l == 0); let hq = bi * 64 + i * 4 + select(0, 2, sd > 0.) + (1 - l);
+      if (ph(vec2i(hq, 500 + seg)) < .08 || ph(vec2i(hq, 510 + seg)) < f32(i - 3) * .1) { continue; }
+      let x = ox0 + t * ca + ls * 11. * sa; let z = zl - t * sa + ls * 11. * ca;
+      if (tw(z) < .45) { continue; }
+      let r = rivOf(z); if (r.y > 0. && abs(z - r.x) < r.y * .5 + 16.) { continue; }
+      if (abs((x - xn) * sn + z - zl + 36.) * inverseSqrt(1. + sn * sn) < 20. || abs((x - xp) * sp + z - zl - 36.) * inverseSqrt(1. + sp * sp) < 20.) { continue; }
+      v = abs(t) + 9.; } }
+  return v; }
 // 1 along an underpass and its ramps (udOf in land.js, but for the tests of town and river made there): no crossings are painted down in it
 fn udk(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.;
-  for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; if (ph(vec2i(i32(g), 523)) < .5 && abs(z - zc) < 100.) { o = 1.; } }
+  for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; if (ph(vec2i(i32(g), 523)) < .5 && ph(vec2i(twSeg(zc), 527)) < .4 && abs(z - zc) < 100.) { o = 1.; } }
   return o; }
 // how much wider than the main road's asphalt the street is at z, each side: the frontage roads beside an underpass (svW in land.js, and its underpass
 // found with every test udG makes there: the town all round it, no river or sea crossing near)
@@ -77,19 +96,19 @@ fn udk(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.;
 // from the nearest one (bd): two can be 180 m apart, their ramps meeting
 fn udd(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.; var bd = 1e9;
   for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; let dz = abs(z - zc);
-    if (dz < 96. && dz < bd && ph(vec2i(i32(g), 523)) < .5 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
+    if (dz < 96. && dz < bd && ph(vec2i(i32(g), 523)) < .5 && ph(vec2i(twSeg(zc), 527)) < .4 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
       let r = rivOf(zc); let si = i32(floor(zc / SEG)); let di = abs(zc - (f32(si) + .5) * SEG);
       if (!(r.y > 0. && abs(zc - r.x) < r.y * .5 + 112.) && !(zoneOf(si) == 5 && di > 38. && di < 632.)) { o = 6.2 * (1. - ss(18., 96., dz)); bd = dz; } } }
   return o; }
 fn svq(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.; var bd = 1e9;
   for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; let dz = abs(z - zc);
-    if (dz < 136. && dz < bd && ph(vec2i(i32(g), 523)) < .5 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
+    if (dz < 136. && dz < bd && ph(vec2i(i32(g), 523)) < .5 && ph(vec2i(twSeg(zc), 527)) < .4 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
       let r = rivOf(zc); let si = i32(floor(zc / SEG)); let di = abs(zc - (f32(si) + .5) * SEG);
       if (!(r.y > 0. && abs(zc - r.x) < r.y * .5 + 112.) && !(zoneOf(si) == 5 && di > 38. && di < 632.)) { o = 1. - ss(96., 136., dz); bd = dz; } } }
   return o; }
 fn svw(z: f32) -> f32 { let g0 = floor((z - 34.) / 360.); var o = 0.; var bd = 1e9;
   for (var k = -1; k <= 1; k++) { let g = g0 + f32(k); let zc = (g * 10. + 2. + floor(ph(vec2i(i32(g), 520)) * 6.)) * 36. + 34.; let dz = abs(z - zc);
-    if (dz < 136. && dz < bd && ph(vec2i(i32(g), 523)) < .5 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
+    if (dz < 136. && dz < bd && ph(vec2i(i32(g), 523)) < .5 && ph(vec2i(twSeg(zc), 527)) < .4 && tw(zc) > .6 && tw(zc - 104.) > .6 && tw(zc + 104.) > .6) {
       let r = rivOf(zc); let si = i32(floor(zc / SEG)); let di = abs(zc - (f32(si) + .5) * SEG);
       if (!(r.y > 0. && abs(zc - r.x) < r.y * .5 + 112.) && !(zoneOf(si) == 5 && di > 38. && di < 632.)) { o = 5.4 * (1. - ss(96., 136., dz)); bd = dz; } } }
   return o; }

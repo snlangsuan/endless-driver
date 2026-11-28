@@ -105,7 +105,7 @@ $('fs').addEventListener('click', (e) => { e.currentTarget.blur(); toggleFS(); }
   document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement && D.open) D.close(); });      // (taking hold of the mouse to drive puts it away)
   $('skyB').addEventListener('click', (e) => { e.currentTarget.blur(); if (D.open) { D.close(); return; } for (const id of ['cfg', 'drv', 'car']) if ($(id) && $(id).open) $(id).close(); read(); clock(); D.show(); if (D.contains(document.activeElement)) document.activeElement.blur(); tick = setInterval(() => { clock(); if (!D.matches(':focus-within')) read(); }, 500); });
 }
-// The settings panel (the cog, top right): the picture - best looking, or smooth for recording the screen (see render.js) -, how far the land is drawn (viewK),
+// The settings panel (the cog, top right): the picture's quality - low, medium, high or ultra (QUAL, QP: see render.js) -, how far the land is drawn (viewK),
 // the frame rate held to 60 or 30 or left free, and the sound: how loud
 // everything is (the main volume; off altogether, as M does) and, apart from that, how loud the one-off effects are - thunder, birds, crickets,
 // dogs. (The music has its own volume, on the music player.) Remembered.
@@ -113,7 +113,7 @@ let gameVol = 1, fxVol = 1, mute = false; try { const f = localStorage.getItem('
 try { const v = localStorage.getItem('endless.vol'); if (v !== null && v !== '') gameVol = clamp(Number(v), 0, 1); mute = localStorage.getItem('endless.mute') === '1'; } catch (e) {}
 const setVol = () => { if (SND) { SND.master.gain.setTargetAtTime(mute ? 0 : 0.9 * gameVol, AC.currentTime, 0.05); SND.fx.gain.setTargetAtTime(fxVol, AC.currentTime, 0.05); } try { localStorage.setItem('endless.fx', String(fxVol)); localStorage.setItem('endless.vol', String(gameVol)); localStorage.setItem('endless.mute', mute ? '1' : ''); } catch (e) {} if ($('cfg').open) cfgRead(); };
 const SPK = 'M4 9v6h4l5 4V5L8 9z', SPK_ON = 'M15.5 8.5a5 5 0 0 1 0 7l-1.2-1.2a3.3 3.3 0 0 0 0-4.6zM18 6a8.5 8.5 0 0 1 0 12l-1.2-1.2a6.8 6.8 0 0 0 0-9.6z', SPK_X = 'M16.2 9.3l1.9 1.9 1.9-1.9 1.2 1.2-1.9 1.9 1.9 1.9-1.2 1.2-1.9-1.9-1.9 1.9-1.2-1.2 1.9-1.9-1.9-1.9z';      // the speaker, with its waves or crossed out
-const cfgRead = () => { for (const b of $('skQ').children) b.setAttribute('aria-pressed', b.dataset.v === (smooth ? '1' : '0'));
+const cfgRead = () => { for (const b of $('skQ').children) b.setAttribute('aria-pressed', String(Number(b.dataset.v) === QUAL));
   if ($('cfSp')) for (const b of $('cfSp').children) b.setAttribute('aria-pressed', (b.dataset.v === '1') === resume);
   for (const b of $('cfCap').children) b.setAttribute('aria-pressed', Number(b.dataset.v) === fpsCap); for (const b of $('cfVw').children) b.setAttribute('aria-pressed', Number(b.dataset.v) === viewK);
   $('cfVo').value = Math.round(gameVol * 100); $('cfVv').textContent = mute ? 'ปิดอยู่' : Math.round(gameVol * 100) + '%'; $('cfMu').setAttribute('aria-pressed', mute); $('cfMuP').setAttribute('d', mute ? SPK + SPK_X : SPK + SPK_ON); $('cfMu').title = (mute ? 'เปิดเสียง' : 'ปิดเสียง') + ' (M)'; $('cfMu').setAttribute('aria-label', mute ? 'เปิดเสียง' : 'ปิดเสียง');
@@ -121,7 +121,12 @@ const cfgRead = () => { for (const b of $('skQ').children) b.setAttribute('aria-
   if ($('cfRv')) for (const b of $('cfRv').children) { b.setAttribute('aria-pressed', String((b.dataset.v === '1') === RIVAL)); b.disabled = !DRIFT; } };      // (the rival only in the drift mode)
 {
   const D = $('cfg');
-  $('skQ').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; smooth = b.dataset.v === '1'; try { localStorage.setItem('endless.smooth', smooth ? '1' : ''); } catch (err) {} scale = smooth ? 0.8 : 1; lodK = 1; cfgRead(); });      // (changing it starts the frame-rate keeping afresh)
+  $('skQ').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; QUAL = clamp(Number(b.dataset.v) | 0, 0, 3); smooth = QUAL <= 1;
+    try { localStorage.setItem('endless.qual', String(QUAL)); localStorage.removeItem('endless.smooth'); } catch (err) {}
+    // (to ultra or from it: what it builds in at the start - ULTRA, core.js - needs the page loaded again; where the car is, the hour and the weather
+    // are kept over it as when the page reloads itself while being worked on)
+    if ((QUAL === 3) !== ULTRA) { liveKeep(); location.reload(); return; }
+    scale = QP[QUAL].base; lodK = QP[QUAL].lod; ssOn = !!QP[QUAL].keep; ssWait = 20; ssOK = 0; rLid = 1; cfgRead(); });      // (changing it starts the frame-rate keeping afresh)
   $('cfVw').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; viewK = Number(b.dataset.v); try { localStorage.setItem('endless.view', viewK < 1 ? String(viewK) : ''); } catch (err) {} cfgRead(); });
   if ($('cfSp')) $('cfSp').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; resume = b.dataset.v === '1'; try { localStorage.setItem('endless.resume', resume ? '' : '0'); } catch (err) {} cfgRead(); });
   $('cfCap').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; fpsCap = Number(b.dataset.v); try { localStorage.setItem('endless.cap', fpsCap ? String(fpsCap) : ''); } catch (err) {} rBest = 0; rKnown = 0; rPrev = 0; rLid = 1; cfgRead(); });      // (what the best rate is has to be found again)
@@ -210,6 +215,8 @@ addEventListener('keydown', (e) => {
   initSound(); if (e.code === 'KeyM' && !e.repeat) { mute = !mute; setVol(); }
   if (e.repeat) return; keys.add(e.code);
   // (T, R and Y - the time, the weather, the weather by itself - are not keys any more: the weather panel does them)
+  // (T: the MX-5's soft top, down or up)
+  if (e.code === 'KeyT' && typeof topToggle === 'function') { const r = topToggle(); if (r && typeof padNote === 'function') padNote(r === 'wet' ? (AT.snow > 0.15 ? 'หิมะตกอยู่ · เปิดประทุนไม่ได้' : 'ฝนตกอยู่ · เปิดประทุนไม่ได้') : TOP_DOWN ? 'เปิดประทุน' : 'ปิดประทุน'); }
   if (e.code === 'KeyV') view3 = !view3;
   else if (e.code === 'KeyL') headOn = (headOn === -1 ? (AT.night > 0.5 ? 0 : 1) : headOn ? 0 : 1);
   else if (e.code === 'KeyP') { auto.on = !auto.on; drvRead(); }

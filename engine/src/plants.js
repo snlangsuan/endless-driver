@@ -4,6 +4,9 @@
 const nrm3 = (v) => { const l = hypot(v[0], v[1], v[2]) || 1; v[0] /= l; v[1] /= l; v[2] /= l; return v; };
 function shuffleLeaves(L, R) { const n = L.length / 12, t = new Array(12); for (let i = n - 1; i > 0; i--) { const j = floor(R() * (i + 1)); for (let k = 0; k < 12; k++) { t[k] = L[i * 12 + k]; L[i * 12 + k] = L[j * 12 + k]; L[j * 12 + k] = t[k]; } } }
 // broadleaf tree: each limb carries its children spaced along it, spiralling round at the golden angle
+// (o.sp: its species, by which its sprigs are cut to its own leaf and its bark painted - fsLeaf and fsBranch in scene.wgsl: 0 a pterocarpus
+// (ประดู่) and any tree not said, 1 rain tree (จามจุรี), 2 dipterocarp (ยางนา), 3 golden shower (ราชพฤกษ์), 4 wild cherry (พญาเสือโคร่ง),
+// 6 mango (มะม่วง), 7 bodhi (โพธิ์))
 function makeTree(seed, o) {
   const R = rng(seed), segs = [[], [], [], []], twigs = [];
   const branch = (p0, d0, len, rad, lvl) => {
@@ -11,9 +14,13 @@ function makeTree(seed, o) {
     // a long limb sags under its own weight in the middle and turns up to the light at its end.
     const n = lvl === 0 ? 8 : lvl === 1 ? 7 : lvl === 2 ? 4 : 3, pts = [p0.slice()], dirs = [], d = d0.slice(), p = p0.slice(), wob = o.wob * (lvl ? 1.25 : 0.6), tip = lvl === 0 ? 0.16 : 0.4;
     for (let i = 0; i < n; i++) {
-      const kink = R() < 0.22 ? 2.6 : 1, flat = 1 - abs(d[1]);
+      // (the trunk itself does not kink - only its limbs: its pieces are plain tubes, and at a sharp turn the end of one stood out past the
+      // next as a ledge round the trunk)
+      const kink = lvl > 0 && R() < 0.22 ? 2.6 : 1, flat = 1 - abs(d[1]);
       d[0] += (R() - 0.5) * wob * kink; d[2] += (R() - 0.5) * wob * kink; d[1] += lvl ? (R() - 0.5) * wob * 0.6 + (i / n - 0.42) * 0.3 * flat + o.trop * 0.2 : 0.05; nrm3(d);
-      const r0 = rad * (1 - (1 - tip) * i / n) * (lvl === 0 && i === 0 ? 1.6 : 1), r1 = rad * (1 - (1 - tip) * (i + 1) / n);
+      // (the foot flares out over the trunk's first two lengths, each meeting the next at one width - all in the first, it ended in a step)
+      const fl = (k) => (lvl === 0 ? (k === 0 ? 1.6 : k === 1 ? 1.2 : 1) : 1);
+      const r0 = rad * (1 - (1 - tip) * i / n) * fl(i), r1 = rad * (1 - (1 - tip) * (i + 1) / n) * fl(i + 1);
       const q = [p[0] + d[0] * len / n, p[1] + d[1] * len / n, p[2] + d[2] * len / n];
       segs[lvl].push(p[0], p[1], p[2], r0, q[0], q[1], q[2], r1, max(p[1], 0), max(q[1], 0));
       p[0] = q[0]; p[1] = q[1]; p[2] = q[2]; pts.push(q); dirs.push(d.slice());
@@ -44,38 +51,63 @@ function makeTree(seed, o) {
     const f = R(), a = i < t.length - 1 ? t[i] : t[i - 1], b = i < t.length - 1 ? t[i + 1] : t[i];
     const x = mix(a[0], b[0], f), y = mix(a[1], b[1], f), z = mix(a[2], b[2], f);
     const dist = hypot(x - cx, y - cy, z - cz) / rad, shade = 0.42 + 0.58 * clamp((dist - 0.25) / 0.6, 0, 1), L = o.leaf * (0.7 + R() * 0.6);
-    leaves.push(x, y, z, L, R() * TAU, -0.35 + R() * 1.1, L * o.wide, 0.5 + R() * 1.0, o.bloom && R() < o.bloom ? 10 : o.hang ? 19 : o.kind || 0, R(), shade, y);      // (o.bloom: that share of the sprigs are sprays of blossom)
+    leaves.push(x, y, z, L, R() * TAU, -0.35 + R() * 1.1, L * o.wide, 0.5 + R() * 1.0, o.bloom && R() < o.bloom ? 10 : o.hang ? 19 : o.kind || 0, R(), shade + 2 * (o.sp || 0), y);      // (the tree's species rides with the shade, in twos: see leafV)      // (o.bloom: that share of the sprigs are sprays of blossom)
     // (o.hang: a golden shower's - its leaves are kind 19, which it half sheds when it flowers, and from that share of its sprigs hang one or two
     // long chains of flowers, leaf kind 18, straight down, seen only in its season)
     if (o.hang) for (let q = 0, nq = R() < o.hang ? (R() < 0.6 ? 2 : 1) : 0; q < nq; q++) { const Lr = 0.5 + R() * 0.38; leaves.push(x + (R() - 0.5) * 0.2, y - 0.05, z + (R() - 0.5) * 0.2, Lr, R() * TAU, -1.48 + R() * 0.16, Lr * 0.2, 0, 18, R(), shade, y); }
   }
   shuffleLeaves(leaves, R);
   const all = [].concat(segs[0], segs[1], segs[2], segs[3]);
-  return { segs: new Float32Array(all), nSeg: all.length / 10, nSegFar: (segs[0].length + segs[1].length) / 10, nSegMid: (segs[0].length + segs[1].length + segs[2].length) / 10, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
+  return { sp: o.sp || 0, segs: new Float32Array(all), nSeg: all.length / 10, nSegFar: (segs[0].length + segs[1].length) / 10, nSegMid: (segs[0].length + segs[1].length + segs[2].length) / 10, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
-// casuarina (ต้นสนทะเล): a tall rough trunk leaning one way (toward local +x), thin upswept boughs, and long drooping sprays of grey-green needles
+// casuarina (ต้นสนทะเล): a tall straight trunk, hardly leaning, rough and dark; a narrow open cone of many slender boughs - the lower long and
+// level, drooping at their ends, the upper short and upswept - and on every bough a dozen side twigs, each a soft feathery plume of fine
+// grey-green needles that hang and wave: seen whole, the tree is a tall wispy cloud, the sky showing through it everywhere, never a solid mass.
+// (It was forty bare boughs each hung with a row of long strips - a fish's skeleton - on a trunk leaning four metres out of true.)
 function makeCasuarina(seed) {
-  const R = rng(seed), segs = [], br = [], leaves = [], Hh = 15 + R() * 5, lean = 0.16 + R() * 0.10, w1 = R() * 6, w2 = R() * 6;
-  const tp = (t) => [sin(t * 1.25) * Hh * lean + sin(t * 5 + w1) * 0.3 * t, t * Hh - 0.3, sin(t * 4 + w2) * 0.3 * t];
-  for (let i = 0; i < 12; i++) { const a = tp(i / 12), b = tp((i + 1) / 12); segs.push(a[0], a[1], a[2], 0.36 - 0.29 * i / 12 + (i === 0 ? 0.14 : 0), b[0], b[1], b[2], 0.36 - 0.29 * (i + 1) / 12, max(a[1], 0), b[1]); }
-  const nB = 40;
+  const R = rng(seed), segs = [], br = [], leaves = [], Hh = 15 + R() * 5, lean = 0.03 + R() * 0.05, w1 = R() * 6, w2 = R() * 6;
+  const tp = (t) => [sin(t * 1.25) * Hh * lean + sin(t * 5 + w1) * 0.18 * t, t * Hh - 0.3, sin(t * 4 + w2) * 0.18 * t];
+  for (let i = 0; i < 12; i++) { const a = tp(i / 12), b = tp((i + 1) / 12); segs.push(a[0], a[1], a[2], 0.36 - 0.30 * i / 12 + (i === 0 ? 0.14 : 0), b[0], b[1], b[2], 0.36 - 0.30 * (i + 1) / 12, max(a[1], 0), b[1]); }
+  const nB = 64, plume = (q, az, el, L, u, sh) => leaves.push(q[0], q[1], q[2], L, az, el, 0.07 + R() * 0.05, 0.7 + R() * 1.3, 8, R(), sh, q[1]);
   for (let k = 0; k < nB; k++) {
-    const t = 0.3 + 0.69 * (k + R() * 0.8) / nB, base = tp(t), az = k * 2.39996 + R() * 0.5, Lb = (2.9 + R() * 3.0) * (1.1 - 0.75 * (t - 0.3) / 0.7), ox = cos(az), oz = sin(az), rise = 0.25 + R() * 0.5;
-    const bp = (u) => [base[0] + ox * Lb * u, base[1] + Lb * (rise * u - 0.42 * u * u), base[2] + oz * Lb * u];
-    for (let i = 0; i < 4; i++) { const a = bp(i / 4), b = bp((i + 1) / 4); br.push(a[0], a[1], a[2], 0.055 - 0.011 * i, b[0], b[1], b[2], 0.044 - 0.011 * i, a[1], b[1]); }
-    const n = 12 + floor(Lb * 3);
-    for (let j = 0; j < n; j++) { const u = 0.18 + 0.82 * R(), q = bp(u), L = 0.55 + R() * 0.55; leaves.push(q[0], q[1], q[2], L, az + (R() - 0.5) * 2.4, -0.2 - R() * 0.9, 0.13, 0.8 + R() * 1.2, 8, R(), 0.55 + 0.45 * u, q[1]); }
+    const f = (k + R() * 0.8) / nB, t = 0.24 + 0.75 * f, base = tp(t), az = k * 2.39996 + R() * 0.5;
+    // (the cone: longest a third of the way up the crown, shorter above and a little shorter below; the low boughs level, the top ones steep)
+    const Lb = (1.3 + 3.6 * Math.pow(sin(PI * min(1, 0.18 + 0.82 * (1 - f))), 0.8)) * (0.8 + R() * 0.4), ox = cos(az), oz = sin(az), rise = 0.05 + 0.95 * f + R() * 0.2, sag = 0.5 - 0.25 * f;
+    const bp = (u) => [base[0] + ox * Lb * u, base[1] + Lb * (rise * u - sag * u * u), base[2] + oz * Lb * u];
+    for (let i = 0; i < 4; i++) { const a = bp(i / 4), b = bp((i + 1) / 4); br.push(a[0], a[1], a[2], 0.05 - 0.011 * i, b[0], b[1], b[2], 0.04 - 0.011 * i, a[1], b[1]); }
+    // the side twigs, alternate, each carrying its plume: needles along it and a tuft at its end, some reaching up, most hanging
+    const nT = 7 + floor(Lb * 2.2);
+    for (let j = 0; j < nT; j++) { const u = 0.2 + 0.8 * (j + R()) / nT, q = bp(u), ta = az + (j & 1 ? 1 : -1) * (0.7 + R() * 0.7), Lt = (0.35 + R() * 0.5) * (1.15 - 0.5 * u), tx = cos(ta), tz = sin(ta), up = 0.1 + R() * 0.35;
+      const e = [q[0] + tx * Lt, q[1] + Lt * up - 0.08, q[2] + tz * Lt], sh = 0.5 + 0.5 * u;
+      br.push(q[0], q[1], q[2], 0.012, e[0], e[1], e[2], 0.006, q[1], e[1]);
+      for (let m = 0; m < 4; m++) { const g = 0.25 + 0.75 * (m + R()) / 4, w = [mix(q[0], e[0], g), mix(q[1], e[1], g), mix(q[2], e[2], g)]; plume(w, ta + (R() - 0.5) * 2.6, -0.15 - R() * 1.0, 0.3 + R() * 0.32, u, sh); }
+      plume(e, ta + (R() - 0.5) * 1.2, 0.5 - R() * 1.3, 0.3 + R() * 0.3, u, sh); }
+    plume(bp(1), az, -0.3 - R() * 0.6, 0.45 + R() * 0.3, 1, 1);
   }
+  // the leader: a few short plumes up the bare top of the trunk, the tip itself
+  for (let k = 0; k < 14; k++) { const q = tp(0.9 + 0.1 * R()); plume(q, R() * TAU, 0.2 + R() * 0.9, 0.35 + R() * 0.3, 1, 1); }
   shuffleLeaves(leaves, R);
   const all = segs.concat(br);
-  return { segs: new Float32Array(all), nSeg: all.length / 10, nSegFar: 12, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
+  return { segs: new Float32Array(all), nSeg: all.length / 10, nSegFar: 12 + nB * 4, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
-// coconut palm: a leaning ringed trunk, arching fronds, each a rib carrying two rows of hanging leaflets
+// Coconut palm (ต้นมะพร้าว): a slender grey trunk, swollen at the foot and ringed all the way up with the scars of fallen fronds, that leans out
+// and curves up again; and a full round head of some thirty fronds five and six metres long - the youngest standing nearly upright in the
+// middle, the rest arching out all round, the oldest hanging below the level - each a yellow-green rib bare for its first fifth, then carrying
+// thirty pairs of long narrow leaflets, held up in a shallow V along a young frond and hanging from an old one. Under the head the brown fibre
+// of the frond bases, the bunches of nuts, and two or three dead fronds hanging against the trunk.
+// (The trunk and the ribs are made pieces - materials 28 and 2 - that ride the palm's sway, each from the height of its own two ends: branchV.
+// It was a short flat umbrella of seventeen fronds of four metres with twenty-four pairs of leaflets, on a smooth black trunk; its ribs were
+// bark-coloured.)
 function makePalm(seed) {
-  const R = rng(seed), segs = [], leaves = [], Hh = 9 + R() * 3, bend = 0.12 + R() * 0.12, ba = R() * TAU;
-  const tp = (t) => [cos(ba) * sin(t * 1.4) * Hh * bend, t * Hh - 0.3, sin(ba) * sin(t * 1.4) * Hh * bend];
-  for (let i = 0; i < 10; i++) { const a = tp(i / 10), b = tp((i + 1) / 10); segs.push(a[0], a[1], a[2], 0.26 - 0.09 * i / 10 + (i === 0 ? 0.1 : 0), b[0], b[1], b[2], 0.26 - 0.09 * (i + 1) / 10, max(a[1], 0), b[1]); }
+  const R = rng(seed), segs = [], ribs = [], leaves = [], Hh = 9 + R() * 4, bend = 0.1 + R() * 0.14, ba = R() * TAU;
+  const tp = (t) => [cos(ba) * sin(t * 1.4) * Hh * bend, t * Hh - 0.3, sin(ba) * sin(t * 1.4) * Hh * bend], SWof = (y) => -2 - max(y, 0);
+  const made = (a, ra, b, rb, mat, o = segs) => o.push(a[0], a[1], a[2], ra, b[0], b[1], b[2], rb, SWof(a[1]), mat);
+  // (the trunk: 42 cm through at the ground, 20 by a metre up, 16 under the head)
+  const tr = (t) => 0.17 - 0.035 * t + 0.25 * Math.exp(-t * Hh / 0.45);
+  for (let i = 0; i < 16; i++) made(tp(i / 16), tr(i / 16), tp((i + 1) / 16), tr((i + 1) / 16), 28);
   const top = tp(1);
+  // (the head's foot: the frond bases wrapped in brown fibre, a short thick piece over the top of the trunk)
+  made([top[0], top[1] - 0.25, top[2]], 0.17, [top[0], top[1] + 0.2, top[2]], 0.26, 9); made([top[0], top[1] + 0.2, top[2]], 0.26, [top[0], top[1] + 0.55, top[2]], 0.12, 9);
   // Coconuts: two or three bunches hanging close under the crown, each on a short stalk out of the top of the trunk, five to eight nuts to a
   // bunch. A nut is 30 cm long, egg-shaped, blunt at the stalk end and a little pointed below: three lengths of tube, swelling and closing.
   // Each bunch is of one age - young green, or ripening to yellow and orange (the seed, carried in the fraction of the material's number).
@@ -85,18 +117,25 @@ function makePalm(seed) {
     for (let k = 0, nk = 5 + floor(R() * 4); k < nk; k++) { const an = a + (R() - 0.5) * 2.6, rr = 0.12 + R() * 0.22, x = bx + cos(an) * rr, z = bz + sin(an) * rr, y = by - 0.02 - R() * 0.35, s = 1.1 + R() * 0.35, lx = cos(an) * 0.05, lz = sin(an) * 0.05;
       const q = (t) => [x + lx * t, y - 0.3 * s * t, z + lz * t], p0 = q(0), p1 = q(0.3), p2 = q(0.72), p3 = q(1);
       segs.push(p0[0], p0[1], p0[2], 0.06 * s, p1[0], p1[1], p1[2], 0.118 * s, SW, M, p1[0], p1[1], p1[2], 0.118 * s, p2[0], p2[1], p2[2], 0.108 * s, SW, M, p2[0], p2[1], p2[2], 0.108 * s, p3[0], p3[1], p3[2], 0.03 * s, SW, M); } }
-  const nTrunk = segs.length / 10;
-  for (let k = 0; k < 19; k++) {
-    const dead = k >= 17, a = k * 2.39996 + R() * 0.4, el = dead ? -0.5 - R() * 0.25 : -0.15 + R() * 1.0, L = 3.4 + R() * 1.3, dx = cos(a) * cos(el), dy = sin(el), dz = cos(el) * sin(a), sag = 0.4 + R() * 0.25;      // (two dead fronds, hanging out and down - not straight down round the trunk, where they hid the coconuts)
-    const rib = (t) => [top[0] + dx * L * t, top[1] + dy * L * t - t * t * L * sag, top[2] + dz * L * t];
-    for (let i = 0; i < 6; i++) { const p = rib(i / 6), q = rib((i + 1) / 6); segs.push(p[0], p[1], p[2], 0.045 - 0.006 * i, q[0], q[1], q[2], 0.039 - 0.006 * i, p[1], q[1]); }
-    for (let j = 0; j < 24; j++) for (const s of [1, -1]) {
-      const t = 0.1 + 0.9 * (j + 0.5) / 24, p = rib(t), ll = L * (0.1 + 0.26 * sin(PI * Math.pow(t, 0.7)));
-      leaves.push(p[0], p[1], p[2], ll, a + s * (1.25 - t * 0.35), -0.25 - R() * 0.3, 0.055, 1.1 + R() * 0.7, dead ? 7 : 1, R(), 0.6 + 0.4 * t, p[1]);
+  const NF = 28, ND = 3, hub = [top[0], top[1] + 0.3, top[2]];
+  for (let k = 0; k < NF + ND; k++) {
+    // (age: 0 the newest, upright in the middle; 1 the oldest, hanging below the level. A dead one hangs down the trunk.)
+    const dead = k >= NF, age = dead ? 1 : k / (NF - 1), a = k * 2.39996 + R() * 0.5, el = dead ? -0.95 - R() * 0.3 : 1.3 - 1.75 * age + (R() - 0.5) * 0.22;
+    const L = (dead ? 3.6 : 4.7) + R() * 1.3 - (age < 0.12 ? 1.4 : 0), sag = dead ? 0.12 : 0.22 + 0.42 * age + R() * 0.12, dx = cos(a) * cos(el), dy = sin(el), dz = cos(el) * sin(a);
+    const rib = (t) => [hub[0] + dx * L * t, hub[1] + dy * L * t - t * t * L * sag, hub[2] + dz * L * t];
+    for (let i = 0; i < 7; i++) made(rib(i / 7), i === 0 ? 0.075 : 0.05 - 0.0055 * i, rib((i + 1) / 7), 0.044 - 0.0055 * i, dead ? 9 : 2, ribs);
+    const NP = 30;
+    for (let j = 0; j < NP; j++) for (const sd of [1, -1]) {
+      const t = 0.2 + 0.8 * (j + 0.5 + (R() - 0.5) * 0.3) / NP, p = rib(t), q = rib(min(t + 0.04, 1)), sl = atan2(q[1] - p[1], Math.hypot(q[0] - p[0], q[2] - p[2]) || 1e-3);
+      const ll = L * (0.07 + 0.155 * sin(PI * Math.pow((t - 0.2) / 0.8, 0.62))) * (0.9 + R() * 0.2);
+      // (a leaflet leaves the rib swept toward its tip - more so further out - and a little above the rib's own slope on a young frond, below it
+      // on an old one, and droops toward its end)
+      leaves.push(p[0], p[1], p[2], ll, a + sd * (1.15 - 0.5 * t) + (R() - 0.5) * 0.12, dead ? -1.1 - R() * 0.3 : sl * 0.6 + 0.28 - 0.75 * age - R() * 0.22, 0.042, dead ? 0.3 : 0.5 + 0.9 * age + R() * 0.5, dead ? 7 : 1, R(), 0.6 + 0.4 * t, p[1]);
     }
   }
   shuffleLeaves(leaves, R);
-  return { segs: new Float32Array(segs), nSeg: segs.length / 10, nSegFar: nTrunk + 114, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
+  const all = segs.concat(ribs);
+  return { segs: new Float32Array(all), nSeg: all.length / 10, nSegFar: all.length / 10, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
 // oil palm (ปาล์มน้ำมัน), as a plantation grows it: a short stout trunk, knobbly all the way up with the butts of the fronds that were cut from it;
 // a great head of some two dozen long feathered fronds - the young ones standing up, the rest arching out and down under their own weight, the
@@ -135,44 +174,65 @@ function makeOilPalm(seed) {
   for (const v of spikes) segs.push(v);      // (last: drawn only from near to)
   return { segs: new Float32Array(segs), nSeg: segs.length / 10, nSegFar: nTrunk + NF * 5, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
-// sugar palm (ต้นตาล): a tall straight trunk and a round head of stiff fans
+// Sugar palm (ต้นตาล, Borassus): a tall, dead straight, stout trunk - near black, rough, ringed, a little thicker toward the top than half way
+// up - and on it a dense round head of some thirty great stiff fans, each a pleated grey-green disc two and a half to three metres across, cut
+// into points round its rim, on a stout stalk of a metre and more; the young ones upright in the middle, the old ones standing out level and
+// below. Under the head hang the dead fans, brown, in a skirt against the trunk, and the stubs of cut stalks stand out of its top; and among
+// the stalks the bunches of fruit, round and purple-black, each the size of a small coconut.
+// (A fan is one card, cut to shape by the fragment stage - kind 20; the trunk a made piece of its own bark, material 29. It was a thin smooth
+// pole with twenty-six sprays of fourteen narrow leaflets - a bottle brush, not a tal.)
 function makeSugarPalm(seed) {
-  const R = rng(seed), segs = [], leaves = [], Hh = 11 + R() * 4;
-  for (let i = 0; i < 6; i++) segs.push((R() - 0.5) * 0.08, i / 6 * Hh - 0.3, 0, 0.27 - 0.02 * i + (i === 0 ? 0.12 : 0), (R() - 0.5) * 0.08, (i + 1) / 6 * Hh - 0.3, 0, 0.25 - 0.02 * i, i / 6 * Hh, (i + 1) / 6 * Hh);
-  const nTrunk = 6, top = [0, Hh - 0.3, 0];
-  for (let k = 0; k < 26; k++) {
-    const az = k * 2.39996, el = -0.7 + R() * 1.9, st = 0.8 + R() * 0.5, dx = cos(az) * cos(el), dy = sin(el), dz = sin(az) * cos(el), sx = -sin(az), sz = cos(az);
-    const hub = [top[0] + dx * st, top[1] + dy * st, top[2] + dz * st];
-    segs.push(top[0], top[1], top[2], 0.035, hub[0], hub[1], hub[2], 0.025, top[1], hub[1]);
-    for (let j = 0; j < 14; j++) {
-      const fa = (j / 13 - 0.5) * 3.3, bx = dx * cos(fa) + sx * sin(fa), by = dy * cos(fa), bz = dz * cos(fa) + sz * sin(fa);
-      leaves.push(hub[0], hub[1], hub[2], 1.05 + R() * 0.3, atan2(bz, bx), Math.asin(clamp(by, -1, 1)), 0.075, 0.2 + R() * 0.3, 1, R(), 0.5 + 0.5 * clamp((el + 0.7) / 1.9, 0, 1), hub[1]);
-    }
+  const R = rng(seed), segs = [], leaves = [], Hh = 11 + R() * 5, lx = (R() - 0.5) * 0.5, lz = (R() - 0.5) * 0.5;
+  const made = (a, ra, b, rb, mat) => segs.push(a[0], a[1], a[2], ra, b[0], b[1], b[2], rb, -2 - max(a[1], 0), mat);
+  const tp = (t) => [lx * t * t, t * Hh - 0.3, lz * t * t], tr = (t) => 0.25 + 0.035 * sin(PI * clamp((t - 0.35) / 0.65, 0, 1)) + 0.2 * Math.exp(-t * Hh / 0.6);
+  for (let i = 0; i < 14; i++) made(tp(i / 14), tr(i / 14), tp((i + 1) / 14), tr((i + 1) / 14), 29);
+  const top = tp(1), hubC = [top[0], top[1] + 0.25, top[2]];
+  made([top[0], top[1] - 0.1, top[2]], 0.27, [top[0], top[1] + 0.45, top[2]], 0.2, 9);
+  // (the stubs of old stalks, cut or broken off, round the trunk's last metre and a half)
+  for (let k = 0; k < 14; k++) { const a = k * 2.39996 + R(), y = top[1] - 0.1 - R() * 1.5, r0 = tr(1) - 0.03, l = 0.25 + R() * 0.3; made([top[0] + cos(a) * r0, y, top[2] + sin(a) * r0], 0.05, [top[0] + cos(a) * (r0 + l * 0.75), y + l * 0.65, top[2] + sin(a) * (r0 + l * 0.75)], 0.03, 9); }
+  // (fruit: two or three bunches hung out between the lower stalks)
+  for (let bn = 0, nb = 2 + (R() < 0.5 ? 1 : 0); bn < nb; bn++) { const a = bn * TAU / nb + R(), bx = top[0] + cos(a) * 0.6, bz = top[2] + sin(a) * 0.6, by = top[1] - 0.35, SW = -2 - top[1];
+    segs.push(top[0], top[1] + 0.1, top[2], 0.04, bx, by, bz, 0.03, SW, 9);
+    for (let k = 0, nk = 5 + floor(R() * 4); k < nk; k++) { const an = R() * TAU, rr = 0.08 + R() * 0.2, x = bx + cos(an) * rr, z = bz + sin(an) * rr, y = by - R() * 0.4, r = 0.085 + R() * 0.025;
+      segs.push(x, y + r, z, r * 0.45, x, y, z, r, SW, 5, x, y, z, r, x, y - r, z, r * 0.45, SW, 5); } }
+  const NF = 32, ND = 9;
+  for (let k = 0; k < NF + ND; k++) {
+    const dead = k >= NF, age = dead ? 1 : k / (NF - 1), az = k * 2.39996 + R() * 0.5, el = dead ? -1.15 - R() * 0.25 : 1.35 - 1.95 * age + (R() - 0.5) * 0.25;
+    const st = dead ? 0.7 + R() * 0.4 : 1.0 + R() * 0.45, dx = cos(az) * cos(el), dy = sin(el), dz = sin(az) * cos(el);
+    const hub = [hubC[0] + dx * st, hubC[1] + dy * st, hubC[2] + dz * st], L = (dead ? 1.9 : 2.2) + R() * 0.5;
+    made(hubC, 0.055, hub, 0.035, dead ? 9 : 2);
+    // (the card: from the stalk's end on along it, the fan's middle 0.38 of its length out and the fan 0.62 of it in radius - see fsLeaf)
+    leaves.push(hub[0] - dx * L * 0.3, hub[1] - dy * L * 0.3, hub[2] - dz * L * 0.3, L, az, el, L * 0.65, dead ? 0.05 : 0.08 + 0.25 * age, 20, dead ? 0.93 + R() * 0.06 : R() * 0.85, 0.55 + 0.45 * (1 - age), hub[1]);
   }
   shuffleLeaves(leaves, R);
-  return { segs: new Float32Array(segs), nSeg: segs.length / 10, nSegFar: nTrunk + 26, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
+  return { segs: new Float32Array(segs), nSeg: segs.length / 10, nSegFar: segs.length / 10, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
 // banana clump (กอกล้วย): four or five thick stems of different heights leaning apart, brown and stringy at the foot and green above.
 // Each stem carries a head of big paddle leaves on long stalks - the young ones standing up in the middle, the old ones arching over
 // and hanging, torn along the veins. The tallest stem carries the bunch (เครือ): a thick stalk bends over out of the crown and hangs
 // straight down, with hands of fruit in tiers round it, a bare length below them, and the purple bud (ปลี) at the end.
 function makeBanana(seed) {
-  const R = rng(seed), segs = [], fine = [], leaves = [], tube = (a, ra, b, rb, mat, o = segs) => o.push(a[0], a[1], a[2], ra, b[0], b[1], b[2], rb, -2 - max(0, (a[1] + b[1]) / 2), mat);      // (-2 - height: a made piece that goes with the plant's sway, as its leaves do - stems, bunch and bud; at -1 they stood still while the leaves moved)
+  const R = rng(seed), segs = [], fine = [], leaves = [], tube = (a, ra, b, rb, mat, o = segs) => o.push(a[0], a[1], a[2], ra, b[0], b[1], b[2], rb, -2 - max(0, a[1]), mat);      // (-2 - height: a made piece that goes with the plant's sway, as its leaves do - stems, bunch and bud; at -1 they stood still while the leaves moved)
   const HS = [3.4, 2.7, 3.0, 2.1, 1.0];
   for (let s = 0; s < 5; s++) {
     const a0 = s * 2.4 + R() * 0.7, rr = s ? 0.42 + R() * 0.25 : 0.08, bx = cos(a0) * rr, bz = sin(a0) * rr, Hs = HS[s] * (0.92 + R() * 0.16), k = Hs / 3.4, lean = s ? 0.3 + R() * 0.35 : 0.12;
     const sp = (t) => [bx + cos(a0) * lean * k * t * t, -0.2 + (Hs + 0.2) * t, bz + sin(a0) * lean * k * t * t];
-    const rad = (t) => (0.095 + 0.115 * Math.pow(1 - t, 1.4)) * (0.5 + 0.5 * k) + (t === 0 ? 0.05 : 0);
-    for (let i = 0; i < 6; i++) tube(sp(i / 6), rad(i / 6), sp((i + 1) / 6), rad((i + 1) / 6), i < 3 ? 9 : 10);
+    // (a stem is the rolled bases of its leaves: stout - 34 cm through at the foot of a full-grown one, 20 where the leaves part - and smooth
+    // in its taper, eight lengths of it; it was 26 cm tapering to 19 in six)
+    const rad = (t) => (0.1 + 0.07 * Math.pow(1 - t, 1.3)) * (0.5 + 0.5 * k) + 0.05 * Math.exp(-t * 9);
+    for (let i = 0; i < 8; i++) tube(sp(i / 8), rad(i / 8), sp((i + 1) / 8), rad((i + 1) / 8), i < 3 ? 9 : 10);
     const top = sp(1), nl = s === 4 ? 5 : 9 + floor(R() * 3);
     for (let j = 0; j < nl; j++) {
-      const az = j * 2.39996 + R() * 0.5 + s, age = j / (nl - 1), el = 1.32 - age * 1.3 + (R() - 0.5) * 0.2, L = (1.9 + R() * 0.6) * (0.45 + 0.55 * k) * (0.8 + 0.2 * sin(PI * age) + 0.1), droop = 0.45 + age * 0.95 + R() * 0.2;
-      const pel = el * 0.55 + 0.7, pl = (0.4 + R() * 0.3) * (0.5 + 0.5 * k);                                  // the leaf stalk leaves the stem more steeply than the blade it carries
-      const pe = [top[0] + cos(az) * cos(pel) * pl, top[1] + sin(pel) * pl, top[2] + sin(az) * cos(pel) * pl];
-      tube([top[0], top[1] - 0.35 * k, top[2]], 0.06 * (0.5 + 0.5 * k), pe, 0.028, 10);
-      leaves.push(pe[0], pe[1], pe[2], L, az, el, L * 0.175, droop, 5, clamp(age * 0.9 + (R() - 0.5) * 0.15, 0, 0.99), 0.85 + R() * 0.15, pe[1]);
+      // (a blade two to two and a half metres long and a quarter as wide, on a stalk of half a metre and more that arches out of the stem's top
+      // in two lengths; the old leaves bow right over)
+      const az = j * 2.39996 + R() * 0.5 + s, age = j / (nl - 1), el = 1.32 - age * 1.45 + (R() - 0.5) * 0.2, L = (2.1 + R() * 0.6) * (0.45 + 0.55 * k) * (0.8 + 0.2 * sin(PI * age) + 0.1), droop = 0.5 + age * 1.1 + R() * 0.2;
+      const pel = el * 0.55 + 0.7, pl = (0.5 + R() * 0.35) * (0.5 + 0.5 * k);                                  // the leaf stalk leaves the stem more steeply than the blade it carries
+      const pm = [top[0] + cos(az) * cos(pel + 0.3) * pl * 0.5, top[1] + sin(pel + 0.3) * pl * 0.5, top[2] + sin(az) * cos(pel + 0.3) * pl * 0.5];
+      const pe = [pm[0] + cos(az) * cos(pel - 0.25) * pl * 0.55, pm[1] + sin(pel - 0.25) * pl * 0.55, pm[2] + sin(az) * cos(pel - 0.25) * pl * 0.55];
+      tube([top[0], top[1] - 0.35 * k, top[2]], 0.065 * (0.5 + 0.5 * k), pm, 0.04, 10); tube(pm, 0.04, pe, 0.026, 10);
+      leaves.push(pe[0], pe[1], pe[2], L, az, el, L * 0.125, droop, 5, clamp(age * 0.9 + (R() - 0.5) * 0.15, 0, 0.99), 0.85 + R() * 0.15, pe[1]);
     }
-    if (s < 4) for (let j = 0; j < 3; j++) { const az = R() * TAU, p = sp(0.86 + R() * 0.1); leaves.push(p[0] + cos(az) * 0.1, p[1], p[2] + sin(az) * 0.1, (1.0 + R() * 0.5) * k, az, -1.25, 0.15, 0.3, 7, R(), 0.6, p[1]); }    // dead leaves hang down against the stem
+    if (s < 4) for (let j = 0; j < 5; j++) { const az = R() * TAU, p = sp(0.8 + R() * 0.16), rs = rad(0.85) + 0.02; leaves.push(p[0] + cos(az) * rs, p[1], p[2] + sin(az) * rs, (1.1 + R() * 0.7) * k, az, -1.38 + R() * 0.12, 0.17, 0.12, 7, R(), 0.6, p[1]); }    // dead leaves hang down against the stem
     if (s === 0) {
       const az = a0 + 1.2 + R() * 3.9, cx = cos(az), cz = sin(az);
       const q = (t) => { const u = min(t / 0.25, 1), out = 0.45 * sin(u * PI / 2); return [top[0] + cx * out, top[1] - 0.1 + 0.5 * u * (1 - u) - 0.12 * u - max(t - 0.25, 0) * 1.95, top[2] + cz * out]; };

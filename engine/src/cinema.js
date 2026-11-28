@@ -35,6 +35,9 @@ const lens = (deg) => Math.tan(deg * PI / 360);
 // and in a tunnel the road (the ground there is the mountain over it). (Taken as the road's height for 6 m either side of its middle, a camera
 // beside a mountain road was put inside the cutting's bank, which rises from 4.5 m out, and looked out through the ground.)
 const cineFloor = (x, z, y) => (inTun(z) ? roadYs(z) : surf(x, z, y));
+// Whether a camera is out beside a bridge, past its balustrade (4.3 m out) and below the rail's top: it sees the car through the rail, the rail a
+// blur across the front of the picture (the balustrade is not among the solid things cineHit knows). A drone, high over it, is not.
+const cineOffDeck = (p) => brSpan(p[2]) && abs(p[0] - roadX(p[2])) > 4.2 && p[1] < roadY(p[2]) + 2.6;
 // Whether anything stands between two points, the ends included (a camera put inside a wall saw out of it, the line looked at from 1.5 m on):
 // every 1.5 m along the line, at its own height, the ground - a bank, a crest - and what the chunks' col lists hold (collide.js), whole height
 // and all: buildings, walls, poles, and trees - a tree there is its trunk, and its crown made up from the trunk's height, round the top 60% of
@@ -74,6 +77,8 @@ const SHOTS = {
   road: { w: 2, dur: [6, 10], tun: false, still: true,
     init: (S, V) => { const s = 45 + Math.random() * 30, dz = V.dz, sl0 = roadSl(car.z), zq = car.z + dz * s / Math.sqrt(1 + sl0 * sl0), sl = roadSl(zq), n = Math.sqrt(1 + sl * sl);
       for (let q = car.z; Math.abs(q - car.z) < Math.abs(zq - car.z) + 20; q += dz * 8) if (inTun(q)) return false;
+      // (nor on a bridge: its roadside is past the balustrade, out over the water - the camera stood beside the deck looking through the rail)
+      for (let q = -14; q <= 14; q += 2) if (brSpan(zq + q)) return false;
       const side = (Math.random() < 0.55 ? -1 : 1) * dz, off = side * dz < 0 ? 4.6 : 4.9, x = roadX(zq) + side * off / n, z = zq - side * off * sl / n, ry = roadY(zq), g = ground(x, z);
       if (g > ry + 3.5 || udip(zq) > 0.3 || udip(car.z) > 0.3) return false;
       S.P = [x, max(g, ry - 0.3) + 0.8 + Math.random() * 1.6, z]; S.k = 99;
@@ -96,7 +101,7 @@ const SHOTS = {
     run: (S, V) => { const a = S.a0 + S.w * S.t; return { p: V.at(S.R * cos(a), S.R * sin(a), S.H), a: V.at(0, 0, 0.5), l: S.l, sy: -0.15 }; } },
 };
 // (a set-up is taken only if from where it begins it sees the car - or the first moment of it was a wall, a tree, and then the cut away)
-const cineFirst = (D, T, V) => { if (D.rigid) return true; const o = D.run(T, V); return cineSees(o.p, [V.P[0], V.P[1] + 0.7, V.P[2]]); };
+const cineFirst = (D, T, V) => { if (D.rigid) return true; const o = D.run(T, V); return !cineOffDeck(o.p) && cineSees(o.p, [V.P[0], V.P[1] + 0.7, V.P[2]]); };
 // Each frame, before the picture is drawn: whether the crew's camera is in use, and if so where it is (CINE.cam: x, y, z, yaw, pitch) and its
 // lens (CINE.tan); and how far into the film look the picture is (CINE.k, fading in and out over a second) and the bars (CINE.bar: the part of
 // the picture's height each covers).
@@ -119,7 +124,9 @@ function cineCam(dt) {
     C.duel += ((dd < 22 ? 1 : 0) - (C.duel || 0)) * (1 - Math.exp(-dt * 1.2)); const k = 0.5 * C.duel;
     if (R && k > 0.01) { P[0] += (R.x + RIV.C.ox - P[0]) * k; P[1] += (R.y - P[1]) * k; P[2] += (R.z + RIV.C.oz - P[2]) * k; } }
   const V = { P, F, dz: alongRoad(hd), at: (f, l, u) => [P[0] + F[0] * f + Lv[0] * l, P[1] + u, P[2] + F[1] * f + Lv[1] * l],
-    body: (l, f, u) => { const x = PB[0] + BF[0] * f + BL[0] * l, z = PB[2] + BF[1] * f + BL[1] * l; return [x, (typeof pcSurfY === 'function' ? pcSurfY(x, z, car.y + 1) : car.y) + u, z]; } };
+    // (at the car's own height, as a camera bolted to it is: taken from the road under the camera, it rose and fell over every bump and camber
+    // the car's body did not, and the car shook in the picture)
+    body: (l, f, u) => { const x = PB[0] + BF[0] * f + BL[0] * l, z = PB[2] + BF[1] * f + BL[1] * l; return [x, car.y + u, z]; } };
   // a new set-up when the last has run its time (or the car has gone by a roadside one): any but the one just shot, and in a tunnel, or with one
   // just ahead, only those that fit under its roof
   let S = C.shot;
@@ -143,18 +150,21 @@ function cineCam(dt) {
   const D = SHOTS[S.name], o = D.run(S, V);
   // (a moving camera is led by the car's own way, by about what its spring lags behind - or it hung back: 14 m behind a chase meant to be 7,
   // and an orbit of 6 m closed to 4)
-  if (!D.still) { const lead = car.v / S.k; o.p[0] += sin(hd) * lead; o.p[2] += cos(hd) * lead; }
+  if (!D.still && !D.rigid) { const lead = car.v / S.k; o.p[0] += sin(hd) * lead; o.p[2] += cos(hd) * lead; }
   // (the aim too, by what its own spring lags: across a side shot the car ran out to the frame's edge)
-  { const la = car.v / (D.rigid ? 14 : 5); o.a[0] += sin(hd) * la; o.a[2] += cos(hd) * la; }
+  if (!D.rigid) { const la = car.v / 5; o.a[0] += sin(hd) * la; o.a[2] += cos(hd) * la; }
   // (the camera moves to its wanted place on a spring - the set-up's own, from a steady mount to a loose one - put there at once on a cut; and
   // never below what is under it)
+  // (a camera fixed to the car's body - D.rigid - goes with it exactly, frame by frame: on a spring, however stiff, with a lead for its lag, it
+  // was right only at an even speed and an even frame time, and the car, near and on a long lens, trembled in the picture)
   if (S.cut || !S.p) { S.p = o.p.slice(); S.a = o.a.slice(); S.l = o.l; S.sx = 0; }
+  if (D.rigid) { S.p = o.p.slice(); S.a = o.a.slice(); }
   const kp = 1 - Math.exp(-dt * S.k), ka = 1 - Math.exp(-dt * (D.rigid ? 14 : 5));
-  for (let j = 0; j < 3; j++) { S.p[j] += (o.p[j] - S.p[j]) * kp; S.a[j] += (o.a[j] - S.a[j]) * ka; }
+  if (!D.rigid) for (let j = 0; j < 3; j++) { S.p[j] += (o.p[j] - S.p[j]) * kp; S.a[j] += (o.a[j] - S.a[j]) * ka; }
   S.l += (o.l - S.l) * (1 - Math.exp(-dt * 3));
-  S.p[1] = max(S.p[1], cineFloor(S.p[0], S.p[2], S.p[1] + 0.5) + 0.35);
+  S.p[1] = max(S.p[1], cineFloor(S.p[0], S.p[2], S.p[1] + 0.5) + (D.rigid ? 0.08 : 0.35));      // (a camera on the car needs only to stay out of the road: lifted as the others are, by the camber under it, it bobbed)
   // (something come between the camera and the car - a house, a tree - for more than a moment: cut away to another set-up)
-  S.lt = (S.lt || 0) + dt; if (S.lt > 0.1) { S.lt = 0; if (!D.tun && (inTun(car.z) || udip(car.z) > 0.3 || tunNear(35))) S.end = true; if (!D.rigid && cineHit(S.p[0], S.p[2], S.p[1])) S.end = true; if (D.rigid && cineRiv(S.p[0], S.p[2], S.p[1])) S.end = true; S.blk = cineSees(S.p, [P[0], P[1] + 0.7, P[2]]) ? 0 : (S.blk || 0) + 0.1; if (S.blk > 0.4) S.end = true; }
+  S.lt = (S.lt || 0) + dt; if (S.lt > 0.1) { S.lt = 0; if (!D.tun && (inTun(car.z) || udip(car.z) > 0.3 || tunNear(35))) S.end = true; if (!D.rigid && cineHit(S.p[0], S.p[2], S.p[1])) S.end = true; if (!D.rigid && cineOffDeck(S.p)) S.end = true; if (D.rigid && cineRiv(S.p[0], S.p[2], S.p[1])) S.end = true; S.blk = cineSees(S.p, [P[0], P[1] + 0.7, P[2]]) ? 0 : (S.blk || 0) + 0.1; if (S.blk > 0.4) S.end = true; }
   const dx = S.a[0] - S.p[0], dy = S.a[1] - S.p[1], dz = S.a[2] - S.p[2], yT = atan2(dx, dz), pT = atan2(dy, Math.hypot(dx, dz));
   // (framed by thirds: the car held to one side of the middle, away from where it is heading across the picture, so that there is room in front
   // of it - less when it comes at the camera or goes away from it)
