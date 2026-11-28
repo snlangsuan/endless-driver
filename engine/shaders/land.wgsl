@@ -34,7 +34,7 @@ fn seaz(z: f32) -> f32 { let p = z / SEG; let s = i32(floor(p)); let q = (p - fl
 fn nw(z: f32) -> f32 { return zw(z, 4, .46, .6); }
 fn roadX(z: f32) -> f32 { return 60. * sin(z * .004) + 25. * sin(z * .011 + 1.3) + 9. * sin(z * .023 + .7) + sw(z) * 16. * sin(z * .019) + hpx(z); }
 fn tunS(s: i32) -> bool { return s != 2 && (ph(vec2i(s, 31)) > .45 || ((s % 4) + 4) % 4 == 2); }      // a hill stretch with a tunnel and not switchbacks (tunS in land.js)
-fn hpw(z: f32) -> f32 { let p = z / SEG; let s = floor(p); let si = i32(s); if (zoneOf(si) != 1 || tunS(si)) { return 0.; } let w = select(.24, .47, ph(vec2i(si, 34)) < .5); return 1. - ss(w - .08, w, abs(p - s - .5)); }      // (tgS in land.js: a long pass)
+fn hpw(z: f32) -> f32 { let p = z / SEG; let s = floor(p); let si = i32(s); if (zoneOf(si) != 1 || tunS(si)) { return 0.; } let w = .47; return 1. - ss(w - .08, w, abs(p - s - .5)); }      // (tgS in land.js: every pass a long one)
 fn hpx(z: f32) -> f32 { let e = hpw(z); if (e <= 0.) { return 0.; } return e * 100. * sin(.0262 * (z - (floor(z / SEG) + .5) * SEG)); }
 // 1 where the plots of a flower stretch come up to the road (flwW in the script)
 // the cherry stretches (chyAt in src/land.js): 1 a hill whose woods are mostly cherry, 2 a flat stretch with an avenue, 0 neither

@@ -67,7 +67,7 @@ function frame(now) {
     fN = 0; fT = 0; fWorst = 0;
   }
   resize();
-  pollPad(dt); if (typeof lookStep === 'function') lookStep(dt); crushRecover(dt); if (fly.on) flyMove(dt); else onRoad = drive(dt); if (typeof rivalStep === 'function') rivalStep(dt);
+  pollPad(dt); if (typeof lookStep === 'function') lookStep(dt); crushRecover(dt); if (fly.on) flyMove(dt); else onRoad = drive(dt); if (typeof rivalStep === 'function') rivalStep(dt); if (typeof e86Step === 'function') e86Step(dt);
   updateSound(dt); if (SHOW_CAR) placeCar(dt);
   if (gameTick) gameTick(dt);      // a game's own doings each frame (it may fill EXTRA with boxes that move: see render.js)
   // camera
@@ -214,6 +214,7 @@ function frame(now) {
     if (c.nLeaf) { if (dc > 230 * lodK) continue; const l = dc > 52 * lodK ? 2 : 1; p.setPipeline(l === 2 ? pLeafS2 : pLeafS); p.setVertexBuffer(0, c.leafB); p.draw(6, floor(c.nLeaf / LODN[l])); }
   }
   if (STROLL) STROLL.draw(p, true);
+  if (typeof DRV !== 'undefined' && (fly.on || ext)) { DRV.draw(p, true, true); DRV.drawCap(p, true); }
   if (EXTRA.nBox) { p.setPipeline(pBoxS); p.setVertexBuffer(0, vbCube); p.setVertexBuffer(1, EXTRA.boxB); p.setIndexBuffer(ibCube, 'uint16'); p.drawIndexed(36, EXTRA.nBox); }
   for (const c of chunks.values()) if (c.nMesh && hypot(c.x - sc[0], c.z - sc[2]) < SHR * 1.45 + CH + 60) { const A = c.nMeshA ?? c.nMesh, Fr = c.nMeshFar ?? c.nMesh; p.setPipeline(pMeshS); p.setVertexBuffer(0, c.meshB); p.setIndexBuffer(c.meshIB, 'uint32'); if (hypot(c.x - ex, c.z - ez) < 75 + CH) { if (A) p.drawIndexed(A); if (c.nMesh > Fr) p.drawIndexed(c.nMesh - Fr, 1, Fr); } else if (Fr) p.drawIndexed(Fr); }
   if (SHOW_CAR) { p.setPipeline(pCarS); p.setVertexBuffer(0, carVB); p.setIndexBuffer(carIB, 'uint16'); p.drawIndexed(CAR.idx.length); }
@@ -276,6 +277,7 @@ function frame(now) {
   // the ground last (but for the sky): its paint is the dearest there is, and this way none is spent where a tree or a house stands in front of it
   p.setPipeline(pTerrain); p.setIndexBuffer(ibGrid, 'uint16'); for (const c of seenC) { p.setVertexBuffer(0, c.vb); p.drawIndexed(gridI.length); tris += GN * GN * 2; }
   p.setPipeline(pSky); p.draw(3);
+  if (typeof DRV !== 'undefined' && (fly.on || ext)) tris += DRV.draw(p, false, true) + DRV.drawCap(p, false);      // (the open car's driver: playercar.js)
   if (STROLL) tris += STROLL.draw(p, false);      // (those walking the town's footpaths)
   if (typeof underDraw === 'function') underDraw(p);      // (the shade under the cars, under the tyre marks)
   if (STROLL) STROLL.glow(p);      // (the rubber tappers' lamps)

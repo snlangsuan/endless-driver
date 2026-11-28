@@ -53,7 +53,15 @@ struct PcU { hi: vec4f, lo: vec4f, wh: vec4f, hub: array<vec4f, 4>, pc: vec4f, f
 struct PcO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) c: vec4f, @location(3) @interpolate(flat) k: u32, @location(4) lp: vec3f, @location(5) uv: vec2f, @location(6) @interpolate(flat) tl: vec2u };
 @vertex fn vsPc(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) c: vec4f, @location(3) k: vec4u, @location(4) uv: vec2f) -> PcO {
   var q = p; var m = n; let w = k.y;
-  if (w > 0u) {
+  // (part 9: the soft top - mx5.py. With the top down - hub[3].w, 0 up .. 1 down - it folds away: drawn back to its rear edge and laid
+  // flat in the well behind the seats, below the body's waist, as the real car's does - nothing of it left standing; on the way its front bow
+  // swings up and over. Folded only part of the way down it stood behind the seats as a hump, which read as a pillar left in place.)
+  if (w == 9u && pu.hub[3].w > .001) { let t = pu.hub[3].w; let e = t * t * (3. - 2. * t); let zr = -1.27; let f = clamp((q.z - zr) / 1.2, 0., 1.);
+    q.z = zr + .02 + (q.z - zr) * mix(1., .17, e); q.y = mix(q.y, .80 + (q.y - .831) * .03, e) + sin(t * 3.14159) * .3 * f;
+    q.x = q.x * mix(1., .86, e); m = normalize(mix(m, vec3f(0., 1., 0.), e * .9)); }
+  // (part 10: the doors' glass - down into the doors with the top)
+  if (w == 10u && pu.hub[3].w > .001) { let t = pu.hub[3].w; q.y -= .46 * t * t * (3. - 2. * t); }
+  if (w > 0u && w < 9u) {
     // (wheel 1-4 rolls; 5-8 is a part of wheel 1-4 that only steers with it - a brake calliper)
     let wi = (w - 1u) % 4u; let h = pu.hub[wi].xyz; var d = q - h; var dn = m;
     if (w <= 4u) { let ca = cos(pu.wh.x); let sa = sin(pu.wh.x);
@@ -141,8 +149,9 @@ fn prx(p: vec3f, piv: vec3f, a: f32) -> vec3f { let d = p - piv; let c = cos(a);
       yw += 3.14159 * (ss(.5 - e, .5 + e, u) + select(ss(-e, e, u) - 1., ss(1. - e, 1. + e, u), u > .75)) + stp * 1.5708 * select(-1., 1., fract((cyc + sd) * 5.3) > .5); } }
   let phi = s / (.84 * H) * 6.2832 + sd * 20.; let A = .4 * walk; let sg = select(-1., 1., p0.x > 0.);
   // (c.y: 1 a woman; and 2 more: one who wears a lamp on the forehead - a rubber tapper. b.z < 0: seated)
-  let wmn = c.y - 2. * step(1.5, c.y); let sit = b.z < 0.;
-  let skirt = wmn * step(fract(sd * 5.13), .55) * (1. - step(1.5, c.y)); let longh = step(fract(sd * 3.71), mix(.06, .8, wmn));
+  // (c.y 4: the driver of the open car - playercar.js DRV: a man, seated low, legs out to the pedals, both hands up on the wheel, a cap on)
+  let drv = c.y > 3.5; let wmn = (c.y - 2. * step(1.5, c.y)) * (1. - f32(drv)); let sit = b.z < 0.;
+  let skirt = wmn * step(fract(sd * 5.13), .55) * (1. - step(1.5, c.y)); let longh = step(fract(sd * 3.71), mix(.06, .8, wmn)) * (1. - f32(drv));
   // (what this one does not wear - a skirt, or trousers under one, or long hair - is drawn to nothing)
   let gone = (pr == 30 && skirt < .5) || (pr >= 26 && pr <= 29 && skirt > .5) || (pr == 15 && longh < .5);
   // (the hair stood off the scalp by its thickness, thinning to the hairline; the clothes looser on some than on others)
@@ -153,19 +162,21 @@ fn prx(p: vec3f, piv: vec3f, a: f32) -> vec3f { let d = p - piv; let c = cos(a);
     // (the shirt's hem and the skirt go with both legs, part way, and with neither at the middle)
     let cloth = pr == 20 || pr == 30; let sgl = select(sg, clamp(p0.x * 22., -1., 1.) * .6, cloth);
     // (seated: both thighs forward and level, the shins hanging)
-    let th = select(A * sin(phi) * sgl, 1.45, sit); let kb = select(1.5 * A * pow(max(cos(phi) * sg, 0.), 1.5), 1.45, sit);
+    var th = select(A * sin(phi) * sgl, 1.45, sit); var kb = select(1.5 * A * pow(max(cos(phi) * sg, 0.), 1.5), 1.45, sit);
+    if (drv) { th = 1.3; kb = .55; }
     q = mix(q, prx(q, vec3f(0., .31, 0.), kb), wLo); m = mix(m, prx(m, Z, kb), wLo);
     q = mix(q, prx(q, vec3f(0., .52, 0.), -th), wL); m = mix(m, prx(m, Z, -th), wL); }
   // arms: swinging against the legs; standing, hanging - or the right forearm held up
   if (arm || (pi_ == 0 && p0.y >= .56 && abs(p0.x) > .06)) {
     let hold = (1. - walk) * step(.66, fract(sd * 7.31)) * step(0., sg);
-    let ta = -.55 * A * sin(phi) * sg + hold * (.35 + .08 * sin(t * 1.1 + sd * 40.)) + (1. - walk) * .03 * sin(t * .9 + sd * 30. + sg);
-    let eb = .12 + .5 * A * max(-sin(phi) * sg, 0.) + hold * (1.55 + .12 * sin(t * .7 + sd * 11.)) + f32(sit) * .55 * (1. - hold);
+    var ta = -.55 * A * sin(phi) * sg + hold * (.35 + .08 * sin(t * 1.1 + sd * 40.)) + (1. - walk) * .03 * sin(t * .9 + sd * 30. + sg);
+    var eb = .12 + .5 * A * max(-sin(phi) * sg, 0.) + hold * (1.55 + .12 * sin(t * .7 + sd * 11.)) + f32(sit) * .55 * (1. - hold);
+    if (drv) { ta = 1.05; eb = .35; }
     let wa = wL * step(.5, f32(arm) + step(.085, abs(p0.x)));
     q = mix(q, prx(q, vec3f(0., .6585, 0.), -eb), wLo * f32(arm)); m = mix(m, prx(m, Z, -eb), wLo * f32(arm));
     q = mix(q, prx(q, vec3f(0., .8, 0.), -ta), wa); m = mix(m, prx(m, Z, -ta), wa); }
   // the head looks about (more, standing)
-  if (pi_ == 1 || hairp || (pi_ == 0 && p0.y > .84)) { let hy = (.5 - .35 * walk) * sin(t * .37 + sd * 30.) * sin(t * .11 + sd * 7.) * wL; let ch = cos(hy); let sh = sin(hy);
+  if (pi_ == 1 || hairp || (pi_ == 0 && p0.y > .84)) { let hy = (.5 - .35 * walk) * select(1., 0., drv) * sin(t * .37 + sd * 30.) * sin(t * .11 + sd * 7.) * wL; let ch = cos(hy); let sh = sin(hy);
     q = vec3f(q.x * ch + q.z * sh, q.y, -q.x * sh + q.z * ch); m = vec3f(m.x * ch + m.z * sh, m.y, -m.x * sh + m.z * ch); }
   // the whole of it: its girth, its weight shifted from foot to foot standing, the rise at each step walking
   q.x *= c.z; q.z *= mix(1., c.z, .7);

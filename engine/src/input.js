@@ -215,6 +215,8 @@ addEventListener('keydown', (e) => {
   initSound(); if (e.code === 'KeyM' && !e.repeat) { mute = !mute; setVol(); }
   if (e.repeat) return; keys.add(e.code);
   // (T, R and Y - the time, the weather, the weather by itself - are not keys any more: the weather panel does them)
+  // (T: the MX-5's soft top, down or up)
+  if (e.code === 'KeyT' && typeof topToggle === 'function') { const r = topToggle(); if (r && typeof padNote === 'function') padNote(r === 'wet' ? (AT.snow > 0.15 ? 'หิมะตกอยู่ · เปิดประทุนไม่ได้' : 'ฝนตกอยู่ · เปิดประทุนไม่ได้') : TOP_DOWN ? 'เปิดประทุน' : 'ปิดประทุน'); }
   if (e.code === 'KeyV') view3 = !view3;
   else if (e.code === 'KeyL') headOn = (headOn === -1 ? (AT.night > 0.5 ? 0 : 1) : headOn ? 0 : 1);
   else if (e.code === 'KeyP') { auto.on = !auto.on; drvRead(); }

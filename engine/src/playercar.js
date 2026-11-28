@@ -10,6 +10,7 @@
 // 6 mm proud of the outermost of the bumper behind them, measured from the model).
 const PCAR_INFO = {
   mx5: { name: 'MX-5', sub: 'ND 2.0 · 2016', hp: 184, kg: 1060, paint: [0.30, 0.008, 0.012], flake: [1, 0.55, 0.45], plates: [[0.35, 1.9351], [0.385, -1.9119]] },
+  ae86: { name: 'AE86', sub: '', hp: 128, kg: 940, paint: [0.62, 0.62, 0.6], flake: [1, 1, 1], plates: [] },      // (ae86.js: met on the passes; not in the garage)
   gr86: { name: 'GR86', sub: '2.4 · 2021', hp: 235, kg: 1270, paint: [0.46, 0.016, 0.008], flake: [1, 0.6, 0.42], plates: [[0.36, 2.1207], [0.47, -2.1155]] },
 };
 // The number plate: a Thai private car's - white, a thin black rim with rounded corners, black lettering, the registration across the top in
@@ -93,6 +94,10 @@ function pcSwitch(id, done) {
 // triangles, not the curve ground() follows - over a crest or a hollow they part by centimetres, and on a cambered road by more. Built roads
 // (bridge decks, tunnels, the slab over an underpass) are taken as they are.
 function pcSurfY(x, z, y) {
+  // (On a bridge, a wheel of a car that is up on the deck stands at the deck's height wherever it is - even out past the deck's edge, where a
+  // car sliding sideways by the rail has its tail: reckoned from what lies under it there - the sea's floor, 15 m down - that one wheel pulled
+  // the drawn car down through the bridge and over on its side, hanging under the deck, while the car itself was still up on the road.)
+  if (brSpan(z) && y > roadY(z) - 0.5 && abs(x - roadX(z)) < 9) return roadY(z) + 0.03;
   const s = surf(x, z, y), g0 = ground(x, z); if (abs(s - g0) > 0.02) return s;
   const fx = x / GS, fz = z / GS, i = floor(fx), j = floor(fz), u = fx - i, v = fz - j, X = i * GS, Z = j * GS;
   const ya = ground(X, Z), yb = ground(X + GS, Z), yc = ground(X, Z + GS);
@@ -101,9 +106,53 @@ function pcSurfY(x, z, y) {
 }
 // Each frame, before the passes: where each car is and how its wheels stand - the player's (PCAR, by car) and, racing, the rival's
 // (rival.js: RIV.C by RIV.s). (spin: the wheels' turn, by the distance rolled on its tyres; the brake lamps lit while the car is slowing hard)
+// The MX-5's soft top: down or up (the T key; kept between visits). It folds over a little more than two seconds - PCAR.top,
+// 0 up .. 1 down, which the vertex stage folds the roof's own vertices by (vsPc, part 9). Only the MX-5 has one.
+let TOP_DOWN = false; try { TOP_DOWN = localStorage.getItem('endless.top') === '1'; } catch (e) {}
+// (Not in the rain or the snow: the top will not come down while either falls - topWet - and if it is down when they begin, it goes up by
+// itself (pcUpdate) and stays up; the driver's wish is not kept - it has to be opened again by hand once the sky has cleared.)
+const topWet = () => typeof AT !== 'undefined' && (AT.rain > 0.08 || AT.snow > 0.15);
+function topToggle() { if (PCAR_ID !== 'mx5') return false; if (!TOP_DOWN && topWet()) return 'wet'; TOP_DOWN = !TOP_DOWN; try { localStorage.setItem('endless.top', TOP_DOWN ? '1' : '0'); } catch (e) {} return true; }
+// The MX-5's driver (DRV): with a top that comes down the car is seen into, so someone sits at its wheel - a man in a white T-shirt and shorts
+// and a black cap - one figure of the people's own model (render.js PPL, vsPpl: seated, c.y 4), set in the driver's seat each frame from where
+// the car stands. Drawn from outside the car only: from the driver's own eye there is nobody to see.
+const DRV = { buf: device.createBuffer({ size: 48, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }), a: new Float32Array(12), on: false,
+  set(C, S) { this.on = PCAR_ID === 'mx5' && !!PPL; if (!this.on) return; const cy = cos(S.yaw), sy = sin(S.yaw), lx = DRV_AT[0], lz = DRV_AT[2], A = this.a;
+    A[0] = S.x + (C.ox || 0) + lx * cy + lz * sy; A[1] = C.gy + DRV_AT[1] + (C.hop || 0); A[2] = S.z + (C.oz || 0) - lx * sy + lz * cy; A[3] = S.yaw;
+    A[4] = 1.72; A[5] = 0.137; A[6] = -1; A[7] = 0; A[8] = A[1]; A[9] = 4; A[10] = 1; A[11] = 0; device.queue.writeBuffer(this.buf, 0, A); this.capSet(); },
+  // His cap, a thing of its own (a baseball cap: a round crown of six panels, a button on top, a stiff peak out over the eyes), black: built
+  // once in the head's own measure and set on the head each frame - the people's model has no hat, and its hair pulled into the shape of one
+  // was no cap at all. (Drawn as a sculpted thing: pMesh.)
+  cap: (() => { const P = [], N = [], I = [], cx = 0, cy = 0.952, cz = -0.004, rx = 0.053, ry = 0.06, rz = 0.067, nr = 8, ns = 24;
+    // the crown: fitted close to the head, sitting above the ears - its band a level line round the brow - taller and fuller at the front, where
+    // its two stiff panels stand nearly upright, rounding over to the back; a button on top; a strap's tab at the nape
+    for (let i = 0; i <= nr; i++) { const el = (i / nr) * PI / 2 * 0.985; for (let j = 0; j < ns; j++) { const az = j / ns * TAU, fr = 0.5 + 0.5 * cos(az), ce = Math.pow(cos(el), 0.62 - 0.14 * fr), x = ce * sin(az), y = Math.pow(sin(el), 0.9) * (1 + 0.07 * fr), z = ce * cos(az);
+      P.push(cx + rx * x, cy + ry * y, cz + rz * z); N.push(x, 0.25 + y, z); } }
+    for (let i = 0; i < nr; i++) for (let j = 0; j < ns; j++) { const a = i * ns + j, b = i * ns + (j + 1) % ns; I.push(a, b, a + ns, b, b + ns, a + ns); }
+    { const t = P.length / 3; P.push(cx, cy + ry * 1.04, cz); N.push(0, 1, 0); for (let j = 0; j < ns; j++) I.push(nr * ns + j, nr * ns + (j + 1) % ns, t); }
+    { const b0 = P.length / 3, yb = cy + ry * 1.035; for (let j = 0; j < 8; j++) { const a = j / 8 * TAU; P.push(cx + 0.0065 * sin(a), yb, cz + 0.0065 * cos(a)); N.push(sin(a), 0.3, cos(a)); } P.push(cx, yb + 0.006, cz); N.push(0, 1, 0); for (let j = 0; j < 8; j++) I.push(b0 + j, b0 + (j + 1) % 8, b0 + 8); }
+    { const b0 = P.length / 3, zs = cz - rz * 1.0; for (const [x, y] of [[-0.012, 0.004], [0.012, 0.004], [-0.012, 0.016], [0.012, 0.016]]) { P.push(cx + x, cy + y, zs - 0.006); N.push(0, 0, -1); } I.push(b0, b0 + 1, b0 + 2, b0 + 1, b0 + 3, b0 + 2); }
+    // the peak: short, stiff, curved - arched across, its sides drooping - reaching a hand's breadth out from the band and tipping down a little
+    const nv = 13, nu = 4, pk = (u, v) => { const a = (u - 0.5) * 2.0, w = 1 - 0.22 * v * v; return [cx + rx * 1.0 * sin(a) * w, cy + 0.003 - 0.012 * v - 0.016 * (1 - cos(a)) * (0.6 + 0.4 * v), cz + rz * cos(a) * 0.99 + 0.05 * v * (0.5 + 0.5 * cos(a))]; };
+    for (const sgn of [1, -1]) { const b0 = P.length / 3; for (let i = 0; i <= nu; i++) for (let j = 0; j < nv; j++) { const q = pk(j / (nv - 1), i / nu), a = (j / (nv - 1) - 0.5) * 2.0; P.push(q[0], q[1] - (sgn < 0 ? 0.003 : 0), q[2]); N.push(0.35 * sin(a) * sgn, sgn, 0.2 * sgn); }
+      for (let i = 0; i < nu; i++) for (let j = 0; j < nv - 1; j++) { const a = b0 + i * nv + j; I.push(a, a + 1, a + nv, a + 1, a + nv + 1, a + nv); } }
+    const n = P.length / 3; return { P, N, n, I: new Uint32Array(I), V: new Float32Array(n * 7), vb: device.createBuffer({ size: n * 28, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }), ib: vbuf(new Uint32Array(I), GPUBufferUsage.INDEX) }; })(),
+  capSet() { const K = this.cap, A = this.a, H = A[4], cy = cos(A[3]), sy = sin(A[3]), V = K.V, y0 = A[1] + 0.57 - 0.52 * H;
+    for (let i = 0; i < K.n; i++) { const x = K.P[i * 3] * H, y = K.P[i * 3 + 1] * H, z = K.P[i * 3 + 2] * H, nx = K.N[i * 3], nz = K.N[i * 3 + 2], o = i * 7;
+      V[o] = A[0] + x * cy + z * sy; V[o + 1] = y0 + y; V[o + 2] = A[2] - x * sy + z * cy; const ny = K.N[i * 3 + 1], nl = Math.hypot(nx, ny, nz) || 1;
+      // (black cotton, not a black hole: a very dark grey that still takes the light - a colour of its own, 100 + five bits each of r, g, b)
+      V[o + 3] = (nx * cy + nz * sy) / nl; V[o + 4] = ny / nl; V[o + 5] = (-nx * sy + nz * cy) / nl; V[o + 6] = 100 + 5 + 32 * 5 + 1024 * 6; }
+    device.queue.writeBuffer(K.vb, 0, V); },
+  drawCap(p, shadow) { if (!this.on) return 0; const K = this.cap; p.setPipeline(shadow ? pMeshS : pMesh); p.setVertexBuffer(0, K.vb); p.setIndexBuffer(K.ib, 'uint32'); p.drawIndexed(K.I.length); return K.I.length / 3; },
+  draw(p, shadow, near) { if (!this.on) return 0; const M = PPL[0][near ? 0 : 1]; p.setPipeline(shadow ? pPplS : pPpl); p.setVertexBuffer(0, M.vb); p.setVertexBuffer(1, this.buf); p.setIndexBuffer(M.ib, 'uint32'); p.drawIndexed(M.ni, 1); return M.ni / 3; } };
+// (where he sits, in the car's own measure - x to its left, up from the ground under it, ahead: the right-hand seat)
+const DRV_AT = [-0.36, -0.34, -0.56];
 function pcUpdate(dt, ex, ey, ez) {
-  if (PCAR) pcPose(PCAR, car, dt, K('Space') > 0);
+  if (TOP_DOWN && PCAR_ID === 'mx5' && topWet()) { TOP_DOWN = false; try { localStorage.setItem('endless.top', '0'); } catch (e) {} if (typeof padNote === 'function') padNote(AT.snow > 0.15 ? 'หิมะตก · ปิดประทุนอัตโนมัติ' : 'ฝนตก · ปิดประทุนอัตโนมัติ'); }
+  if (PCAR) { const tg = TOP_DOWN && PCAR_ID === 'mx5' ? 1 : 0, t0 = PCAR.top === undefined ? tg : PCAR.top; PCAR.top = t0 + clamp(tg - t0, -dt / 2.2, dt / 2.2); }
+  if (PCAR) { pcPose(PCAR, car, dt, K('Space') > 0); DRV.set(PCAR, car); }
   if (typeof RIV !== 'undefined' && RIV.C && RIV.s) pcPose(RIV.C, RIV.s, dt, RIV.s.brk > 0);
+  if (typeof E86 !== 'undefined' && E86.C && E86.s) pcPose(E86.C, E86.s, dt, E86.s.brk > 0);
 }
 // C: the car's model and its state on the springs; S: where it is and how it moves (x y z yaw hd v slip gut, as car); braking: its brake held
 function pcPose(C, S, dt, braking) {
@@ -143,7 +192,7 @@ function pcPose(C, S, dt, braking) {
   C.t += dt; const va = min(1, abs(S.v) / 25), rough = (S.gut || 0) > 0.5 ? 2.5 : abs(rdist(S.x, S.z)) > 4.6 ? 3 : 1;
   const shake = (Math.sin(C.t * 23.1) * 0.6 + Math.sin(C.t * 37.7) * 0.4) * 0.0025 * va * rough;
   if (dt > 0 && dt < 0.2) [C.hop, C.hopV] = (() => { const t = shake * 1.2, w = 14; let v = C.hopV + ((t - C.hop) * w * w - 2 * 0.35 * w * C.hopV) * dt; return [C.hop + v * dt, v]; })();
-  U[8] = C.spin % TAU; U[9] = C.wa; U[10] = C.brake; U[11] = C.roll + shake * 0.6; U[15] = C.dive; U[19] = C.hop;
+  U[8] = C.spin % TAU; U[9] = C.wa; U[10] = C.brake; U[11] = C.roll + shake * 0.6; U[15] = C.dive; U[19] = C.hop; U[27] = C.top || 0;
   Q.writeBuffer(C.ub, 0, U);
 }
 // drawn into the shadow map always (from the driver's seat its shadow lies on the road beside it), and into the picture when it can be seen
@@ -152,6 +201,7 @@ function pcDraw(p, shadow) {
   const one = (C) => { p.setPipeline(shadow ? C.pipeS : C.pipe); p.setBindGroup(1, C.bg); p.setVertexBuffer(0, C.vb); p.setIndexBuffer(C.ib, 'uint32'); p.drawIndexed(C.ni); };
   if (PCAR && (shadow || view3 || fly.on || (typeof cineOn === 'function' && cineOn()))) one(PCAR);
   if (typeof RIV !== 'undefined' && RIV.C && RIV.s) one(RIV.C);
+  if (typeof E86 !== 'undefined' && E86.C && E86.s) one(E86.C);
 }
 // Whether a sliding car's swung-out tail is into something: its two rear corners as drawn - turned about a point near its front (pcPose) -
 // against what is solid (solidAt), a bridge's balustrade and the coast road's rail. (Only the car's middle was stopped by them: sideways in a

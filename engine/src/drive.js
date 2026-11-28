@@ -9,6 +9,8 @@ let hold = false;
 const CARS = {
   mx5: { gutter: false, slide: 0.72, snap: 1.35, scrub: 0.8, grip: 9.0, top: 220, acc: 7, pw: 105 },      // light, short, rear-driven: a quick, tidy slide, not a big angle
   gr86: { gutter: false, slide: 0.82, snap: 1.2, scrub: 0.85, grip: 9.2, top: 216, acc: 7.2, pw: 112 },  // longer and heavier, more power: a bigger, slower-building slide that it holds; as low as the MX-5 - 13 cm under it - so out of the gutter too
+  // (not one the player drives: the white car of the passes - ae86.js. Light, modest power; quick through the hairpins)
+  ae86: { gutter: true, slide: 0.7, snap: 1.4, scrub: 0.8, grip: 10.0, top: 185, acc: 6.4, pw: 92 },
   truck: { gutter: true, slide: 1, snap: 1, scrub: 1, grip: 9.4, top: 180, acc: 5.5, pw: 85 },              // (the earlier tuning, kept for a taller car)
 };
 // (top: its top speed, km/h; acc: the most the driven wheels give pulling away, m/s²; pw: its power over its weight, W/kg - what it pulls
@@ -160,7 +162,7 @@ function drive(dt) {
   // the speed held the car to 138 km/h on the throttle and 228 with Shift, and lifting off slowed it like a brake.)
   const vA = abs(car.v), vTop = CARP.top / 3.6, cd = (CARP.pw / vTop - 0.15) / (vTop * vTop), push = min(K('ShiftLeft') ? CARP.acc * 1.3 : CARP.acc, CARP.pw / max(vA, 1));
   car.v += (thr > 0 ? push * thr : thr < 0 ? (car.v > 0.5 ? (auto.on ? -7 : -18) * grip : auto.on && !(auto.back > 0) ? 0 : -min(5, push)) : 0) * dt;
-  car.v -= (Math.sign(car.v) * (cd * vA * vA + 0.15 + (thr <= 0.02 ? 0.035 * vA : 0)) + (onRoad ? 0 : car.v * 0.7 + Math.sign(car.v) * 1.05)) * dt;
+  car.v -= (Math.sign(car.v) * (cd * vA * vA + 0.15 + (thr <= 0.02 ? 0.035 * vA : 0)) + (onRoad ? 0 : car.v * 0.4 + Math.sign(car.v) * 0.7)) * dt;      // (off the road: the ground drags - less than it did (0.7 v + 1.05): with a slide's scrub on top, a car steering back to the road was all but stopped)
   // Space: the brake - hard (8 m/s², a little short of locking the wheels; less on rough ground), in either direction, down to a standstill and no
   // further (it never drives the car backwards); it overrides the throttle and the self-driving, which takes up again when it is let go.
   if (K('Space')) { const b = (onRoad ? 8 : 5.5) * grip * dt; car.v = abs(car.v) <= b ? 0 : car.v - Math.sign(car.v) * b; }
@@ -176,7 +178,17 @@ function drive(dt) {
   // the other way: short taps, which is how keys are steered with, did next to nothing.) At town speeds the car turns as quickly as before; at
   // 70 km/h about half as quickly, at 110 two fifths. The self-driving steers by its own rule, unchanged.
   if (auto.on) { car.sm = 0; const dy = st * dt * 1.7 * clamp(car.v / 5, -1, 1) / (1 + abs(car.v) * 0.03); if (DRIFT && car.hd !== undefined && abs(car.v) > 4) car.hd += dy; else car.yaw += dy; }      // (slow, there is no slide - car.hd is the nose's way, below - so the wheel turns the nose; turning car.hd there was undone, and the car could not steer)
-  else { const cur = car.sm || 0, k = (st === 0 || st * cur < 0 ? 9 : 6) * dt; car.sm = cur + clamp(st - cur, -k, k); st = car.sm;
+  else {
+    // (On keys, drifting: a key is all the wheel at once, held or not - so how long it has been held stands for how far the wheel is turned.
+    // car.keyT: seconds the key of this side has been down (it falls back quickly once let go, or the other pressed): the slide below grows
+    // with it - a tap sets the car a little sideways, a key held brings the whole slide on over a second - where before any press at speed
+    // was the full slide, 60 degrees, at once, and nothing in between could be asked for. KEYS: no pad in use.)
+    const KEYS = typeof PAD === 'undefined' || !PAD.on, rawS = st;
+    if (KEYS && rawS !== 0 && rawS * (car.keyS || 0) > 0) car.keyT = (car.keyT || 0) + dt; else car.keyT = max(0, (car.keyT || 0) - dt * (rawS === 0 ? 2.5 : 8));
+    if (rawS !== 0) car.keyS = Math.sign(rawS);
+    const cur = car.sm || 0, k = (st === 0 || st * cur < 0 ? 9 : 6) * dt; car.sm = cur + clamp(st - cur, -k, k); st = car.sm;
+    // (a help that turned the car's way back along the road when the keys were let go was tried, and taken out: off the road, steering back
+    // toward it, it turned the car away again as soon as the key was up - the car would not come back onto the road)
     // (drifting by hand, the wheel steers the car's path as the self-driving's does - the slide is laid over it below; car.turn: how fast the
     // path is turning, rad/s, for the slide to be sized by)
     const dy = st * dt * clamp(car.v / 5, -1, 1) * min(1.7, 11 / max(abs(car.v), 1)); if (DRIFT && DASSIST && car.hd !== undefined && abs(car.v) > 4) { car.hd += dy; car.turn = dy / max(dt, 1e-4); } else car.yaw += dy; }
@@ -214,7 +226,7 @@ function drive(dt) {
     const pw = auto.on ? 0.5 : max(0, thr), l0 = (5.2 - 1.0 * pw) * grip, oq = clamp((abs(car.latF) - l0) / (5 * grip), 0, 1), over = Math.sign(car.latF) * oq * oq * (3 - 2 * oq);
     // (the self-driving's own steering adds to the slide - less on the switchbacks, and the bend's pull a little less too: swinging across the
     // road for the gutter, it had the car 50 degrees sideways before the bend, and then snatched back as the wheels went in)
-    const hpS = hpW(car.z) > 0.05, base = auto.on ? clamp(lat / (5.5 * grip), -1, 1) * (hpS ? 0.66 : 0.75) + st * (hpS ? 0.3 : 0.55) : over * 0.85, kick = auto.on ? 0 : 0.55 * hb * (Math.sign(st || car.slip || 0));
+    const hpS = hpW(car.z) > 0.05, base = auto.on ? clamp(lat / (5.5 * grip), -1, 1) * (hpS ? 0.66 : 0.75) + st * (hpS ? 0.3 : 0.55) : over * 0.85 * (typeof PAD === 'undefined' || !PAD.on ? 0.25 + 0.75 * sm(0.12, 1.1, car.keyT || 0) : 1), kick = auto.on ? 0 : 0.55 * hb * (Math.sign(st || car.slip || 0));
     const ts = gq * (1 + 0.3 * (1 - grip)) * clamp((base * (auto.on ? 1 : 0.6 + 0.8 * pw) + kick), auto.on ? -1 : -1.05, auto.on ? 1 : 1.05) * 1.05 * clamp((abs(car.v) - 5) / 7, 0, 1), cur = wr(car.yaw - car.hd);      // (up to 60 degrees, from 30 km/h on; by hand to 66 on the throttle)
     // (the self-driving holds no more of the slide than leaves its tail clear of the posts, lamp posts, rails and parked things by the road: it
     // looks along its way and straightens before it gets there - see pcSlideRoom; the slide eased back in as the way clears)
@@ -269,7 +281,23 @@ function drive(dt) {
       // hand, so that a firm turn of the wheel still brings it out)
       const kOut = vo > 0 ? sm(4.08, 4.22, fo) : (auto.on && auto.gLock ? 1 : 0.5) * (1 - sm(4.08, 4.22, fo)) * sm(3.9, 4.0, fo);
       if (kOut > 0) { const k = min(1, dt * 30) * kOut, qx = dx - ux * vo * k, qz = dz - uz * vo * k; car.hd = Math.atan2(qx * dvn, qz * dvn); const sq = car.yaw - car.hd; car.slip = sq - Math.round(sq / TAU) * TAU; } } }
-  let nx = car.x + sin(car.hd) * car.v * dt, nz = car.z + cos(car.hd) * car.v * dt, top = udTop(nx, nz, car.y), pr = !top && pierAt(nx, nz), onBr = top || pr || brAt(nx, nz) || tunAt(nx, nz), gy = top ? roadYs(nz) + 0.03 : pr ? max(ground(nx, nz), PIERY + 0.06) : onBr ? roadY(nz) + 0.03 : ground(nx, nz);
+  let nx = car.x + sin(car.hd) * car.v * dt, nz = car.z + cos(car.hd) * car.v * dt;
+  // On a bridge the car keeps to the deck, whatever else: no further out than leaves its side clear of the rail. (Past the deck's edge what is
+  // under the car is the sea's floor, and it went straight down through the bridge - then hung there on its side, the wheels still under the
+  // deck reckoned up on it. The rail stops a car too - chunks.js - but nothing may depend on that alone.) And a car already down there, under
+  // or beside the deck, is set back up on it.
+  // (How far out its middle may be: so that no part of the body is past the rail's inner face - 4.72 m out on an island bridge, 4.3 over a
+  // river. The body is 1.75 m wide and 3.9 long, and sliding it stands across the road: its reach to the side is half its width square to
+  // the road and half its length along it, by how far it is turned - and it is drawn swung about a point a metre ahead of its middle
+  // (playercar.js: PZ), which carries the tail further out still. Held by its middle at half its width alone, a car sliding by the rail had
+  // its tail a metre and more through it. Well outside - set down there from under the bridge - it is put back at once.)
+  if (brSpan(nz)) { const rx = roadX(nz), sl = roadSl(nz), ca = 1 / Math.sqrt(1 + sl * sl), sa = sl * ca, ax = ca, az = -sa, hdd = car.hd === undefined ? car.yaw : car.hd, rel = car.yaw - Math.atan2(sl, 1);
+    const off = ((sin(hdd) - sin(car.yaw)) * ax + (cos(hdd) - cos(car.yaw)) * az) * 1.0, ext = 0.9 * abs(cos(rel)) + 1.98 * abs(sin(rel)), R = isBr(nz) ? 4.72 : 4.3;
+    const lat = (nx - rx) * ca, lo = -(R - ext) - off, hi = (R - ext) - off, dx = nx - rx;
+    if (abs(dx) < 11 && (lat < lo || lat > hi || car.y < roadY(nz) - 0.8)) { const far0 = lat < lo - 0.3 || lat > hi + 0.3;
+      if (lat < lo || lat > hi) { nx = rx + clamp(lat, min(lo, hi), max(lo, hi)) / ca; car.v *= far0 ? 0.96 : 0.995; if (far0) { car.x = nx; car.z = nz; } }
+      if (car.y < roadY(nz) - 0.8) { car.y = roadY(nz) + 0.03; car.gyP = undefined; } } }
+  let top = udTop(nx, nz, car.y), pr = !top && pierAt(nx, nz), onBr = top || pr || brAt(nx, nz) || tunAt(nx, nz), gy = top ? roadYs(nz) + 0.03 : pr ? max(ground(nx, nz), PIERY + 0.06) : onBr ? roadY(nz) + 0.03 : ground(nx, nz);
   // (run along a switchback's gutter, the car drops into it by a wheel's worth: 6 cm, and shakes a little on its joints)
   // (A wheel in a switchback's gutter is held by its lip: the car does not slide on out over it - it runs along the channel, the lip taking the
   // push, and scrubs a little speed. That is what makes the gutter worth a wheel.)

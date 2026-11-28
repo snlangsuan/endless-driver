@@ -14,9 +14,13 @@ function makeTree(seed, o) {
     // a long limb sags under its own weight in the middle and turns up to the light at its end.
     const n = lvl === 0 ? 8 : lvl === 1 ? 7 : lvl === 2 ? 4 : 3, pts = [p0.slice()], dirs = [], d = d0.slice(), p = p0.slice(), wob = o.wob * (lvl ? 1.25 : 0.6), tip = lvl === 0 ? 0.16 : 0.4;
     for (let i = 0; i < n; i++) {
-      const kink = R() < 0.22 ? 2.6 : 1, flat = 1 - abs(d[1]);
+      // (the trunk itself does not kink - only its limbs: its pieces are plain tubes, and at a sharp turn the end of one stood out past the
+      // next as a ledge round the trunk)
+      const kink = lvl > 0 && R() < 0.22 ? 2.6 : 1, flat = 1 - abs(d[1]);
       d[0] += (R() - 0.5) * wob * kink; d[2] += (R() - 0.5) * wob * kink; d[1] += lvl ? (R() - 0.5) * wob * 0.6 + (i / n - 0.42) * 0.3 * flat + o.trop * 0.2 : 0.05; nrm3(d);
-      const r0 = rad * (1 - (1 - tip) * i / n) * (lvl === 0 && i === 0 ? 1.6 : 1), r1 = rad * (1 - (1 - tip) * (i + 1) / n);
+      // (the foot flares out over the trunk's first two lengths, each meeting the next at one width - all in the first, it ended in a step)
+      const fl = (k) => (lvl === 0 ? (k === 0 ? 1.6 : k === 1 ? 1.2 : 1) : 1);
+      const r0 = rad * (1 - (1 - tip) * i / n) * fl(i), r1 = rad * (1 - (1 - tip) * (i + 1) / n) * fl(i + 1);
       const q = [p[0] + d[0] * len / n, p[1] + d[1] * len / n, p[2] + d[2] * len / n];
       segs[lvl].push(p[0], p[1], p[2], r0, q[0], q[1], q[2], r1, max(p[1], 0), max(q[1], 0));
       p[0] = q[0]; p[1] = q[1]; p[2] = q[2]; pts.push(q); dirs.push(d.slice());
@@ -56,22 +60,35 @@ function makeTree(seed, o) {
   const all = [].concat(segs[0], segs[1], segs[2], segs[3]);
   return { sp: o.sp || 0, segs: new Float32Array(all), nSeg: all.length / 10, nSegFar: (segs[0].length + segs[1].length) / 10, nSegMid: (segs[0].length + segs[1].length + segs[2].length) / 10, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
-// casuarina (ต้นสนทะเล): a tall rough trunk leaning one way (toward local +x), thin upswept boughs, and long drooping sprays of grey-green needles
+// casuarina (ต้นสนทะเล): a tall straight trunk, hardly leaning, rough and dark; a narrow open cone of many slender boughs - the lower long and
+// level, drooping at their ends, the upper short and upswept - and on every bough a dozen side twigs, each a soft feathery plume of fine
+// grey-green needles that hang and wave: seen whole, the tree is a tall wispy cloud, the sky showing through it everywhere, never a solid mass.
+// (It was forty bare boughs each hung with a row of long strips - a fish's skeleton - on a trunk leaning four metres out of true.)
 function makeCasuarina(seed) {
-  const R = rng(seed), segs = [], br = [], leaves = [], Hh = 15 + R() * 5, lean = 0.16 + R() * 0.10, w1 = R() * 6, w2 = R() * 6;
-  const tp = (t) => [sin(t * 1.25) * Hh * lean + sin(t * 5 + w1) * 0.3 * t, t * Hh - 0.3, sin(t * 4 + w2) * 0.3 * t];
-  for (let i = 0; i < 12; i++) { const a = tp(i / 12), b = tp((i + 1) / 12); segs.push(a[0], a[1], a[2], 0.36 - 0.29 * i / 12 + (i === 0 ? 0.14 : 0), b[0], b[1], b[2], 0.36 - 0.29 * (i + 1) / 12, max(a[1], 0), b[1]); }
-  const nB = 40;
+  const R = rng(seed), segs = [], br = [], leaves = [], Hh = 15 + R() * 5, lean = 0.03 + R() * 0.05, w1 = R() * 6, w2 = R() * 6;
+  const tp = (t) => [sin(t * 1.25) * Hh * lean + sin(t * 5 + w1) * 0.18 * t, t * Hh - 0.3, sin(t * 4 + w2) * 0.18 * t];
+  for (let i = 0; i < 12; i++) { const a = tp(i / 12), b = tp((i + 1) / 12); segs.push(a[0], a[1], a[2], 0.36 - 0.30 * i / 12 + (i === 0 ? 0.14 : 0), b[0], b[1], b[2], 0.36 - 0.30 * (i + 1) / 12, max(a[1], 0), b[1]); }
+  const nB = 64, plume = (q, az, el, L, u, sh) => leaves.push(q[0], q[1], q[2], L, az, el, 0.07 + R() * 0.05, 0.7 + R() * 1.3, 8, R(), sh, q[1]);
   for (let k = 0; k < nB; k++) {
-    const t = 0.3 + 0.69 * (k + R() * 0.8) / nB, base = tp(t), az = k * 2.39996 + R() * 0.5, Lb = (2.9 + R() * 3.0) * (1.1 - 0.75 * (t - 0.3) / 0.7), ox = cos(az), oz = sin(az), rise = 0.25 + R() * 0.5;
-    const bp = (u) => [base[0] + ox * Lb * u, base[1] + Lb * (rise * u - 0.42 * u * u), base[2] + oz * Lb * u];
-    for (let i = 0; i < 4; i++) { const a = bp(i / 4), b = bp((i + 1) / 4); br.push(a[0], a[1], a[2], 0.055 - 0.011 * i, b[0], b[1], b[2], 0.044 - 0.011 * i, a[1], b[1]); }
-    const n = 12 + floor(Lb * 3);
-    for (let j = 0; j < n; j++) { const u = 0.18 + 0.82 * R(), q = bp(u), L = 0.55 + R() * 0.55; leaves.push(q[0], q[1], q[2], L, az + (R() - 0.5) * 2.4, -0.2 - R() * 0.9, 0.13, 0.8 + R() * 1.2, 8, R(), 0.55 + 0.45 * u, q[1]); }
+    const f = (k + R() * 0.8) / nB, t = 0.24 + 0.75 * f, base = tp(t), az = k * 2.39996 + R() * 0.5;
+    // (the cone: longest a third of the way up the crown, shorter above and a little shorter below; the low boughs level, the top ones steep)
+    const Lb = (1.3 + 3.6 * Math.pow(sin(PI * min(1, 0.18 + 0.82 * (1 - f))), 0.8)) * (0.8 + R() * 0.4), ox = cos(az), oz = sin(az), rise = 0.05 + 0.95 * f + R() * 0.2, sag = 0.5 - 0.25 * f;
+    const bp = (u) => [base[0] + ox * Lb * u, base[1] + Lb * (rise * u - sag * u * u), base[2] + oz * Lb * u];
+    for (let i = 0; i < 4; i++) { const a = bp(i / 4), b = bp((i + 1) / 4); br.push(a[0], a[1], a[2], 0.05 - 0.011 * i, b[0], b[1], b[2], 0.04 - 0.011 * i, a[1], b[1]); }
+    // the side twigs, alternate, each carrying its plume: needles along it and a tuft at its end, some reaching up, most hanging
+    const nT = 7 + floor(Lb * 2.2);
+    for (let j = 0; j < nT; j++) { const u = 0.2 + 0.8 * (j + R()) / nT, q = bp(u), ta = az + (j & 1 ? 1 : -1) * (0.7 + R() * 0.7), Lt = (0.35 + R() * 0.5) * (1.15 - 0.5 * u), tx = cos(ta), tz = sin(ta), up = 0.1 + R() * 0.35;
+      const e = [q[0] + tx * Lt, q[1] + Lt * up - 0.08, q[2] + tz * Lt], sh = 0.5 + 0.5 * u;
+      br.push(q[0], q[1], q[2], 0.012, e[0], e[1], e[2], 0.006, q[1], e[1]);
+      for (let m = 0; m < 4; m++) { const g = 0.25 + 0.75 * (m + R()) / 4, w = [mix(q[0], e[0], g), mix(q[1], e[1], g), mix(q[2], e[2], g)]; plume(w, ta + (R() - 0.5) * 2.6, -0.15 - R() * 1.0, 0.3 + R() * 0.32, u, sh); }
+      plume(e, ta + (R() - 0.5) * 1.2, 0.5 - R() * 1.3, 0.3 + R() * 0.3, u, sh); }
+    plume(bp(1), az, -0.3 - R() * 0.6, 0.45 + R() * 0.3, 1, 1);
   }
+  // the leader: a few short plumes up the bare top of the trunk, the tip itself
+  for (let k = 0; k < 14; k++) { const q = tp(0.9 + 0.1 * R()); plume(q, R() * TAU, 0.2 + R() * 0.9, 0.35 + R() * 0.3, 1, 1); }
   shuffleLeaves(leaves, R);
   const all = segs.concat(br);
-  return { segs: new Float32Array(all), nSeg: all.length / 10, nSegFar: 12, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
+  return { segs: new Float32Array(all), nSeg: all.length / 10, nSegFar: 12 + nB * 4, leaves: new Float32Array(leaves), nLeaf: leaves.length / 12 };
 }
 // Coconut palm (ต้นมะพร้าว): a slender grey trunk, swollen at the foot and ringed all the way up with the scars of fallen fronds, that leans out
 // and curves up again; and a full round head of some thirty fronds five and six metres long - the youngest standing nearly upright in the

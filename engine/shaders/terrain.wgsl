@@ -293,13 +293,18 @@ fn seaC(wp: vec3f, V: vec3f, sh: f32) -> vec3f {
     trk = ss(.45, .1, min(abs(rd - .95), abs(rd - 2.55))) * (1. - twz * .4);
     road *= 1. - .2 * trk * (.55 + .45 * n2);
     road *= 1. - .14 * ss(.4, .05, abs(rd - 1.75)) * ss(.3, .7, vn(vec2f(wp.z * .31, 2.)));
-    let ck = ss(.035, .0, abs(vnp(Pf * 1.40625 + 11., 360.) - .5)) * ss(.5, .75, vn(P * .11 + 9.) * .6 + age * .4) * (1. - ss(.5, 1.4, px * 24.));
-    road *= 1. - .45 * ck;
+    // (and now not drawn at all: even in short lengths they were arcs - pieces of rings - on the road. What cracks a road has are the lines
+    // that run along it, below.)
     // (ultra: cracks that have been sealed - wandering black beads of tar, shinier than the road, on the older stretches; and down the
     // middle of each lane, between the wheel tracks, the dark line of oil dripped by everything that has passed)
     var tar = 0.;
-    if (ULTRA) { tar = ss(.05, .02, abs(vnp(Pf * .46875 + 71., 120.) - .5)) * ss(.62, .8, vn(P * .05 + 19.) * .5 + age * .5) * (1. - ss(.5, 1.4, px * 12.));
-      road = mix(road, vec3f(.012, .012, .014), tar * .85);
+    // (each a line that wanders along the road - a crack follows the lane, the joint between two strips of asphalt, a wheel track - never a ring:
+    // three of them across the road's width, each present only along some lengths of it)
+    if (ULTRA) { let fz = 1. - ss(.5, 1.4, px * 12.);
+      for (var k = 0; k < 3; k++) { let kf = f32(k); let c0 = -2.6 + kf * 2.5 + (vn(vec2f(wp.z * .11 + kf * 31., 5.)) - .5) * 1.5 + (vn(vec2f(wp.z * .9 + kf * 7., 9.)) - .5) * .16;
+        tar = max(tar, ss(.022, .008, abs(dxs - c0)) * ss(.58, .7, vn(vec2f(wp.z * .035 + kf * 13., 2.)) * .6 + age * .4)); }
+      tar *= fz;
+      road = mix(road, vec3f(.012, .012, .014), tar * .6);
       road *= 1. - .22 * ss(.32, .05, abs(rd - 1.75)) * (.5 + .5 * vn(vec2f(wp.z * .9, rd * 3.))); }
     let nr = 1. - ss(.004, .014, px);
     if (nr > 0.) { let q = Pf * 85.; let cid = floor(q); let hh = h2(cid); let f = fract(q) - .5 + (vec2f(h2(cid + 3.), h2(cid + 7.)) - .5) * .45;

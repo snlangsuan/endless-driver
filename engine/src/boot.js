@@ -15,7 +15,7 @@ addEventListener('unhandledrejection', (e) => fail('JS: ' + (e.reason && (e.reas
 // files for some of the shader texts), say (what the loading screen says at which part). A name with a slash in it is a path from the page (ruin/land);
 // a bare name is a file of the engine (src/core.js, shaders/common.wgsl).
 const GAME = window.GAME || {};
-const PARTS = GAME.parts || ['core', 'land', 'shaders', 'render', 'plants', 'buildings', 'chunks', 'weather', 'input', 'barkdata', 'sound', 'car', 'playercar', 'music', 'collide', 'drive', 'rival', 'cinema', 'worldclient', 'main'];
+const PARTS = GAME.parts || ['core', 'land', 'shaders', 'render', 'plants', 'buildings', 'chunks', 'weather', 'input', 'barkdata', 'sound', 'car', 'playercar', 'music', 'collide', 'drive', 'rival', 'ae86', 'cinema', 'worldclient', 'main'];
 const SHADERS = Object.assign({ common: 'common', land: 'land', vertex: 'vertex', terrain: 'terrain', scene: 'scene', post: 'post', final: 'final', cull: 'cull' }, GAME.shaders);
 const srcOf = (p) => (p.includes('/') ? p : 'src/' + p) + '.js', wgslOf = (p) => (p.includes('/') ? p : 'shaders/' + p) + '.wgsl';
 const WGSL = {};

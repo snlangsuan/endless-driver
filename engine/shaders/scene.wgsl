@@ -745,16 +745,38 @@ fn pal(h: f32) -> vec3f {
       }
     }
   }
-  else if (mat == 48) {      // the concrete of an old tunnel: grey gone brown, dark where water has run down it for years, green with algae where it stays
-    var q = vec2f(i.wp.x + i.wp.z, i.wp.y);        // damp, sooty higher up, with the lines of the boards it was cast against and the joints between pours
+  else if (mat == 48) {      // a road tunnel's concrete lining: cast in panels - their joints fine dark lines, the form ties' holes in rows - a
+    // clean mid grey, not rock; the walls painted white to shoulder height with a dark line along the top of the paint, as highway tunnels
+    // are, to throw the lamps' light; soot from the traffic greying it higher up, a streak of damp down from a joint here and there, a little
+    // green at the very foot. (It was brown and black with runs and algae all over: it read as a rough rock wall.)
+    var q = vec2f(i.wp.x + i.wp.z, i.wp.y);
     let flat_ = step(.6, abs(n.y)); if (flat_ > .5) { q = i.wp.xz * vec2f(1., .35); }      // (a level face - the walkway's top - is marked in plan, or its marks would follow the height and read as steps)
-    var cc = vec3f(.30, .28, .24) * (.65 + .55 * vn(q * .8)) * (.85 + .3 * vn(q * 7.));
-    let run = ss(.42, .78, vn(vec2f(q.x * 1.6, q.y * .11 + 3.)));
-    cc = mix(cc, vec3f(.075, .068, .058), run * .7);
-    cc = mix(cc, vec3f(.10, .14, .055), ss(.5, .8, vn(q * .55 + 9.)) * ss(.25, .7, run) * .7);
-    cc = mix(cc, vec3f(.035), ss(.45, .9, vn(q * .3 + 20.)) * .4);
-    cc *= mix((.9 + .1 * step(.06, fract(q.y / .45))) * (.9 + .1 * ss(0., .01, abs(fract(q.x / 6.) - .5))), 1., flat_);
-    alb = cc; gloss = .08 + .25 * run;
+    var cc = vec3f(.36, .36, .35) * (.93 + .1 * vn(q * .7)) * (.96 + .07 * vn(q * 9.));
+    let pq = vec2f(q.x / 2.4, q.y / 1.2); let pf = fract(pq); let pid = floor(pq);
+    cc *= .94 + .1 * h2(pid);                                                                      // each pour its own shade
+    let jn = min(min(pf.x, 1. - pf.x) * 2.4, min(pf.y, 1. - pf.y) * 1.2);
+    cc *= mix(1., .62 + .38 * ss(0., .018, jn), 1. - flat_);                                        // the joints
+    let th = length((fract(pq * vec2f(4., 2.)) - .5) * vec2f(.6, .6)); cc *= mix(1., .8 + .2 * ss(.018, .03, th), 1. - flat_);      // the ties' holes
+    let hgt = i.lp.y + i.m.z * .5;                                                                  // height up the wall's own piece
+    let wall = (1. - flat_) * step(abs(n.y), .3);
+    let paint = wall * (1. - ss(1.55, 1.6, hgt)); cc = mix(cc, vec3f(.60, .60, .57) * (.95 + .06 * vn(q * 5.)), paint * .85);
+    cc = mix(cc, vec3f(.05, .05, .055), wall * ss(.04, .0, abs(hgt - 1.66)));                       // the line along the top of the paint
+    cc *= 1. - .22 * (1. - flat_) * ss(1.8, 4.5, hgt) * (.6 + .4 * vn(q * .4));                     // soot higher up
+    // Old, and leaking from above - but only here and there: one place in nine along the tunnel, water comes through the roof. On the arch
+    // over that place the concrete is darker, damp; from there one narrow streak runs down the wall, fading out on the way, with a faint pale
+    // edge of lime. Everywhere else the lining is dry and plain: a little yellowed with age, no more. (Streaks on every panel, flaked paint
+    // and blotches all over were too much - a wall of marks.)
+    cc *= vec3f(.95, .93, .89) * (.96 + .06 * vn(q * .23 + 4.));
+    let sx = q.x * .7; let sid = floor(sx); let sf = (fract(sx) - .5) / .7; let sh = h2(vec2f(sid, 7.)); let leak = step(.89, sh);
+    let wid = .10 + .16 * h2(vec2f(sid, 3.)); let wob = (vn(vec2f(sid, q.y * .7)) - .5) * .08;
+    let len = 1.5 + 2.4 * h2(vec2f(sid, 5.)); let fall = clamp((3.9 - hgt) / len, 0., 1.);
+    let down = mix(1., 1. - fall, wall);
+    let core = ss(wid, wid * .4, abs(sf + wob));
+    let run = leak * core * down * (1. - flat_);
+    let crust = leak * down * ss(wid * 1.6, wid, abs(sf + wob)) * (1. - core) * (1. - flat_);
+    cc = mix(cc, vec3f(.50, .49, .45), crust * .25);
+    cc = mix(cc, cc * vec3f(.42, .40, .37), run * .8);
+    alb = cc; gloss = .05 + .45 * run;
   }
   else if (mat == 53) {      // a switchback's gutter (chunks.js): precast concrete, weathered grey on top; inside dark and damp, stained by the water, silt and leaves on its floor
     // (seed: which piece - 0 the floor, 1 the face down from the road, 2 the outer lip, 3 an end - times 2, plus 1 on the road's +x side; m.w: 20 + the piece's length)
@@ -1380,8 +1402,9 @@ struct UnO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) 
 @fragment fn fsPpl(i: PpO, @builtin(front_facing) ff: bool) -> @location(0) vec4f {
   var n = normalize(i.n); let L = g.sun.xyz; let pr = i32(i.pk.x + .5); let sd = i.pk.y; let lp = i.lp; let gm = pr >= 20;
   let r1 = fract(sd * 17.31); let r2 = fract(sd * 29.7); let r3 = fract(sd * 41.9); let r4 = fract(sd * 53.3);
-  let lampW = step(1.5, i.pk.z); let wmn = i.pk.z - 2. * lampW;
-  let skirt = wmn * step(fract(sd * 5.13), .55) * (1. - lampW); let shorts = step(r4, .3) * (1. - skirt) * (1. - lampW); let longs = max(step(.75, fract(sd * 11.7)), lampW);
+  // (pk.z 4: the open car's driver - a man in a white T-shirt and shorts, a black cap)
+  let drv = step(3.5, i.pk.z); let lampW = step(1.5, i.pk.z) * (1. - drv); let wmn = (i.pk.z - 2. * lampW) * (1. - drv);
+  let skirt = wmn * step(fract(sd * 5.13), .55) * (1. - lampW); let shorts = max(step(r4, .3) * (1. - skirt) * (1. - lampW), drv); let longs = max(step(.75, fract(sd * 11.7)), lampW) * (1. - drv);
   let ang = atan2(lp.x, lp.z);
   // (where the clothes end: the short sleeve above the elbow, shorts above the knee, the skirt at the wearer's length - each hem a little uneven)
   let hemS = .705 + .004 * sin(ang * 3. + sd * 7.); let hemK = .345 + .004 * sin(ang * 2. + sd * 5.); let hemQ = mix(.2, .37, fract(sd * 3.3)) + .005 * sin(ang * 5. + sd * 9.);
@@ -1394,7 +1417,8 @@ struct UnO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) 
   var shirt = sp[u32(r2 * 11.99)]; if (fract(sd * 61.3) < .22) { shirt *= .72 + .28 * step(.5, fract(lp.y * 38.)); }      // stripes
   var bp = array<vec3f, 6>(vec3f(.04, .065, .15), vec3f(.018, .018, .022), vec3f(.26, .21, .13), vec3f(.12, .125, .14), vec3f(.06, .09, .20), vec3f(.025, .03, .05));
   var bot = bp[u32(r3 * 5.99)]; if (skirt > .5) { bot = mix(bot, sp[u32(fract(sd * 71.1) * 11.99)], .6); }
-  let hair = mix(mix(vec3f(.012, .011, .010), vec3f(.07, .04, .02), step(.7, r4)), vec3f(.32, .32, .33), step(.93, fract(sd * 83.7)));
+  var hair = mix(mix(vec3f(.012, .011, .010), vec3f(.07, .04, .02), step(.7, r4)), vec3f(.32, .32, .33), step(.93, fract(sd * 83.7))); if (drv > .5) { hair = vec3f(.012, .012, .014); }
+  if (drv > .5) { shirt = vec3f(.66, .66, .64); bot = vec3f(.20, .17, .11); }
   var alb = skin; var gl = .1; var cloth = 0.;
   // the body: skin where it is bare; under the clothes their colour, so that nothing shows where a limb comes through the cloth as it moves
   if (pr == 0) { alb = select(select(bot, skin, skirt > .5), shirt, lp.y > .5); if (lp.y > .85) { alb = skin; } }

@@ -34,7 +34,8 @@ def klass(name, path):
     if 'interior' in n or 'fabric' in n or n == 'tiled': return 8
     return 1
 R = gather(glb, klass, skip=lambda path: path[-1].startswith('Hood 6_119') or path[-1].startswith('Boot 6_156'),      # (the emblems on the bonnet and the boot lid)
-           wheel=lambda path, name: 1 if any(('Wheel' in q or 'Tire' in q) for q in path) else 0, notex=lambda name: 'engine' in name.lower(),
+           # (9: a piece of the soft top - its cloth, its frame, its rear window - so that the game can fold it away; 10: the doors' glass, which goes down with it; hubs() touches only 1 and 2)
+           wheel=lambda path, name: 1 if any(('Wheel' in q or 'Tire' in q) for q in path) else 9 if any('Roof' in q for q in path) else 10 if any(('DoorL_Glass' in q or 'DoorR_Glass' in q) for q in path) else 0, notex=lambda name: 'engine' in name.lower(),
            cut=lambda name: 'interior' in name.lower())      # (cut-out parts of the cabin's texture: triangles that are mostly clear are left out)
 V, N, C, K, WH, I, UV, LC, LN = (R[q] for q in ('V', 'N', 'C', 'K', 'WH', 'I', 'UV', 'LC', 'LN'))
 # (the grey fitting at the top of the boot lid, where the badge was, read as a spot on the paint: it goes; and the exhaust's tips are their own
@@ -59,6 +60,35 @@ K[(K == 5) & (V[:, 2] < -1.0)] = 13
 K[(K == 6) & (V[:, 2] < -1.0) & (V[:, 1] < 0.6) & (np.abs(V[:, 0]) > 0.75)] = 14
 # the wheels: each wheel and tyre vertex goes to the wheel of its quarter; its hub is the middle of that quarter's tyre
 HUB = hubs(V, WH)
+# the soft top: part 9 (not a wheel: it goes with the body, and the shader folds it back when the top is down - vsPc)
+# (and its lining, which is part of the cabin's one big piece: that piece's vertices above the seats' height. A triangle that joins lining to
+# cabin gets copies of its cabin corners, marked as lining too, so that it folds away whole instead of stretching across the open car.)
+if (WH == 9).any():
+    par = np.arange(len(V)); key = {}
+    def find(x):
+        while par[x] != x: par[x] = par[par[x]]; x = par[x]
+        return x
+    cab = (K == 8) & (WH == 0); T = I[cab[I[:, 0]] & cab[I[:, 1]] & cab[I[:, 2]]]
+    for i in np.unique(T):
+        j = key.setdefault(tuple(np.round(V[i], 4)), i)
+        if j != i: par[find(i)] = find(j)
+    for a_, b_, c_ in T: ra = find(a_); par[find(b_)] = ra; par[find(c_)] = ra
+    U = np.unique(T); roots = np.array([find(i) for i in U]); top = U[np.argmax(V[U][:, 1])]; big = U[roots == find(top)]
+    lin = np.zeros(len(V), bool); lin[big] = True; lin &= ((V[:, 1] > 1.02) & (V[:, 2] < -0.1)) | ((V[:, 1] > 0.905) & (V[:, 2] < -0.6) & (np.abs(V[:, 0]) > 0.45))      # (and the trim that rises beside each seat to carry it, above the body's waist: it folds too - left, it stood there as a stub of pillar)
+    WH[lin] = 9
+    # (and the black pillar trim behind each door, which stands above the body's waist only to meet the raised top: with the top down nothing
+    # is left standing behind the doors - no pillar)
+    pil = (WH == 0) & (K == 9) & (V[:, 1] > 0.96) & (V[:, 2] < -0.3) & (V[:, 2] > -0.7) & (np.abs(V[:, 0]) > 0.55); WH[pil] = 9; print('pillar trim verts', int(pil.sum()))
+    t9 = WH[I] == 9; mix_ = t9.any(1) & ~t9.all(1) & (WH[I] != 10).all(1); add = np.unique(I[mix_][~t9[mix_]]); remap = {int(v): len(V) + n for n, v in enumerate(add)}
+    Inew = I.copy(); rows = np.where(mix_)[0]
+    for rI in rows:
+        for c_ in range(3):
+            if WH[I[rI, c_]] != 9: Inew[rI, c_] = remap[int(I[rI, c_])]
+    I = Inew; V = np.r_[V, V[add]]; N = np.r_[N, N[add]]; C = np.r_[C, C[add]]; K = np.r_[K, K[add]]; WH = np.r_[WH, np.full(len(add), 9, WH.dtype)]; UV = np.r_[UV, UV[add]]; LC = np.r_[LC, LC[add]]; LN = np.r_[LN, LN[add]]
+    print('lining verts', int(lin.sum()), 'copied corners', len(add))
+rf = WH == 9
+print('door glass verts', int((WH == 10).sum()), 'y', V[WH == 10][:, 1].min().round(3), V[WH == 10][:, 1].max().round(3))
+if rf.any(): print('soft top verts', int(rf.sum()), 'x', V[rf][:, 0].min().round(3), V[rf][:, 0].max().round(3), 'y', V[rf][:, 1].min().round(3), V[rf][:, 1].max().round(3), 'z', V[rf][:, 2].min().round(3), V[rf][:, 2].max().round(3))
 print('verts', len(V), 'tris', len(I), 'size', (V.max(0) - V.min(0)).round(3), 'hubs', np.round(HUB, 3).tolist())
 rec = records(V, N, C, K, WH, LC, LN, UV)
 # The frit's distance from the clear glass, for the band of dots along its edge (the shader's): from each of its vertices to the nearest point of

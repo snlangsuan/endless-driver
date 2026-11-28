@@ -197,29 +197,29 @@ const FIELDHUT = [[-1.1, 1.15, -1, 0.1, 2.3, 0.1, 0, 4], [1.1, 1.15, -1, 0.1, 2.
 const TREES = [
   // 0 a mango (มะม่วง): a short trunk and a dense round dark head of long leaves in whorls; 1 a pterocarpus (ประดู่): pinnate leaves on boughs that
   // droop at their ends; 2 a bodhi (โพธิ์): a pale smooth trunk and a broad head of heart-shaped leaves with long tips
-  makeTree(11, { H: 8, r: 0.36, n: [9, 5, 3], ang: [1.15, 0.95, 0.85], crown: 0.28, len0: 0.5, lenR: 0.6, trop: 0.2, wob: 0.2, per: 5, leaf: 0.7, wide: 0.42, sp: 6 }),
-  makeTree(23, { H: 10, r: 0.4, n: [10, 5, 3], ang: [1.15, 0.9, 0.85], crown: 0.38, len0: 0.46, lenR: 0.6, trop: 0.18, wob: 0.22, per: 4, leaf: 0.66, wide: 0.3 }),
-  makeTree(37, { H: 7.5, r: 0.34, n: [8, 4, 3], ang: [1.25, 0.95, 0.85], crown: 0.28, len0: 0.62, lenR: 0.62, trop: 0.14, wob: 0.26, per: 4, leaf: 0.6, wide: 0.36, sp: 7 }),
+  makeTree(11, { H: 8, r: 0.36, n: [9, 5, 3], ang: [1.15, 0.95, 0.85], crown: 0.28, len0: 0.5, lenR: 0.6, trop: 0.2, wob: 0.2, per: 6, leaf: 0.7, wide: 0.42, sp: 6 }),
+  makeTree(23, { H: 10, r: 0.4, n: [10, 5, 3], ang: [1.15, 0.9, 0.85], crown: 0.38, len0: 0.46, lenR: 0.6, trop: 0.18, wob: 0.22, per: 5, leaf: 0.66, wide: 0.3 }),
+  makeTree(37, { H: 7.5, r: 0.34, n: [8, 4, 3], ang: [1.25, 0.95, 0.85], crown: 0.28, len0: 0.62, lenR: 0.62, trop: 0.14, wob: 0.26, per: 5, leaf: 0.6, wide: 0.36, sp: 7 }),
   makePalm(71), makePalm(79), makeSugarPalm(91), makeSugarPalm(97), makeBanana(105), makeBush(121, false), makeBush(127, true),
   // a rain tree (จามจุรี): short thick trunk under a wide flat umbrella; and a tall forest tree with a clean bole and a high crown
-  makeTree(53, { H: 8.5, r: 0.52, n: [11, 6, 3], ang: [1.38, 1.0, 0.9], crown: 0.34, len0: 0.9, lenR: 0.6, trop: 0.04, wob: 0.26, per: 5, leaf: 0.58, wide: 0.3, sp: 1 }),
-  makeTree(67, { H: 17, r: 0.44, n: [10, 5, 3], ang: [1.05, 0.9, 0.85], crown: 0.62, len0: 0.3, lenR: 0.6, trop: 0.2, wob: 0.14, per: 4, leaf: 0.72, wide: 0.4, sp: 2 }),
+  makeTree(53, { H: 8.5, r: 0.52, n: [11, 6, 3], ang: [1.38, 1.0, 0.9], crown: 0.34, len0: 0.9, lenR: 0.6, trop: 0.04, wob: 0.26, per: 6, leaf: 0.58, wide: 0.3, sp: 1 }),
+  makeTree(67, { H: 17, r: 0.44, n: [10, 5, 3], ang: [1.05, 0.9, 0.85], crown: 0.62, len0: 0.3, lenR: 0.6, trop: 0.2, wob: 0.14, per: 5, leaf: 0.72, wide: 0.4, sp: 2 }),
 ];
 TREES.push(makeCasuarina(141), makeCasuarina(149));      // 12, 13
 // พญาเสือโคร่ง in flower (14, 15): a dark crooked trunk clear to well above a car's roof, then boughs that climb as they spread, making a full round head
 // high over the verge (no limb hangs down across the road); hardly a leaf - the whole crown is pink
-TREES.push(makeTree(163, { H: 8.5, r: 0.36, n: [9, 5, 3], ang: [0.92, 0.9, 0.85], crown: 0.44, len0: 0.5, lenR: 0.62, trop: 0.26, wob: 0.3, per: 4, leaf: 0.62, wide: 0.38, bloom: 0.93, sp: 4 }),
-  makeTree(171, { H: 9.5, r: 0.42, n: [10, 5, 3], ang: [0.98, 0.9, 0.85], crown: 0.46, len0: 0.48, lenR: 0.62, trop: 0.24, wob: 0.28, per: 4, leaf: 0.64, wide: 0.38, bloom: 0.96, sp: 4 }));
+TREES.push(makeTree(163, { H: 8.5, r: 0.36, n: [9, 5, 3], ang: [0.92, 0.9, 0.85], crown: 0.44, len0: 0.5, lenR: 0.62, trop: 0.26, wob: 0.3, per: 5, leaf: 0.62, wide: 0.38, bloom: 0.93, sp: 4 }),
+  makeTree(171, { H: 9.5, r: 0.42, n: [10, 5, 3], ang: [0.98, 0.9, 0.85], crown: 0.46, len0: 0.48, lenR: 0.62, trop: 0.24, wob: 0.28, per: 5, leaf: 0.64, wide: 0.38, bloom: 0.96, sp: 4 }));
 // ยางพารา (16): a rubber tree as a plantation grows it - a straight slender trunk, clear for half its height, then a few steep boughs and a light crown
-TREES.push(makeTree(181, { H: 15, r: 0.19, n: [6, 3, 2], ang: [0.7, 0.85, 0.85], crown: 0.52, len0: 0.36, lenR: 0.62, trop: 0.3, wob: 0.1, per: 4, leaf: 0.66, wide: 0.5, kind: 14 }));
+TREES.push(makeTree(181, { H: 15, r: 0.19, n: [6, 3, 2], ang: [0.7, 0.85, 0.85], crown: 0.52, len0: 0.36, lenR: 0.62, trop: 0.3, wob: 0.1, per: 5, leaf: 0.66, wide: 0.5, kind: 14 }));
 TREES.push(makeOilPalm(193), makeOilPalm(199));      // 17, 18
 // small slender trees (19, 20), for the hedgerows of the flower fields: a thin stem, a light round head not much above a man's height
-TREES.push(makeTree(211, { H: 4.4, r: 0.085, n: [7, 4, 2], ang: [1.0, 0.9, 0.85], crown: 0.42, len0: 0.42, lenR: 0.6, trop: 0.22, wob: 0.2, per: 4, leaf: 0.5, wide: 0.42 }),
-  makeTree(223, { H: 5.2, r: 0.1, n: [8, 4, 2], ang: [0.85, 0.9, 0.85], crown: 0.5, len0: 0.36, lenR: 0.6, trop: 0.3, wob: 0.16, per: 4, leaf: 0.48, wide: 0.4 }));
+TREES.push(makeTree(211, { H: 4.4, r: 0.085, n: [7, 4, 2], ang: [1.0, 0.9, 0.85], crown: 0.42, len0: 0.42, lenR: 0.6, trop: 0.22, wob: 0.2, per: 5, leaf: 0.5, wide: 0.42 }),
+  makeTree(223, { H: 5.2, r: 0.1, n: [8, 4, 2], ang: [0.85, 0.9, 0.85], crown: 0.5, len0: 0.36, lenR: 0.6, trop: 0.3, wob: 0.16, per: 5, leaf: 0.48, wide: 0.4 }));
 // ราชพฤกษ์ (21, 22), the golden shower, for the avenues of its stretches: a medium tree, its trunk dividing low into a few boughs that spread and
 // droop into a broad open head, green all year, and in the hot season hung all over with long chains of yellow flowers
-TREES.push(makeTree(233, { H: 9, r: 0.3, n: [9, 5, 3], ang: [1.12, 0.95, 0.85], crown: 0.4, len0: 0.55, lenR: 0.6, trop: 0.1, wob: 0.26, per: 4, leaf: 0.62, wide: 0.36, hang: 0.9, sp: 3 }),
-  makeTree(241, { H: 10.5, r: 0.34, n: [10, 5, 3], ang: [1.08, 0.95, 0.85], crown: 0.42, len0: 0.5, lenR: 0.6, trop: 0.12, wob: 0.24, per: 4, leaf: 0.64, wide: 0.36, hang: 0.9, sp: 3 }));
+TREES.push(makeTree(233, { H: 9, r: 0.3, n: [9, 5, 3], ang: [1.12, 0.95, 0.85], crown: 0.4, len0: 0.55, lenR: 0.6, trop: 0.1, wob: 0.26, per: 5, leaf: 0.62, wide: 0.36, hang: 0.9, sp: 3 }),
+  makeTree(241, { H: 10.5, r: 0.34, n: [10, 5, 3], ang: [1.08, 0.95, 0.85], crown: 0.42, len0: 0.5, lenR: 0.6, trop: 0.12, wob: 0.24, per: 5, leaf: 0.64, wide: 0.36, hang: 0.9, sp: 3 }));
 const DEMO = Number(new URLSearchParams(location.search).get('plant') ?? -1);
 const BL = [0, 1, 2, 10, 11, 0, 1, 2];      // the broadleaf kinds, the rarer ones met less often
 

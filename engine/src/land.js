@@ -43,7 +43,8 @@ const tunS = (s) => s !== 2 && (ph(s, 31) > 0.45 || ((s % 4) + 4) % 4 === 2);
 // (and half of those stretches are a long mountain pass - tgS: the road climbs 95 m by switchbacks over nearly the whole stretch - about a
 // minute's climb and a minute's descent at a drift, the pass compressed from the five-kilometre mountain roads it is after - U-bend after U-bend, with a
 // concrete gutter along the uphill edge; the others have a short flight of them in the middle)
-const tgS = (s) => ph(s, 34) < 0.5;
+// (every pass is the long kind now - 1.1 km of switchbacks: half of them were short, 580 m. hpw in the shaders the same.)
+const tgS = (s) => true;
 const hpW = (z) => { const p = z / SEG, s = floor(p); if (zoneOf(s) !== 1 || tunS(s)) return 0; const w = tgS(s) ? 0.47 : 0.24; return 1 - sm(w - 0.08, w, abs(p - s - 0.5)); };
 const hpX = (z) => { const e = hpW(z); return e <= 0 ? 0 : e * 100 * sin(0.0262 * (z - (floor(z / SEG) + 0.5) * SEG)); };
 // Where the road runs far from straight along z, distances from it must be measured square to the road, not along x.
@@ -89,7 +90,10 @@ const ism = (x, z) => { if (!isOf(z)) return -99; const dz = z - IS.zc, s = ((IS
 const isBr = (z) => isOf(z) && abs(z - IS.zc) > 150 && abs(z - IS.zc) < 520;
 const nearRiv = (z, m) => (rivOf(z) && abs(z - RV.zr) < RV.W / 2 + m) || (isOf(z) && abs(z - IS.zc) > 150 - m && abs(z - IS.zc) < 520 + m);      // near a river's crossing, or the sea's
 const brSpan = (z) => (rivOf(z) && abs(z - RV.zb) < RV.W / 2 + 7) || isBr(z);
-const brAt = (x, z) => brSpan(z) && abs(x - roadX(z)) < 4.4;
+// (the deck's whole width - 10.4 m on an island bridge, 9.4 over a river - not just the road's 8.8: between the road's edge and the rail there
+// was half a metre of deck that did not count as deck, and a car that got a wheel's width out onto it - sliding, or backing up against the
+// rail - stood on the ground under the bridge instead, 1.8 m down inside the deck.)
+const brAt = (x, z) => brSpan(z) && abs(x - roadX(z)) < (isBr(z) ? 5.15 : 4.65);
 // Tunnels. A hill stretch that has no switchbacks has a mountain standing across the road in its middle, and the road goes through it in a
 // tunnel 220-320 m long. tunOf(z) finds the tunnel of z's stretch and leaves it in TN (zc: its middle, hl: half its length); inTun: z is inside
 // it; tunT: how much of the mountain stands over the road at z (it rises over the first 30 m inside each mouth); tunAt: on the tunnel's floor.
@@ -156,8 +160,12 @@ const shoreX = (z) => shore0(z) + (1 - sm(0.5, 0.9, seaW(z))) * 500;
 const pineWt = (z) => zoneOf(floor(z / SEG)) === 3 ? sm(0.55, 0.75, seaW(z)) * sm(0.25, 0.45, beachW(z)) * sm(0.4, 0.6, 0.5 + 0.5 * sin(z * 0.0105 + 1)) : 0;      // avenue and open beach take turns, about 300 m each
 const pineAt = (z) => pineWt(z) > 0.5;
 const railGap = (k) => beachW(k * 4) > 0.6 && ((k % 40) + 40) % 40 < 3;        // openings in the guard rail where you can drive down to the sand
+const PASS_Q = -0.14;
 const roadY = (z) => {
-  const pz = z / SEG, tg = tgS(floor(pz)), hp = hpW(z) > 0 ? (tg ? 95 : 34) * (1 - sm(0.02, tg ? 0.47 : 0.24, abs(pz - floor(pz) - 0.5))) : 0;         // the climb to the pass (on a long pass 75 m)
+  // the climb to the pass: 105 m up, and its top not in the middle of the switchbacks but a third of the way in (PASS_Q) - a short steep way
+  // up from the south and a long way down to the north, two thirds of the switchbacks' length: some 1.4 km of road falling all the way,
+  // hairpin after hairpin. (It was 95 m, the top in the middle: 560 m of z up and as much down.)
+  const pz = z / SEG, q = pz - floor(pz) - 0.5, hp = hpW(z) > 0 ? 105 * (q < PASS_Q ? sm(-0.47, PASS_Q - 0.02, q) : 1 - sm(PASS_Q + 0.02, 0.47, q)) : 0;
   const base = 5 * sin(z * 0.003 + 0.4) + 2.5 * sin(z * 0.0085 + 2) + hillW(z) * (14 * sin(z * 0.0021) + 6 * sin(z * 0.0057 + 1)) + hp, sea = seaW(z);
   if (isOf(z)) { const dz = abs(z - IS.zc), t = (dz - 150) / 370;          // the island crossing: the road 9 m above the sea on the island, rising 6 m more over the middle of each bridge
     return mix(base, SEA + 9 + (t > 0 && t < 1 ? 6 * sin(PI * t) : 0), 1 - sm(520, 592, dz)); }
