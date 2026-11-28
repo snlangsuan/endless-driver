@@ -51,7 +51,14 @@ const hpX = (z) => { const e = hpW(z); return e <= 0 ? 0 : e * 100 * sin(0.0262 
 // roadSl: the road's dx/dz. rp: the point 'off' metres to the side of the road at z (+ is the +x side). rdist: signed distance of a
 // point from the centre line (rzs is left holding the z of the nearest point of the road).
 const roadSl = (z) => roadX(z + 0.5) - roadX(z - 0.5);
-const rp = (z, off) => { const sl = roadSl(z), n = Math.sqrt(1 + sl * sl); return [roadX(z) + off / n, z - off * sl / n]; };
+// The road over a pass is wider: 10 m of asphalt where elsewhere it has 7, room for three cars abreast. Everything beside a road is set out
+// from its edge as though it were 7 m (the edge lines, the gutter, the rail, the posts, a car's place on it): rdist gives the distance in the
+// road's own measure - the asphalt squeezed back to 3.5 m each side, beyond it the distance less the extra width - and rp takes an offset in
+// that measure back out to metres. rdIn / rdOut: metres to the road's measure and back (rdin in land.wgsl the same).
+const PASS_WX = 1.5, RD_A = 3.5;
+const rdIn = (d, z) => { const ex = PASS_WX * hpW(z); if (ex <= 0) return d; const a = abs(d); return (d < 0 ? -1 : 1) * (a <= RD_A + ex ? a * RD_A / (RD_A + ex) : a - ex); };
+const rdOut = (r, z) => { const ex = PASS_WX * hpW(z); if (ex <= 0) return r; const a = abs(r); return (r < 0 ? -1 : 1) * (a <= RD_A ? a * (RD_A + ex) / RD_A : a + ex); };
+const rp = (z, off) => { const sl = roadSl(z), n = Math.sqrt(1 + sl * sl), o = rdOut(off, z); return [roadX(z) + o / n, z - o * sl / n]; };
 let rzs = 0;
 // (On a pass the road winds back and forth, so the nearest point of it may be well along z from the point asked about. It is found by looking:
 // the road's points are tried every 5 m along z over as far as the point is from the road straight across (|dx| - the nearest can be no further
@@ -66,7 +73,7 @@ const rdist = (x, z) => {
   for (let i = -n; i <= n; i++) { const q = n ? z + W * i / n : z, ex = x - roadX(q), d2 = ex * ex + (z - q) * (z - q); if (d2 < bd) { bd = d2; zs = q; } }
   for (let it = 0; it < 3; it++) { const s1 = roadSl(zs), n1 = 1 + s1 * s1; zs += clamp(((x - roadX(zs)) * s1 + (z - zs)) / n1, -5, 5); }
   const s2 = roadSl(zs), n2 = Math.sqrt(1 + s2 * s2), ex = x - roadX(zs), ez = z - zs, dp = (ex - s2 * ez) / n2, tq = (ex * s2 + ez) / n2, k = sm(0, 0.15, e);
-  rzs = mix(z, zs, k); return mix(dx, (dp < 0 ? -1 : 1) * Math.min(Math.hypot(dp, tq), Math.sqrt(bd)), k);
+  rzs = mix(z, zs, k); return rdIn(mix(dx, (dp < 0 ? -1 : 1) * Math.min(Math.hypot(dp, tq), Math.sqrt(bd)), k), rzs);
 };
 // Rivers and canals cross the plain: in every plain stretch a river (20-30 m wide, winding) and further on a canal (8 m, nearly straight).
 // rivOf(z) finds the one belonging to this part of the road and leaves it in RV; rivM is its winding (how far its middle is from zr at x).

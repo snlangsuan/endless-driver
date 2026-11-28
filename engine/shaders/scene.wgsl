@@ -1270,7 +1270,10 @@ fn pcLamps(wp: vec3f) -> PcLamp {
     // light; a broad warm gleam of the metal under the coat; and on top the coat itself, clear, giving back the sky and the land sharply, with
     // the sun as a hard small spot.
     let flop = mix(.42, 1.12, pow(ndv, .55));
-    let base = pu.pc.rgb * flop;
+    var base = pu.pc.rgb * flop;
+    // (a car whose paint is in two tones, or lettered, has them in its map: pu.pc.w - the map's colour over the paint's own. Others' maps are
+    // left aside, the paint the one colour pu.pc)
+    if (pu.pc.w > .5 && i.tl.x != 255u && tc.a > .001) { base *= pow(tc.rgb, vec3f(2.2)); }
     // (fine - a millimetre - and only near: where a pixel covers more than two or three of them they flickered as grit, so they fade with the
     // pixel's own size into the broad gleam they make together)
     let fk = ss(.0035, .0012, fp);

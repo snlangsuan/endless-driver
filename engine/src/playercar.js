@@ -10,14 +10,17 @@
 // 6 mm proud of the outermost of the bumper behind them, measured from the model).
 const PCAR_INFO = {
   mx5: { name: 'MX-5', sub: 'ND 2.0 · 2016', hp: 184, kg: 1060, paint: [0.30, 0.008, 0.012], flake: [1, 0.55, 0.45], plates: [[0.35, 1.9351], [0.385, -1.9119]] },
-  ae86: { name: 'AE86', sub: '', hp: 128, kg: 940, paint: [0.62, 0.62, 0.6], flake: [1, 1, 1], plates: [], decal: { layer: 7, draw: (x, S) => e86Doors(x, S) } },      // (ae86.js: met on the passes; not in the garage)
+  ae86: { name: 'AE86', sub: '', hp: 128, kg: 940, paint: [0.62, 0.62, 0.6], flake: [1, 1, 1], plates: [[0.45, 2.106], [0.45, -2.106]], plate: 'jp', paintMap: true, decal: { layer: 7, draw: (x, S) => e86Doors(x, S) } },      // (ae86.js: met on the passes; not in the garage)
   gr86: { name: 'GR86', sub: '2.4 · 2021', hp: 235, kg: 1270, paint: [0.46, 0.016, 0.008], flake: [1, 0.6, 0.42], plates: [[0.36, 2.1207], [0.47, -2.1155]] },
 };
-// The number plate: a Thai private car's - white, a thin black rim with rounded corners, black lettering, the registration across the top in
+// The number plates. Each car has its kind (info.plate): 'th' unless said - a Thai plate, Bangkok's - or 'jp', a Japanese one (the AE86's).
+// PLATES: for each, the plate's half width and half height (m) and the share of its square layer it takes from the top (v).
+const PLATES = { th: { hw: 0.17, hh: 0.075, v: 452 / 1024 }, jp: { hw: 0.165, hh: 0.0825, v: 512 / 1024 } };
+// The Thai plate: a Thai private car's - white, a thin black rim with rounded corners, black lettering, the registration across the top in
 // large letters and the province under it - here ENDLESS over กรุงเทพมหานคร. Drawn once (both cars share it) on a square layer, the plate in
 // the top PLATE_V of it, 34:15 as the real one.
-const PLATE_V = 452 / 1024; let plateP = null;
-const pcPlate = () => plateP || (plateP = (async () => {
+const PLATE_V = PLATES.th.v; const plateP = {};
+const pcPlate = (kind = 'th') => plateP[kind] || (plateP[kind] = kind === 'jp' ? pcPlateJP() : (async () => {
   const S = 1024, H = Math.round(S * PLATE_V), cv = document.createElement('canvas'); cv.width = S; cv.height = S; const x = cv.getContext('2d');
   const F = '"Sukhumvit Set", Thonburi, "Noto Sans Thai", Sarabun, "Leelawadee UI", Tahoma, sans-serif';
   try { await document.fonts.load(`700 100px ${F}`, 'ENDLESSกรุงเทพมหานคร'); } catch (e) {}
@@ -29,13 +32,27 @@ const pcPlate = () => plateP || (plateP = (async () => {
   const line = (t, px, w, y, wt) => { x.font = `${wt} ${px}px ${F}`; const m = x.measureText(t).width; x.save(); x.translate(S / 2, y); x.scale(min(1, w / m), 1); x.fillText(t, 0, 0); x.restore(); };
   line('ENDLESS', 232, 860, 262, 700); line('กรุงเทพมหานคร', 112, 600, 392, 600);
   return cv; })());
-// The AE86's doors: a tofu shop's name - its delivery car, white over black - in black lettering on the white of each door, over the field
+// The Japanese plate: a private car's - white, green lettering and a thin green rim, 330 x 165 mm (2:1); across the top the place it is
+// registered, here Gunma (群馬), and its class number; below, a kana on the left and the number large. The number is the game's own.
+const pcPlateJP = async () => {
+  const S = 1024, H = Math.round(S * PLATES.jp.v), cv = document.createElement('canvas'); cv.width = S; cv.height = S; const x = cv.getContext('2d');
+  const F = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", "Noto Sans CJK JP", sans-serif';
+  try { await document.fonts.load(`700 100px ${F}`, '群馬330ら12-86'); } catch (e) {}
+  x.fillStyle = '#f3f3ee'; x.fillRect(0, 0, S, S);
+  x.lineWidth = 8; x.strokeStyle = '#17583a'; x.beginPath(); x.roundRect(14, 14, S - 28, H - 28, 30); x.stroke();
+  x.fillStyle = '#17583a'; x.textBaseline = 'alphabetic';
+  const txt = (t, px, cx, y, w, wt = 700) => { x.font = `${wt} ${px}px ${F}`; const m = x.measureText(t).width; x.save(); x.translate(cx, y); x.scale(min(1, w / m), 1); x.textAlign = 'center'; x.fillText(t, 0, 0); x.restore(); };
+  txt('群馬 330', 120, S / 2, 160, 470);
+  txt('ら', 112, 120, 420, 120, 600);
+  txt('12-86', 300, S / 2 + 70, 455, 760);
+  return cv; };
+// The AE86's doors: a tofu shop's name, in Japanese (the shop is the game's own) - its delivery car, white over black - in black lettering on the white of each door, over the field
 // scripts/ae86.py painted out. Drawn into the paint's own map (layer 7) as it is decoded. Where the doors are on that map, read from the
 // model: the car's left (x < 0) at u 0.43..0.64, its right at u 0.94..0.73 (mirrored), the door's upper white between v 0.81 and 0.86 (the lettering 0.82..0.857); v grows
 // up the car, so the lettering is drawn upside down on the map, and on both sides it then reads from left to right.
-const E86_SHOP = ['เต้าหู้สดบ้านดอย', 'ส่งทุกเช้า'];
+const E86_SHOP = ['みどり豆腐店', '毎朝配達'];
 function e86Doors(x, S) {
-  const F = '"Sukhumvit Set", Thonburi, "Noto Sans Thai", Sarabun, "Leelawadee UI", Tahoma, sans-serif';
+  const F = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", "Hiragino Sans", "Noto Sans JP", serif';
   const one = (u0, u1, v0, v1) => {
     x.save(); x.translate(S * (u0 + u1) / 2, S * (v0 + v1) / 2); x.scale(1, -1);
     const w = S * abs(u1 - u0), h = S * (v1 - v0); x.fillStyle = '#121212'; x.textAlign = 'center'; x.textBaseline = 'alphabetic';
@@ -57,28 +74,29 @@ function pcBuild(B, id) {
   imgs.forEach(async (d, li) => { try { let bm = await createImageBitmap(new Blob([d]), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
     // (a car's own lettering drawn over its map - info.decal - before it goes in; the map brought to 1024 first, as every layer is)
     if (DEC && DEC.layer === li) { const cv = document.createElement('canvas'); cv.width = cv.height = TS; const x = cv.getContext('2d'); x.drawImage(bm, 0, 0, TS, TS);
-      try { await document.fonts.load('700 40px "Sukhumvit Set", Thonburi, "Noto Sans Thai", Sarabun, Tahoma, sans-serif', 'เต้าหู้'); } catch (e) {}
+      try { await document.fonts.load('700 40px "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif', E86_SHOP.join('')); } catch (e) {}
       DEC.draw(x, TS); bm = await createImageBitmap(cv, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }); }
     for (let m = 0, s = TS; m < mips && live.on; m++, s >>= 1) { const q = m ? await createImageBitmap(bm, { resizeWidth: s, resizeHeight: s, resizeQuality: 'high', colorSpaceConversion: 'none', premultiplyAlpha: 'none' }) : bm;
       if (live.on) Q.copyExternalImageToTexture({ source: q }, { texture: tex, origin: [0, 0, li], mipLevel: m }, [s, s]); } } catch (e) { console.warn(id + ' texture', li, e); } });
   const smp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', maxAnisotropy: ULTRA ? 16 : 8 });
   // (and the number plates, which the models have not: a layer of their own after the model's - pcPlate - and a quad at each end, material 15)
-  const info = PCAR_INFO[id] || PCAR_INFO.mx5, PL = info.plates || [];
-  pcPlate().then((cv) => { for (let m = 0, s = TS; m < mips && live.on; m++, s >>= 1) createImageBitmap(cv, { resizeWidth: s, resizeHeight: s, resizeQuality: 'high' })
+  const info = PCAR_INFO[id] || PCAR_INFO.mx5, PL = info.plates || [], PK = PLATES[info.plate] ? info.plate : 'th', PD = PLATES[PK];
+  pcPlate(PK).then((cv) => { for (let m = 0, s = TS; m < mips && live.on; m++, s >>= 1) createImageBitmap(cv, { resizeWidth: s, resizeHeight: s, resizeQuality: 'high' })
     .then((q) => { if (live.on) Q.copyExternalImageToTexture({ source: q }, { texture: tex, origin: [0, 0, nt], mipLevel: Math.log2(TS / s) }, [s, s]); }); }).catch((e) => console.warn('plate', e));
   const vAll = new Uint8Array((nv + PL.length * 4) * 40), iAll = new Uint32Array(ni + PL.length * 6), vd = new DataView(vAll.buffer);
   vAll.set(new Uint8Array(B, o, nv * 40)); iAll.set(new Uint32Array(B, o + nv * 40, ni));
   PL.forEach(([yc, zc], j) => { const sg = Math.sign(zc), b0 = nv + j * 4;
-    // (34 x 15 cm, as a Thai car's; read from outside: seen from behind the car's left, +x, is on the left, from in front on the right)
-    [[-1, 1], [1, 1], [1, -1], [-1, -1]].forEach(([a, c], q) => { const b = (b0 + q) * 40, x = a * 0.17 * sg;
-      vd.setFloat32(b, x, true); vd.setFloat32(b + 4, yc + c * 0.075, true); vd.setFloat32(b + 8, zc, true);
+    // (34 x 15 cm, as a Thai car's - 33 x 16.5 a Japanese; read from outside: seen from behind the car's left, +x, is on the left, from in front on the right)
+    [[-1, 1], [1, 1], [1, -1], [-1, -1]].forEach(([a, c], q) => { const b = (b0 + q) * 40, x = a * PD.hw * sg;
+      vd.setFloat32(b, x, true); vd.setFloat32(b + 4, yc + c * PD.hh, true); vd.setFloat32(b + 8, zc, true);
       vd.setFloat32(b + 12, 0, true); vd.setFloat32(b + 16, 0, true); vd.setFloat32(b + 20, sg, true);
-      vAll.set([255, 255, 255, 255, 15, 0, nt, 255], b + 24); vd.setFloat32(b + 32, (a + 1) / 2, true); vd.setFloat32(b + 36, (1 - c) / 2 * PLATE_V, true); });
+      vAll.set([255, 255, 255, 255, 15, 0, nt, 255], b + 24); vd.setFloat32(b + 32, (a + 1) / 2, true); vd.setFloat32(b + 36, (1 - c) / 2 * PD.v, true); });
     iAll.set([b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3], ni + j * 6); });
   const vb = vbuf(vAll), ib = vbuf(iAll, GPUBufferUsage.INDEX);
   const ub = device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }), U = new Float32Array(36);
   for (let w = 0; w < 4; w++) U.set([hub[w * 3], hub[w * 3 + 1], hub[w * 3 + 2], 0], 12 + w * 4);
   U.set(info.paint, 28); U.set(info.flake, 32);      // (pu.pc, pu.fl)
+  U[31] = info.paintMap ? 1 : 0;      // (pu.pc.w: the paint takes the colours of its own map as well - the AE86's two tones and the lettering on its doors)
   const bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {} },
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { viewDimension: '2d-array' } }, { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: {} }] });
   const bg = device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: ub } }, { binding: 2, resource: tex.createView({ dimension: '2d-array' }) }, { binding: 3, resource: smp }] });

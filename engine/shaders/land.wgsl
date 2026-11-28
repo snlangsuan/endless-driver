@@ -123,8 +123,10 @@ fn rdz(P: vec2f) -> vec2f {
   for (var it = 0; it < 3; it++) { let s1 = roadX(zs + .5) - roadX(zs - .5); zs += clamp(((P.x - roadX(zs)) * s1 + (P.y - zs)) / (1. + s1 * s1), -5., 5.); }
   let s2 = roadX(zs + .5) - roadX(zs - .5); let n2 = sqrt(1. + s2 * s2); let ex = P.x - roadX(zs); let ez = P.y - zs;
   let dp = (ex - s2 * ez) / n2; let tq = (ex * s2 + ez) / n2; let k = ss(0., .15, e);
-  return vec2f(mix(dx, select(1., -1., dp < 0.) * min(length(vec2f(dp, tq)), sqrt(bd)), k), mix(P.y, zs, k));
+  let zr = mix(P.y, zs, k); return vec2f(rdin(mix(dx, select(1., -1., dp < 0.) * min(length(vec2f(dp, tq)), sqrt(bd)), k), zr), zr);
 }
+// metres from the road's middle to the road's own measure: over a pass the asphalt is 1.5 m wider each side, squeezed back to 3.5 m (rdIn in land.js)
+fn rdin(d: f32, z: f32) -> f32 { let ex = 1.5 * hpw(z); if (ex <= 0.) { return d; } let a = abs(d); return sign(d) * select(a - ex, a * 3.5 / (3.5 + ex), a <= 3.5 + ex); }
 fn rivOf(z: f32) -> vec4f {          // x: where it crosses, y: width (0: none here), z: seed, w: how much it winds
   let p = z / SEG; let s = floor(p); let si = i32(s); let zn = zoneOf(si); if (zn != 0 && zn != 2) { return vec4f(0.); }
   if (zn == 2) { return vec4f((s + .5 + (ph(vec2i(si, 73)) - .5) * .2) * SEG, 9., ph(vec2i(si, 79)) * 6.28, .12); }

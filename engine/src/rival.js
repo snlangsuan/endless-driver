@@ -213,8 +213,12 @@ function rivalStep(dt) {
     if (g < 10) { if (!RIV.awS) { const sd0 = Math.sign(Lr - Lp) || 1; RIV.awS = abs(Lp + sd0 * 2.5) <= EDGE ? sd0 : -sd0; } RIV.side = RIV.awS; Lt = clamp(Lp + RIV.awS * 2.5, -EDGE, EDGE); } else { Lt = -LANE; RIV.awS = 0; } } else RIV.awS = 0;
   // Side by side, each keeps to its own side of the other, GAP apart - the one ahead holding its line, the one coming by finding its room - and
   // the side the rival is on when they come together is the side it keeps until they are apart (RIV.side): it never cuts across the player.
+  // (three abreast, ae86.js: its slot across the road, and level with the player or a little ahead or behind by turns)
+  const tri = act && typeof triOn === 'function' && triOn();
+  if (tri) { Lt = TRI.slot.r; vCap = vp + clamp(0.8 * (TRI.gR - g), -5, 4); }
   const sepB0 = RIV.C && PCAR ? rvSep(car.x + PCAR.ox, car.z + PCAR.oz, car.yaw, S.x + RIV.C.ox, S.z + RIV.C.oz, S.yaw) : 9;
-  if (tw) { RIV.side = tw.side; Lt = Lp + tw.side * tw.need; }      // (two abreast: on its side of the player, the gap across that their slides need)
+  if (tri) RIV.side = Math.sign(TRI.slot.r - TRI.slot.p) || 1;
+  else if (tw) { RIV.side = tw.side; Lt = Lp + tw.side * tw.need; }      // (two abreast: on its side of the player, the gap across that their slides need)
   else if (!ov) RIV.side = 0;
   else { if (!RIV.side) RIV.side = Math.sign(Lr - Lp) || (Lp >= 0 ? -1 : 1);
     const want = Lp + RIV.side * GAP;
@@ -229,7 +233,7 @@ function rivalStep(dt) {
   // had it, out across the middle)
   // (begun early enough - from 50 km/h down, and at once when it is waiting ahead for a player who has slowed - for it to be in its lane
   // before it stops: across the road it moves only as it moves along, and it was seen to stop short of it, out in the other lane)
-  if (act && !tw && !ov && !RIV.away && (S.v < 14 || (g > 20 && vp < 8))) Lt = Lt + (-LANE - Lt) * max(sm(14, 6, S.v), g > 20 && vp < 8 ? 1 : 0);
+  if (act && !tw && !tri && !ov && !RIV.away && (S.v < 14 || (g > 20 && vp < 8))) Lt = Lt + (-LANE - Lt) * max(sm(14, 6, S.v), g > 20 && vp < 8 ? 1 : 0);
   Lt = clamp(Lt, -EDGE, EDGE);
   // Across the road on a spring, critically damped: it eases out, glides over, and settles - an S, not a jerk (no faster than 2.2 m/s, or
   // 3.5 m/s to keep clear when the player's car comes over toward it).
@@ -252,7 +256,7 @@ function rivalStep(dt) {
   RIV.twV = tw ? vB * 0.88 : null; if (tw) vt = min(vt, RIV.twV);
   // (in the player's line behind it: 6.5 m back and no closer (more while either slides); and the bodies near each other
   // anywhere alongside: it gives way, off the throttle, if it is not the one ahead)
-  if (g > -12 && g < -2.5 && abs(Lr - Lp) < GAP - 0.3 && !(RIV.away && vp < 1.5)) vt = min(vt, vp + clamp(0.5 * ((RIV.ph === 'follow' && RIV.pt < 5 ? -5.8 : -6.5) - 2.5 * abs(sin(sp)) - 2 * abs(sin(S.slip)) - g), -4, 2));
+  if (!tri && g > -12 && g < -2.5 && abs(Lr - Lp) < GAP - 0.3 && !(RIV.away && vp < 1.5)) vt = min(vt, vp + clamp(0.5 * ((RIV.ph === 'follow' && RIV.pt < 5 ? -5.8 : -6.5) - 2.5 * abs(sin(sp)) - 2 * abs(sin(S.slip)) - g), -4, 2));
   if (sepB < 0.35 && g < 2 && !(RIV.away && sepB > 0.12 && abs(Lt - Lr) < abs(Lt - Lp))) vt = min(vt, vp - 2 * (0.35 - sepB) - 0.3);
   // Coming up beside the player from behind is for the straights. With no slide agreed between them (tw), it does not come alongside - and if
   // it is there already it drops back, to 9 m behind - when a bend is coming, when the player's car has begun to slide (its tail swings out
@@ -260,7 +264,7 @@ function rivalStep(dt) {
   // player took the middle of the road and turned in to drift, and with nowhere to go, was struck. (RIV.bk: held a second and a half after.)
   { const LpV = (Lp - (RIV.pLp === undefined ? Lp : RIV.pLp)) / max(dt, 1e-3); RIV.pLp = Lp; RIV.LpV = (RIV.LpV || 0) + (LpV - (RIV.LpV || 0)) * min(1, dt * 6);
     const toward = RIV.LpV * (Math.sign(Lr - Lp) || 1);
-    if (act && !tw && !RIV.away && g < 2 && g > -14 && vp > 8 && (bendS || abs(sp) > 0.14 || (toward > 0.5 && abs(Lr - Lp) < GAP + 1.6))) RIV.bk = 1.5;
+    if (act && !tw && !tri && !RIV.away && g < 2 && g > -14 && vp > 8 && (bendS || abs(sp) > 0.14 || (toward > 0.5 && abs(Lr - Lp) < GAP + 1.6))) RIV.bk = 1.5;
     if (RIV.bk > 0) { RIV.bk -= dt; if (!tw && g < 2 && g > -14) vt = min(vt, vp + clamp(0.6 * (-9 - g), -6, 0.5)); } }
   if (RIV.away && g < 10 && g > -12 && S.v < 3 && sepB > 0.2) vt = max(vt, 3);      // (it creeps out from behind the stopped player: across the road it moves only as it moves along)
   const acc = min(P.acc, P.pw / max(S.v, 1)), dv = vt - S.v; S.v = max(0, S.v + clamp(dv, -7 * dt, acc * dt)); S.brk = dv < -1 ? 1 : 0;
@@ -334,6 +338,7 @@ const rvLane = () => (townW(car.z) > 0.05 ? 1.6 : 1.75);
 function rivalKeep(home, dirz) {
   const S = RIV.s; if (!S || !RIV.C || !rvActive()) return home;
   const g = rvAlong(car.z, RIV.zr, RIV.dirz), Lr = RIV.L * dirz, Lp = rdist(car.x, car.z) * dirz;
+  if (typeof triOn === 'function' && triOn()) { const lt = 2.45 - 1.5 * abs(sin(car.slip || 0)); return clamp(TRI.slot.p * dirz, -lt, lt); }      // (three abreast: its slot)
   if ((RIV.ph === 'let' || RIV.ph === 'yield') && g > -25 && g < 25) return -RIV.lane * rvLane();
   if (RIV.back > 0 && RIV.lane && g > -25 && g < 25) { const kb = sm(0, 3, RIV.back); home = home + (-RIV.lane * rvLane() - home) * kb; }      // (just by, or just passed: back to its line by degrees)
   const lim = (hpW(car.z) > 0.05 ? 2.45 : townW(car.z) > 0.05 ? 2.3 : 2.55) - 1.5 * abs(sin(car.slip || 0));      // (its wheels on the asphalt)
@@ -346,6 +351,7 @@ function rivalKeep(home, dirz) {
 }
 function rivalCap() {
   const S = RIV.s; if (!S || !RIV.C || !rvActive()) return 99;
+  if (typeof triOn === 'function' && triOn()) return TRI.v;      // (three abreast: the pace the bends allow the three, less a little)
   const g = rvAlong(car.z, RIV.zr, RIV.dirz), dl = abs(RIV.L - rdist(car.x, car.z));
   if (RIV.ph === 'let' && g > -40 && g < 7) return (RIV.p0 || abs(car.v)) - 1.1 * (RIV.ramp || 0);      // (making way: its own pace, 4 km/h off it)
   if (RIV.ph === 'yield') return 99;
@@ -358,6 +364,7 @@ function rivalCap() {
 function rivalTailK(ts) {
   if (!RIV.s || !RIV.C || !rvActive()) return 1;
   const g = rvAlong(car.z, RIV.zr, RIV.dirz), S = RIV.s;
+  if (typeof triOn === 'function' && triOn()) return 0.3;      // (three abreast: only a little of a slide)
   if ((RIV.ph === 'let' || RIV.ph === 'yield') && g > -25 && g < 25) return 0.15;
   // (and two abreast, no more of a slide than the rival's own and a little: the two sliding alike - the rival, out by the edge, has less room)
   if (RIV.tw) { const hd = car.hd !== undefined ? car.hd : car.yaw, fm = min(1, (abs(S.slip) + 0.12) / max(abs(ts), 0.01));
